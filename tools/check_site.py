@@ -49,7 +49,7 @@ def check():
             checked+=1
     css=(ROOT/'assets/styles.css').read_text(encoding='utf-8')
     assert '@media(max-width:620px)' in css and 'prefers-reduced-motion' in css
-    assert 'COMING SOON' in (ROOT/'games/miner/index.html').read_text(encoding='utf-8')
+    miner=(ROOT/'games/miner/index.html').read_text(encoding='utf-8'); assert 'three.min.js' in miner or 'COMING SOON' in miner, 'games/miner/index.html is neither the game nor the placeholder'
     subprocess.run(['node','--check',str(ROOT/'assets/xr-check.js')],check=True)
     print(f'PASS: {len(docs)} HTML pages, {checked} local links/assets, metadata, responsive rules and JavaScript syntax. Actual game/headset testing is outside this shell check.')
 
