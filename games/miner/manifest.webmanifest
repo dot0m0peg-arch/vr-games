@@ -1,0 +1,24 @@
+{
+  "name": "Miner",
+  "short_name": "Miner",
+  "description": "Dig the valley, plant machines, build a town. Plays in VR.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#5aaee8",
+  "theme_color": "#5aaee8",
+  "icons": [
+    {
+      "sizes": "192x192",
+      "src": "icon-192.png",
+      "purpose": "any",
+      "type": "image/png"
+    },
+    {
+      "sizes": "512x512",
+      "src": "icon-512.png",
+      "purpose": "any",
+      "type": "image/png"
+    }
+  ]
+}

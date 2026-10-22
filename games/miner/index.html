@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#5aaee8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Miner</title>
 <style>@font-face{font-family:'Fredoka';font-weight:500;src:url(fonts/fredoka-latin-500-normal.woff2) format('woff2')}@font-face{font-family:'Fredoka';font-weight:600;src:url(fonts/fredoka-latin-600-normal.woff2) format('woff2')}@font-face{font-family:'Fredoka';font-weight:700;src:url(fonts/fredoka-latin-700-normal.woff2) format('woff2')}@font-face{font-family:'Alfa Slab One';font-weight:400;src:url(fonts/alfa-slab-one-latin-400-normal.woff2) format('woff2')}</style>
@@ -5178,7 +5181,7 @@ function frame(now) {
     flushTerrain(); updateTerrainLOD(XR.on ? XR.lod : camera, rig);
     if (!XR.on) updWorldLabels(dt);
     if (room && !XR.on) renderer.render(roomScene, room.cam); else renderer.render(scene, camera);
-    if (!XR.on) adaptRes(dt);
+    if (!XR.on) adaptRes(dt); else XR.head.copy(camera.position);
     xrButtons();
     if (flashA > 0) flashA = Math.max(0, flashA - dt * 1.5);
     if (fadeA > 0) fadeA = Math.max(0, fadeA - dt);
@@ -5198,12 +5201,13 @@ function adaptRes(dt) {
   renderer.setPixelRatio(base * resK); resizeScene();
 }
 // ===================== WebXR (Quest): tabletop view, controller ray =====================
-// The town floats on a table in front of you. Right/left trigger: tap, hold to dig. Squeeze: dynamite.
-// Left stick: walk. Right stick: snap-turn (left/right), zoom (up/down). Left Y: menu on the flat screen.
+// First person by default: you see out of the miner's eyes. Right stick click switches to a tabletop view of the town.
+// Right/left trigger: tap, hold to dig. Squeeze: dynamite. Left stick: walk where you look.
+// Right stick: snap-turn (left/right), size (up/down). Left Y: menu on the flat screen.
 // Shops, people and rooms are flat-screen sheets, so opening one ends the VR session to show it.
 let rafId = 0;
 function nextFrame() { rafId = requestAnimationFrame(frame); }
-const XR = { ok: false, on: false, tick: false, session: null, S: 38, dolly: null, pads: [], marker: null, after: null, snap: false, menuDown: false, lod: { position: { y: 40 } }, listening: false };
+const XR = { ok: false, on: false, tick: false, session: null, fp: true, sFp: .8, turn: 0, clickDown: false, head: new THREE.Vector3(), S: 38, dolly: null, pads: [], marker: null, after: null, snap: false, menuDown: false, lod: { position: { y: 40 } }, listening: false };
 const XR_TABLE = new THREE.Vector3(0, .95, -.75), XR_UP = new THREE.Vector3(0, 1, 0);
 const _xo = new THREE.Vector3(), _xd = new THREE.Vector3();
 function xrProbe() {
@@ -5255,6 +5259,7 @@ function xrEnded() {
   if (XR.dolly) XR.dolly.remove(camera);
   camera.scale.set(1, 1, 1); camera.near = .5; camera.far = 1600; camera.updateProjectionMatrix();
   if (XR.marker) XR.marker.visible = false;
+  if (P.mesh) P.mesh.visible = true;
   for (const c of XR.pads) { c.userData.down = c.userData.hold = false; }
   input.mx = input.my = 0; input.holding = false; P.attack = null; if (P.digAt && P.digAt.hold) P.digAt = null;
   resizeScene();
@@ -5311,9 +5316,21 @@ function xrFrame(dt) {
   // a flat-screen sheet or room just opened: show it on the flat screen
   if (sheet || room) { xrExit(); return; }
   // the table follows the player; the headset origin sits on the floor in front of it
-  const d = XR.dolly, S = XR.S;
-  d.scale.setScalar(S); d.rotation.set(0, rig.yaw, 0);
-  d.position.set(rig.x, rig.y, rig.z).sub(_xo.copy(XR_TABLE).multiplyScalar(S).applyAxisAngle(XR_UP, rig.yaw));
+  const d = XR.dolly, fp = XR.fp, S = fp ? XR.sFp : XR.S;
+  if (fp) {
+    // first person: your eyes are the miner's eyes. The headset floor sits on the ground at the miner's feet,
+    // physical head offset is kept over the miner, and the sticks walk the way you are looking.
+    d.scale.setScalar(S); d.rotation.set(0, XR.turn, 0);
+    d.position.set(P.x, P.y, P.z).sub(_xo.set(XR.head.x, 0, XR.head.z).multiplyScalar(S).applyAxisAngle(XR_UP, XR.turn));
+    camera.getWorldDirection(_xd);
+    if (Math.hypot(_xd.x, _xd.z) > .25) rig.yaw = Math.atan2(-_xd.x, -_xd.z);
+    if (P.mesh) P.mesh.visible = false;
+  } else {
+    // tabletop: the town floats in front of you and follows the miner
+    d.scale.setScalar(S); d.rotation.set(0, rig.yaw, 0);
+    d.position.set(rig.x, rig.y, rig.z).sub(_xo.copy(XR_TABLE).multiplyScalar(S).applyAxisAngle(XR_UP, rig.yaw));
+    if (P.mesh) P.mesh.visible = true;
+  }
   d.updateMatrixWorld(true);
   skyMesh.position.copy(d.position); skyMesh.position.y += 1.5 * S;
   // sticks
@@ -5325,9 +5342,12 @@ function xrFrame(dt) {
       if (Math.hypot(ax, ay) > .2) { mx = ax; my = ay; }
       menu = !!(g.buttons[5] && g.buttons[5].pressed);
     } else if (src.handedness === 'right') {
-      if (Math.abs(ax) > .7 && !XR.snap) { rig.yaw += Math.sign(ax) * Math.PI / 6; XR.snap = true; }
+      if (Math.abs(ax) > .7 && !XR.snap) { if (fp) XR.turn -= Math.sign(ax) * Math.PI / 6; else rig.yaw += Math.sign(ax) * Math.PI / 6; XR.snap = true; }
       else if (Math.abs(ax) < .3) XR.snap = false;
-      if (Math.abs(ay) > .25) XR.S = clamp(XR.S * Math.exp(ay * dt * .9), 14, 110);
+      if (Math.abs(ay) > .25) { if (fp) XR.sFp = clamp(XR.sFp * Math.exp(ay * dt * .6), .4, 2); else XR.S = clamp(XR.S * Math.exp(ay * dt * .9), 14, 110); }
+      const click = !!(g.buttons[3] && g.buttons[3].pressed);
+      if (click && !XR.clickDown) XR.fp = !XR.fp;
+      XR.clickDown = click;
     }
   }
   if (!input.holding) { input.mx = mx; input.my = my; if (mx || my) G.walkHint = (G.walkHint || 0) + 1; }
@@ -5343,7 +5363,7 @@ function xrFrame(dt) {
     if (u.hold && w && P.digAt && P.digAt.hold) { P.digAt.x = w.x; P.digAt.z = w.z; }
   }
   XR.marker.visible = !!hit;
-  if (hit) { XR.marker.position.set(hit.x, hit.y + .15, hit.z); XR.marker.scale.setScalar(S / 38); }
+  if (hit) { XR.marker.position.set(hit.x, hit.y + .15, hit.z); XR.marker.scale.setScalar(fp ? .6 : S / 38); }
 }
 function boot() {
   try { initScene($('c3')); } catch (err) { console.error(err); $('nogl').hidden = false; $('title').hidden = true; return; }
@@ -5362,6 +5382,7 @@ boot();
 
 })();
 </script>
+<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});</script>
 </div>
 </body>
 </html>
