@@ -182,8 +182,9 @@ Base path: `/vr-games/games/training-room/api/` (alias `/api/`). The bridge serv
 repository under `/vr-games/` exactly like GitHub Pages (dot-folders and `bridge/` refused), and
 redirects `/` to the game.
 
-Auth: a short room key printed by the bridge. `GET /?k=KEY` sets an HttpOnly cookie `tr_key`;
-API calls may instead send header `x-room-key` or query `k`. `GET api/hello` is always open.
+Auth: a room key printed by the bridge (10 characters; shorter keys in an older config.json still
+work). `GET /?k=KEY` sets an HttpOnly cookie `tr_key`; API calls may instead send header
+`x-room-key` or query `k`. `GET api/hello` is always open.
 
 | Method & path | Body → response |
 | --- | --- |
@@ -245,6 +246,7 @@ the fun ("that's clearly a fish"); "no, it's a gun" corrects it.
 { do: "realize", target?, hint? }        // "AI, make it real", "bring it to life", "make it a fish" (hint)
 { do: "guess", target? }                 // "what is this?" → say only
 { do: "correct", label, target? }        // "no, it's a gun" → replace the last realized thing in place
+                                         // (catalog part, else model-made, else a labelled crate)
 { do: "animate", target, behavior }      // "make it fly", "make the dog walk", "stop moving" (none)
 { do: "erase", target? }                 // "erase the drawing", "wipe it"
 ```
@@ -282,3 +284,17 @@ Uses a vision model when one is installed (Ollama `/api/show` capabilities inclu
   "Send", "Make it real"); the sketch appears 2 m wide in front of the acting player (the headset
   player when one is connected).
 - The live stroke is drawn locally every frame; the bridge receives one op per finished stroke.
+
+## Additions after review
+
+- Targets may carry `side: "left" | "right" | "front" | "behind"` ("remove the crate on my left").
+- `write` with empty `text` wipes a board or note ("clear the whiteboard").
+- Placement `next` honours `dist` (center to center, never overlapping); `above` may take a `ref`.
+- Model placements like `{ rel: "right", ref }` are rewritten to `next` with that side.
+- Drawing builders expose `userData.appendStrokes(data)` so a pen-up stroke is uploaded in place.
+- `Share.prune(shownStreams)` frees ended streams no screen shows; `SceneObjects` calls it twice a second.
+- `warmUp(renderer, scene, camera, extraMaterials)` in `world/phase.js` compiles first-use shaders
+  at start (HUD, controllers, teleport arc, stars, marker ink).
+- The bridge applies an op `uid` once (clients retry timed-out sends), refuses ids that name
+  `Object.prototype` members, throttles wrong room keys before checking any key, answers plain HTTP
+  only for localhost Host names, and stores its data folder owner-only (0700/0600).

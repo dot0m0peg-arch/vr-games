@@ -25,12 +25,37 @@ const WRIST = { w: 0.16, h: 0.1, px: 512, py: 320 };
 const CAPTION = { w: 1.0, h: 0.28, px: 1024, py: 288, dist: 1.6, drop: 0.32 };
 const MENU = { w: 0.64, h: 0.56, px: 1024, py: 896, dist: 1.0 };
 const MENU_CAPTION_SCALE = MENU.dist / CAPTION.dist;
+const PX = MENU.w / MENU.px; // meters per menu canvas pixel (same on both axes)
 
 const titleCase = (s) => String(s || "").replace(/^./, (c) => c.toUpperCase());
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 function hudMaterial(map) {
   return new THREE.MeshBasicMaterial({ map, transparent: true, depthTest: true, depthWrite: false, toneMapped: false, fog: false });
+}
+
+// Centered rounded rectangle in meters (hover outline).
+function roundedRect(w, h, r) {
+  const x = -w / 2;
+  const y = -h / 2;
+  const shape = new THREE.Shape();
+  shape.moveTo(x + r, y);
+  shape.lineTo(x + w - r, y);
+  shape.quadraticCurveTo(x + w, y, x + w, y + r);
+  shape.lineTo(x + w, y + h - r);
+  shape.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  shape.lineTo(x + r, y + h);
+  shape.quadraticCurveTo(x, y + h, x, y + h - r);
+  shape.lineTo(x, y + r);
+  shape.quadraticCurveTo(x, y, x + r, y);
+  return shape;
+}
+
+// Color that, added on top of `from`, gives `to` (sRGB difference; the HUD blends in sRGB).
+function srgbDiff(to, from) {
+  const a = new THREE.Color(to).getRGB({ r: 0, g: 0, b: 0 }, THREE.SRGBColorSpace);
+  const b = new THREE.Color(from).getRGB({ r: 0, g: 0, b: 0 }, THREE.SRGBColorSpace);
+  return new THREE.Color().setRGB(a.r - b.r, a.g - b.g, a.b - b.b, THREE.SRGBColorSpace);
 }
 
 function panel(spec) {
@@ -105,6 +130,17 @@ export class Hud extends Emitter {
     this.cursor.renderOrder = ORDER + 1;
     this.cursor.visible = false;
     this.menu.mesh.add(this.cursor);
+    // Hover highlight laid over the button (accent border; plain buttons also get their fill lifted
+    // to C.hover additively), so pointing never redraws or re-uploads the 1024×896 menu canvas.
+    const overlay = (color, blending) => new THREE.Mesh(undefined, new THREE.MeshBasicMaterial({ color, blending, toneMapped: false, fog: false, depthWrite: false, transparent: true }));
+    this.hoverRing = overlay(C.accent, THREE.NormalBlending);
+    this.hoverFill = overlay(srgbDiff(C.hover, C.panel), THREE.AdditiveBlending);
+    this.menuHover = new THREE.Group();
+    this.menuHover.add(this.hoverRing, this.hoverFill);
+    for (const mesh of [this.hoverRing, this.hoverFill]) mesh.renderOrder = ORDER + 1;
+    this.menuHover.visible = false;
+    this.menu.mesh.add(this.menuHover);
+    this._hoverGeos = new Map(); // "w x h" (canvas px) → { ring, fill }
 
     this._drawWrist();
   }
@@ -151,6 +187,7 @@ export class Hud extends Emitter {
     if (!open) {
       this._hoverId = null;
       this.cursor.visible = false;
+      this.menuHover.visible = false;
     }
     return open;
   }
@@ -221,7 +258,7 @@ export class Hud extends Emitter {
     const id = button?.id || null;
     if (id !== this._hoverId) {
       this._hoverId = id;
-      this._dirty.menu = true;
+      this._placeHover(button);
     }
     this.cursor.visible = !!hit;
     if (hit) {
@@ -266,6 +303,26 @@ export class Hud extends Emitter {
     const x = uv.x * MENU.px;
     const y = (1 - uv.y) * MENU.py;
     return this._buttons.find((b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) || null;
+  }
+
+  // Moves the hover overlay onto button b (null hides it). Matches the old drawn hover: a 5 px accent
+  // border, plus the lighter fill for buttons that are neither active nor primary.
+  _placeHover(b) {
+    this.menuHover.visible = !!b;
+    if (!b) return;
+    const key = `${b.w}x${b.h}`;
+    let geo = this._hoverGeos.get(key);
+    if (!geo) {
+      const inner = roundedRect((b.w - 10) * PX, (b.h - 10) * PX, 7 * PX);
+      const outer = roundedRect(b.w * PX, b.h * PX, 12 * PX);
+      outer.holes.push(inner);
+      geo = { ring: new THREE.ShapeGeometry(outer, 4), fill: new THREE.ShapeGeometry(inner, 4) };
+      this._hoverGeos.set(key, geo);
+    }
+    this.hoverRing.geometry = geo.ring;
+    this.hoverFill.geometry = geo.fill;
+    this.hoverFill.visible = !b.active && !b.primary;
+    this.menuHover.position.set((b.x + b.w / 2) * PX - MENU.w / 2, MENU.h / 2 - (b.y + b.h / 2) * PX, 0.001);
   }
 
   _press(button) {
@@ -600,8 +657,9 @@ export class Hud extends Emitter {
       ctx.textAlign = "left";
     }
 
-    for (const b of buttons) drawButton(ctx, b, b.id === this._hoverId && !b.disabled);
+    for (const b of buttons) drawButton(ctx, b);
     this._buttons = buttons.filter((b) => !b.disabled);
+    this._placeHover(this._buttons.find((b) => b.id === this._hoverId) || null); // page or state changed
     texture.needsUpdate = true;
   }
 }
@@ -631,14 +689,15 @@ function label(ctx, text, x, y) {
   ctx.fillText(text, x, y);
 }
 
-function drawButton(ctx, b, hover) {
-  const fill = b.active ? (b.danger ? C.dangerFill : C.accent) : b.primary ? "#2b3f1e" : hover ? C.hover : C.panel;
+// Hover is not drawn here: Hud._placeHover lays an overlay over the button instead.
+function drawButton(ctx, b) {
+  const fill = b.active ? (b.danger ? C.dangerFill : C.accent) : b.primary ? "#2b3f1e" : C.panel;
   ctx.globalAlpha = b.disabled ? 0.35 : 1;
   ctx.fillStyle = fill;
   roundRect(ctx, b.x, b.y, b.w, b.h, 12);
   ctx.fill();
-  ctx.lineWidth = hover ? 5 : 3;
-  ctx.strokeStyle = hover ? C.accent : b.active ? fill : b.primary ? C.accent : C.line;
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = b.active ? fill : b.primary ? C.accent : C.line;
   roundRect(ctx, b.x + 1.5, b.y + 1.5, b.w - 3, b.h - 3, 11);
   ctx.stroke();
   ctx.fillStyle = b.active ? (b.danger ? "#ffffff" : C.solid) : b.danger ? C.danger : C.text;

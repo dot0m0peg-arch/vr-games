@@ -151,6 +151,7 @@ export class Voice extends Emitter {
     this._rate = 48000;
     this._micGen = 0;
     this._opening = null;
+    this._openingGen = -1;
     this._idleTimer = 0;
     this._ring = [];
     this._ringSamples = 0;
@@ -598,6 +599,7 @@ export class Voice extends Emitter {
         this._micError(err);
         return;
       }
+      if (this._mode !== "wake") return; // switched away while opening; _openMic scheduled push's idle release
       clearTimeout(this._idleTimer);
       this._emitState();
     } else if (engine === "browser") {
@@ -816,12 +818,15 @@ export class Voice extends Emitter {
       }
       return;
     }
-    if (!this._opening) {
+    // An open from before a mute/release (older _micGen) is already doomed: start a fresh one.
+    if (!this._opening || this._openingGen !== this._micGen) {
       if (this._ctx || this._stream) this._releaseMic(); // stale graph (tracks ended)
       const gen = this._micGen;
-      this._opening = this._acquire(gen).finally(() => {
-        this._opening = null;
+      const opening = this._acquire(gen).finally(() => {
+        if (this._opening === opening) this._opening = null;
       });
+      this._opening = opening;
+      this._openingGen = gen;
     }
     await this._opening;
     // Opened for a mode that has since become push (e.g. wake → push while starting): never leave it on.
@@ -854,6 +859,7 @@ export class Voice extends Emitter {
       source.connect(tap);
       tap.connect(sink);
       if (ctx.state === "suspended") await ctx.resume().catch(() => {});
+      if (!live()) throw cancelled(); // muted while resuming
       if (ctx.state === "suspended") resumeOnGesture(ctx);
       this._stream = stream;
       this._ctx = ctx;

@@ -140,3 +140,15 @@ test("COLORS and matchColor", () => {
   assert.equal(matchColor(""), null);
   assert.equal(matchColor(null), null);
 });
+
+test("normalizeText spells out percent signs", () => {
+  assert.equal(normalizeText("Grow it by 20%."), "grow it by 20 percent");
+  assert.equal(normalizeText("make it 10 % smaller"), "make it 10 percent smaller");
+});
+
+test("real words are never typos of catalog words", () => {
+  const metas = [...METAS, { name: "house", aliases: [] }, { name: "potted plant", aliases: ["plant"] }, { name: "staff", aliases: [] }];
+  for (const word of ["horse", "horses", "mouse", "plane", "stuff", "beach"]) assert.equal(matchPart([word], metas), null, word);
+  assert.equal(matchPart(["house"], metas).score, 1);
+  assert.equal(matchPart(["hosue"], metas).name, "house", "typos still match");
+});

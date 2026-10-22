@@ -223,3 +223,33 @@ test("summarize lists nearby objects with directions", () => {
   for (let i = 0; i < 60; i++) add(`m${i}`, [i, 0, i]);
   assert.equal(summarize(state, { p: [0, 1.6, 0], yaw: 0 }).length, 40);
 });
+
+test("ids naming Object.prototype members are refused and never reach the prototype", () => {
+  for (const bad of ["__proto__", "constructor"]) {
+    assert.equal(validateOp({ t: "set", id: bad, patch: { color: "#ff0000" } }).ok, false, bad);
+    assert.equal(validateOp({ t: "del", ids: [bad] }).ok, false, bad);
+    assert.equal(validateOp({ t: "add", obj: rec(bad) }).ok, false, bad);
+    assert.equal(validateOp({ t: "set", id: "o1", patch: { attach: { user: bad, hand: "left" } } }).ok, false, bad);
+    assert.equal(validateOp({ t: "set", id: "o1", patch: { onto: bad } }).ok, false, bad);
+  }
+  // Browsers apply bridge ops without validating them, so applyOp and invertOp hold on their own.
+  const state = seeded();
+  const before = snapshot(state);
+  for (const id of ["__proto__", "constructor", "toString"]) {
+    const op = { t: "set", id, patch: { color: "#ff0000", attach: { user: "u9", hand: "left", grip: "snap" } } };
+    assert.deepEqual(invertOp(state, op), [], id);
+    assert.equal(applyOp(state, op).changed, false, id);
+    assert.equal(applyOp(state, { t: "del", ids: [id] }).changed, false, id);
+  }
+  assert.equal(applyOp(state, { t: "add", obj: { ...rec("x"), id: "__proto__" } }).changed, false);
+  assert.equal({}.color, undefined);
+  assert.equal({}.attach, undefined);
+  assert.equal(Object.getPrototypeOf(state.objects), Object.prototype);
+  assert.deepEqual(snapshot(state), before);
+  // Inherited patch keys are not copied onto records.
+  const patch = Object.assign(Object.create({ color: "#ff0000" }), { p: [3, 0, -3] });
+  assert.deepEqual(invertOp(state, { t: "set", id: "o1", patch }), [{ t: "set", id: "o1", patch: { p: [0, 0, -2] } }]);
+  applyOp(state, { t: "set", id: "o1", patch });
+  assert.deepEqual(state.objects.o1.p, [3, 0, -3]);
+  assert.equal(state.objects.o1.color, undefined);
+});

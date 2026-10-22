@@ -4,10 +4,11 @@ A public, independent home for browser VR games. This repository is separate fro
 
 - **Site:** https://dot0m0peg-arch.github.io/vr-games/
 - **Miner:** https://dot0m0peg-arch.github.io/vr-games/games/miner/
+- **The Neighborhood:** https://dot0m0peg-arch.github.io/vr-games/games/neighborhood/
 - **Training Room:** https://dot0m0peg-arch.github.io/vr-games/games/training-room/
 - **Repository:** https://github.com/dot0m0peg-arch/vr-games
 
-The shell is live; **Miner is not playable yet**. No original Miner code or artwork was imported. The geometric decorations belong to the portal, not the game. There are no trackers, external runtime dependencies, accounts, or backend services.
+The shell is live with three early-access games. Miner plays in any browser; its VR mode is new and not yet tested on a headset. The Neighborhood and Training Room also play in the browser, and their headset passes are not verified yet either. The geometric decorations belong to the portal, not the games. The portal has no trackers, external runtime dependencies, accounts, or backend services; Training Room's optional laptop bridge runs on the owner's own laptop (see Hosting boundary).
 
 ## Layout
 

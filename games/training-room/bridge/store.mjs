@@ -151,7 +151,7 @@ export class RoomStore extends Emitter {
     const tmp = `${this.file}.tmp`;
     this.saving = (async () => {
       await fsp.mkdir(path.dirname(this.file), { recursive: true });
-      await fsp.writeFile(tmp, body);
+      await fsp.writeFile(tmp, body, { mode: 0o600 }); // owner-only, like config.json
       await fsp.rename(tmp, this.file);
     })();
     try {
@@ -170,7 +170,7 @@ export class RoomStore extends Emitter {
     this.saveTimer = null;
     if (!this.file || !this.dirty) return false;
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    fs.writeFileSync(`${this.file}.tmp`, this.serialize());
+    fs.writeFileSync(`${this.file}.tmp`, this.serialize(), { mode: 0o600 });
     fs.renameSync(`${this.file}.tmp`, this.file);
     this.dirty = false;
     return true;

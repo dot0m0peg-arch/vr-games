@@ -6,3 +6,6 @@ node_modules/
 .env
 .env.*
 !.env.example
+
+# Training Room bridge data must live outside the repository (it holds the room key).
+games/training-room/bridge/data/

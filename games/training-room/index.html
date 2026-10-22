@@ -107,9 +107,10 @@
         <details class="tr-details">
           <summary>Connect your laptop and phone</summary>
           <ol class="tr-steps">
-            <li>On the laptop, run <code>node games/training-room/bridge/server.mjs</code> from the repository folder (Windows: double-click <code>bridge/start-bridge.cmd</code>). It prints an address and a room key.</li>
-            <li>On the headset, open the printed <code>https://&lt;laptop-ip&gt;:8787/?k=KEY</code>. Accept the self-signed certificate warning once.</li>
-            <li>Open the same address on the laptop and scan its QR code with your phone.</li>
+            <li>On the laptop, run <code>node games/training-room/bridge/server.mjs</code> from the repository folder (Windows: double-click <code>bridge/start-bridge.cmd</code>). It prints an address, a room key and a QR code.</li>
+            <li>Windows asks whether Node.js may use the network: allow Private networks, and set the laptop’s Wi-Fi network profile to Private, or the headset and phone cannot connect.</li>
+            <li>On the headset, open the printed <code>https://&lt;laptop-ip&gt;:8787/?k=KEY</code>. Accept the self-signed certificate warning; it can come back after the laptop moves to another network.</li>
+            <li>On the phone, scan the QR code in the bridge window and accept the warning too. On the laptop, open <code>http://localhost:8788/?k=KEY</code>; Menu → People shows the QR code again.</li>
             <li>Optional local AI: install Ollama with a coding model for commands, and run a whisper.cpp server for voice. Without them the built-in parser still works.</li>
           </ol>
         </details>

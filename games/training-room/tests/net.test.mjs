@@ -287,7 +287,11 @@ function fakeBridge({ key = null } = {}) {
         const b = json(); // sent as text/plain by beacons
         s.leaves.push(b.user);
         s.users.delete(b.user);
-        for (const client of [...s.clients]) if (client.id === b.user) client.res.end();
+        for (const client of [...s.clients]) {
+          if (client.id !== b.user) continue;
+          s.clients.delete(client);
+          client.res.end();
+        }
         broadcast("users", list());
         res.writeHead(204);
         return res.end();
@@ -460,6 +464,39 @@ test("sendOp after the bridge forgot us (410) re-joins once and retries", async 
     assert.ok(rejoined[0].data.state && Array.isArray(rejoined[0].data.users));
     assert.equal(bridge.ops.at(-1).user, net.user.id);
     await until(() => net.status === "online", 2000, "online again");
+  } finally {
+    net.leave();
+    await bridge.stop();
+  }
+});
+
+test("sendOp retried after a 410 re-join moves attach.user to the new user id", async () => {
+  const bridge = fakeBridge();
+  await bridge.start();
+  const net = new Net({ base: bridge.base(), EventSourceImpl: TestEventSource, timeouts: FAST });
+  try {
+    await net.join({ name: "Quest", device: "headset" });
+    await until(() => net.status === "online", 2000, "online");
+    const firstId = net.user.id;
+    bridge.users.delete(firstId);
+    const grab = { t: "set", id: "o1", patch: { attach: { user: firstId, hand: "right", grip: "snap" }, onto: null }, transient: false };
+    await net.sendOp(grab);
+    const secondId = net.user.id;
+    assert.notEqual(secondId, firstId);
+    assert.deepEqual(bridge.ops.at(-1).op.patch, { attach: { user: secondId, hand: "right", grip: "snap" }, onto: null });
+    assert.equal(grab.patch.attach.user, firstId, "the caller's op is not mutated");
+
+    await until(() => net.status === "online", 2000, "online again");
+    bridge.users.delete(secondId);
+    await net.sendOp({ t: "add", obj: { id: "o2", part: "sword", p: [0, 1, 0], attach: { user: secondId, hand: "left", grip: "snap" } } });
+    assert.equal(bridge.ops.at(-1).op.obj.attach.user, net.user.id);
+    assert.notEqual(net.user.id, secondId);
+
+    // Someone else's hand stays as it is.
+    await until(() => net.status === "online", 2000, "online a third time");
+    bridge.users.delete(net.user.id);
+    await net.sendOp({ t: "set", id: "o3", patch: { attach: { user: "uOther", hand: "left", grip: "keep" } } });
+    assert.equal(bridge.ops.at(-1).op.patch.attach.user, "uOther");
   } finally {
     net.leave();
     await bridge.stop();

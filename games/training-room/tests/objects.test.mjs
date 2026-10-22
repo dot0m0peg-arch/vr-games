@@ -410,3 +410,234 @@ test("Field builds in Node, changes time of day and cleans up", () => {
   assert.equal(scene.fog, null);
   assert.ok(!scene.children.includes(field.group));
 });
+
+// ---------- review fixes: programs, shadows, labels, drawings, screens ----------
+
+// Stand-in renderer: compile() "links" one program per material variant (alphaTest included).
+function fakeRenderer() {
+  const props = new WeakMap();
+  const properties = { get: (m) => (props.has(m) ? props.get(m) : props.set(m, {}).get(m)) };
+  const keyOf = (m) => `prog:${m.type}|${m.name}|${m.customProgramCacheKey?.()}|${!!m.map}|${m.alphaTest > 0}|${m.transparent}|${m.side}`;
+  const draw = (root) => root.traverse((o) => {
+    for (const m of o.material ? [o.material].flat() : []) properties.get(m).currentProgram = { cacheKey: keyOf(m) };
+  });
+  return { properties, draw, compile: (stage) => draw(stage) };
+}
+
+function phaseRoot(scene, material) {
+  const root = new THREE.Group();
+  root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material));
+  scene.add(root);
+  return root;
+}
+
+test("Phaser keeps a keeper per real program: alphaTest variants survive, undrawn clones are not kept", async () => {
+  const texture = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+  const plain = new THREE.MeshStandardMaterial({ map: texture });
+  const cut = new THREE.MeshStandardMaterial({ map: texture, alphaTest: 0.5 }); // dice pips, chip decals
+  // Runs a phase-in; draw = the clone was rendered (compiled) before the effect ended.
+  const run = async (phaser, scene, material, renderer = null) => {
+    const root = phaseRoot(scene, material);
+    const done = phaser.phaseIn(root, { duration: 0.1 });
+    const clone = root.children[0].material;
+    let disposed = false;
+    clone.addEventListener("dispose", () => (disposed = true));
+    renderer?.draw(root);
+    phaser.update(0.2);
+    await done;
+    return { clone, disposed: () => disposed };
+  };
+
+  // Without a renderer (variant key): the alphaTest clone no longer shares the plain map keeper.
+  let scene = new THREE.Scene();
+  let phaser = new Phaser({ scene });
+  const first = await run(phaser, scene, plain);
+  const second = await run(phaser, scene, cut);
+  assert.ok(!first.disposed() && !second.disposed(), "both variants kept");
+  assert.ok([...phaser.keepers.values()].includes(second.clone));
+  phaser.dispose();
+
+  // With the renderer: keepers are keyed by the compiled program.
+  scene = new THREE.Scene();
+  phaser = new Phaser({ scene });
+  const renderer = fakeRenderer();
+  phaser.precompile(renderer, new THREE.PerspectiveCamera());
+  assert.ok([...phaser.keepers.keys()].every((k) => k.startsWith("prog:")), "warmed keepers re-keyed by program");
+  const size = phaser.keepers.size;
+  const unseen = await run(phaser, scene, cut); // spawned out of view: never compiled
+  assert.ok(unseen.disposed(), "an undrawn clone is not kept");
+  assert.equal(phaser.keepers.size, size);
+  const seen = await run(phaser, scene, cut, renderer);
+  assert.ok(!seen.disposed() && [...phaser.keepers.values()].includes(seen.clone), "first drawn alphaTest clone kept");
+  const again = await run(phaser, scene, cut, renderer);
+  assert.ok(again.disposed(), "same program: the keeper already holds it");
+  const map = await run(phaser, scene, plain, renderer);
+  assert.ok(map.disposed(), "plain map variant was warmed by precompile");
+  phaser.dispose();
+});
+
+test("warmUp compiles the whole scene (hidden things too) and loose materials with the scene's lights", async () => {
+  const { warmUp } = await import("../js/world/phase.js");
+  const { inkMaterial, haloMaterial } = await import("../js/parts/build/sketch.js");
+  const scene = new THREE.Scene();
+  const hidden = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  hidden.visible = false;
+  scene.add(hidden);
+  const calls = [];
+  const renderer = { compile: (root, camera, target) => calls.push({ root, target, materials: (() => { const l = []; root.traverse((o) => o.material && l.push(o.material)); return l; })() }) };
+  const label = new THREE.SpriteMaterial();
+  warmUp(renderer, scene, new THREE.PerspectiveCamera(), [inkMaterial(), haloMaterial(), label]);
+  assert.equal(calls[0].root, scene, "whole scene first");
+  assert.ok(calls[0].materials.includes(hidden.material));
+  const stage = calls.find((c) => c.root !== scene);
+  assert.equal(stage.target, scene, "lights and fog come from the real scene");
+  for (const m of [inkMaterial(), haloMaterial(), label]) assert.ok(stage.materials.includes(m));
+  assert.ok(stage.root.children.length === 0, "throwaway stage emptied");
+  warmUp(null, scene, null); // no renderer: no-op
+});
+
+test("XR builds the teleport arc hidden up front so the warm-up compiles it", async () => {
+  const { XR } = await import("../js/xr/xr.js");
+  const scene = new THREE.Scene();
+  const renderer = { xr: { getController: () => new THREE.Group(), getControllerGrip: () => new THREE.Group() } };
+  const xr = new XR({ renderer, scene, camera: new THREE.PerspectiveCamera(), rig: new THREE.Group() });
+  const arc = scene.getObjectByName("teleport");
+  assert.ok(arc && !arc.visible, "in the scene, hidden");
+  assert.equal(xr._ensureTeleportFx().root, arc, "reused when aiming");
+});
+
+test("blob shadows skip support tests while nothing moves and follow a moved table", async () => {
+  const hand = { p: new THREE.Vector3(3, 1, 3), q: new THREE.Quaternion() };
+  const { room, objects, add, phaser } = setup({ hands: { "u1:right": hand } });
+  const table = add("card table", { p: [0, 0, 0] });
+  const top = getMeta("card table").surface;
+  const ball = add("ball", { p: [0, top, 0] });
+  await phaser.settle();
+  for (let i = 0; i < 90; i++) objects.update(1 / 60, i / 60); // fully appeared
+  let calls = 0;
+  const support = objects._support.bind(objects);
+  objects._support = (...args) => {
+    calls++;
+    return support(...args);
+  };
+  const ballShadowY = () => new THREE.Vector3().setFromMatrixPosition(objects.shadows.getMatrixAt(1, new THREE.Matrix4())).y;
+  for (let i = 0; i < 10; i++) objects.update(1 / 60, 2 + i / 60);
+  assert.equal(calls, 0, "a still room does no support tests");
+  assert.ok(near(ballShadowY(), top + 0.012, 0.01), `shadow on the table top (${ballShadowY()})`);
+  room.apply({ t: "set", id: table, patch: { p: [5, 0, 0] }, transient: true });
+  objects.update(1 / 60, 3);
+  assert.ok(calls > 0, "a moved surface re-tests");
+  assert.ok(near(ballShadowY(), 0.012, 0.01), `shadow back on the ground (${ballShadowY()})`);
+
+  // Held while the table comes back, then put back exactly where it was: no stale support.
+  room.apply({ t: "set", id: ball, patch: { attach: { user: "u1", hand: "right", grip: "snap" } } });
+  objects.update(1 / 60, 4);
+  room.apply({ t: "set", id: table, patch: { p: [0, 0, 0] }, transient: true });
+  objects.update(1 / 60, 4.1);
+  objects.update(1 / 60, 4.2);
+  room.apply({ t: "set", id: ball, patch: { attach: null, p: [0, top, 0] }, transient: true });
+  objects.update(1 / 60, 4.4);
+  assert.ok(near(ballShadowY(), top + 0.012, 0.01), `shadow on the table again (${ballShadowY()})`);
+});
+
+// Minimal 2D canvas so text textures (hit labels) exist in Node.
+async function withFakeCanvas(fn) {
+  const ctx = new Proxy({}, {
+    get: (target, key) => (key in target ? target[key] : key === "measureText" ? (t) => ({ width: String(t).length * 10 }) : () => ctx),
+    set: (target, key, value) => ((target[key] = value), true),
+  });
+  const had = "document" in globalThis;
+  const old = globalThis.document;
+  globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) };
+  try {
+    await fn();
+  } finally {
+    if (had) globalThis.document = old;
+    else delete globalThis.document;
+  }
+}
+
+test("hit labels reuse one retired sprite material, so its program survives the last target", async () => {
+  await withFakeCanvas(async () => {
+    const { room, objects, add, phaser } = setup();
+    const a = add("training dummy");
+    await phaser.settle();
+    const first = objects.entries.get(a).label.material;
+    let disposed = 0;
+    first.addEventListener("dispose", () => disposed++);
+    room.apply({ t: "del", ids: [a] });
+    await phaser.settle();
+    assert.equal(disposed, 0, "the last label material is kept as the spare");
+    assert.equal(first.map, null, "without its texture");
+    const b = add("training dummy", { p: [2, 0, 0] });
+    assert.equal(objects.entries.get(b).label.material, first, "reused by the next label");
+    assert.ok(first.map?.isTexture);
+    const c = add("training dummy", { p: [4, 0, 0] });
+    const second = objects.entries.get(c).label.material;
+    assert.notEqual(second, first);
+    let disposedSecond = 0;
+    second.addEventListener("dispose", () => disposedSecond++);
+    room.apply({ t: "clear" });
+    await phaser.settle();
+    assert.equal(disposed + disposedSecond, 1, "one spare kept, the other disposed");
+    objects.dispose();
+    assert.equal(disposed + disposedSecond, 2, "dispose frees the spare");
+  });
+});
+
+test("pen-up strokes append to the drawing in place; edits, undo and limits rebuild", async () => {
+  const { room, objects, add } = setup();
+  const s1 = { c: "#9b6bff", w: 0.012, pts: [0, 1, 0, 0.25, 1, 0, 0.5, 1, 0] };
+  const s2 = { c: "#ff3366", w: 0.01, pts: [0, 1.2, 0, 0.1, 1.25, 0, 0.2, 1.2, 0, 0.3, 1.3, 0] };
+  const id = add("drawing", { data: { strokes: [s1] } });
+  const wrapper = objects.get(id);
+  const ink = wrapper.getObjectByName("ink");
+  const count = ink.geometry.drawRange.count;
+  room.apply({ t: "set", id, patch: { data: { strokes: [s1, s2] } } });
+  assert.equal(objects.get(id), wrapper, "not rebuilt");
+  assert.ok(ink.geometry.drawRange.count > count, "the new stroke's triangles are drawn");
+  assert.ok(ink.geometry.attributes.position.updateRanges.length > 0, "only the new span is uploaded");
+  // Same mesh as a fresh build of both strokes.
+  const fresh = build.buildObject({ id: "x", part: "drawing", p: [0, 0, 0], data: { strokes: [s1, s2] } }).getObjectByName("ink");
+  assert.equal(ink.geometry.drawRange.count, fresh.geometry.drawRange.count);
+  const used = fresh.geometry.drawRange.count;
+  assert.deepEqual([...ink.geometry.index.array.slice(0, used)], [...fresh.geometry.index.array.slice(0, used)]);
+  const n = Math.max(...fresh.geometry.index.array.slice(0, used)) + 1;
+  assert.deepEqual([...ink.geometry.attributes.position.array.slice(0, n * 3)], [...fresh.geometry.attributes.position.array.slice(0, n * 3)]);
+  assert.ok(objects.bounds(id).containsPoint(new THREE.Vector3(0.3, 1.3, 0)), "bounds grew with the new stroke");
+  // A data patch that keeps the strokes (behavior) changes nothing.
+  room.apply({ t: "set", id, patch: { data: { strokes: [s1, s2], behavior: { kind: "none" } } } });
+  assert.equal(objects.get(id), wrapper);
+  // Undo (fewer strokes) and edited old strokes rebuild.
+  room.apply({ t: "set", id, patch: { data: { strokes: [s1] } } });
+  const undone = objects.get(id);
+  assert.notEqual(undone, wrapper);
+  room.apply({ t: "set", id, patch: { data: { strokes: [{ ...s1, c: "#00ff00" }, s2] } } });
+  assert.notEqual(objects.get(id), undone);
+});
+
+test("picking ignores the drawing halo, and skipDrawings ignores drawings entirely", () => {
+  const { objects, add } = setup();
+  const id = add("drawing", { data: { strokes: [{ c: "#9b6bff", w: 0.012, pts: [0, 1, 0, 0.5, 1, 0] }] } });
+  const through = (y) => new THREE.Raycaster(new THREE.Vector3(0.25, y, 2), new THREE.Vector3(0, 0, -1));
+  assert.equal(objects.pick(through(1))?.id, id, "the ink is hit");
+  assert.equal(objects.pick(through(1), { skipDrawings: true }), null);
+  assert.equal(objects.pick(through(1.012)), null, "inside the halo only: nothing");
+});
+
+test("ended screen streams are released once no screen shows them", async () => {
+  const pruned = [];
+  const share = { textureFor: () => null, prune: (shown) => pruned.push([...shown]) };
+  const scene = new THREE.Scene();
+  const room = new Room();
+  const phaser = fakePhaser();
+  const objects = new SceneObjects({ scene, room, build, phaser, share });
+  room.apply({ t: "add", obj: { id: "m1", part: "monitor", p: [0, 0, 0], ry: 0, s: 1, data: { stream: "s1" } } });
+  await phaser.settle();
+  objects.update(0.6, 0);
+  assert.deepEqual(pruned.at(-1), ["s1"], "a shown stream is kept");
+  room.apply({ t: "del", ids: ["m1"] });
+  await phaser.settle();
+  objects.update(0.6, 1);
+  assert.deepEqual(pruned.at(-1), [], "no screen shows it any more");
+});

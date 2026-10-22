@@ -98,7 +98,7 @@ scale {do:"scale", target:TARGET, factor:number} (2 = twice as big, 0.5 = half)
 color {do:"color", target:TARGET, color:"<color>"}
 hold {do:"hold", target:TARGET, hand:"left"|"right"}
 drop {do:"drop", hand?:"left"|"right"}
-write {do:"write", target?:TARGET, text:"<text>"}
+write {do:"write", target?:TARGET, text:"<text>"} (text "" wipes it: "clear the whiteboard")
 deal {do:"deal", target?:TARGET, count:number}  shuffle {do:"shuffle", target?:TARGET}  flip {do:"flip", target?:TARGET}
 undo {do:"undo", count?:number}  clear {do:"clear"} (removes everything)  list {do:"list"} (says what is around)
 time {do:"time", value:"day"|"sunset"|"night"|"dawn"}
@@ -371,14 +371,20 @@ export function createMatcher(metas, extraNames = []) {
   };
 }
 
-function normTarget(raw, match, sceneNames) {
+// batchMap/index: given for intent targets, so { batch: n } can name a part spawned earlier in this command.
+function normTarget(raw, match, sceneNames, batchMap, index) {
   let t = raw;
+  if (typeof t === "number") t = { batch: t };
   if (typeof t === "string") {
     const w = word(t);
     t = REFS.includes(w) || REF_ALIASES[w] ? { ref: w } : { part: w };
   }
   if (!t || typeof t !== "object" || Array.isArray(t)) return null;
   if (typeof t.id === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(t.id)) return { id: t.id };
+  if (batchMap && toNumber(t.batch) !== undefined) {
+    const mapped = batchMap.get(Math.round(toNumber(t.batch)));
+    return mapped !== undefined && mapped < index ? { batch: mapped } : null;
+  }
   const ref = typeof t.ref === "string" ? word(t.ref) : "";
   if (REFS.includes(ref)) return { ref };
   if (REF_ALIASES[ref]) return { ref: REF_ALIASES[ref] };
@@ -464,7 +470,7 @@ function normIntent(item, { match, sceneNames, batchMap, index }) {
   action = DOS.includes(action) ? action : DO_ALIASES[action];
   if (!action) return null;
   const out = { do: action };
-  const target = () => normTarget(item.target ?? item.ref ?? item.part ?? null, match, sceneNames);
+  const target = () => normTarget(item.target ?? item.ref ?? item.part ?? null, match, sceneNames, batchMap, index);
   const count = (lo, hi) => {
     const n = toNumber(item.count);
     return n === undefined ? undefined : clamp(Math.round(n), lo, hi);
@@ -525,8 +531,9 @@ function normIntent(item, { match, sceneNames, batchMap, index }) {
       return out;
     }
     case "write": {
-      const text = cleanStr(item.text ?? item.value, 500);
-      if (!text) return null;
+      // Empty text wipes a board or note.
+      const text = cleanStr(item.text ?? item.value, 500) || "";
+      if (!text && item.target === undefined) return null;
       const t = item.target !== undefined ? target() : null;
       if (t) out.target = t;
       out.text = text;

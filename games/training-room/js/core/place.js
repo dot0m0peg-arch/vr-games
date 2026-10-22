@@ -211,6 +211,12 @@ export function resolvePlacement(place, ctx = {}) {
     case "feet":
       return ground(fwd, clearance(userDist ?? 0.7));
     case "above": {
+      // "above the desk": over the ref's top (dist = gap), else over the player's line of sight.
+      const over = findRef(pl.ref, ctx);
+      if (over && !exclude.has(over.id)) {
+        const p = [over.p[0], over.p[1] + sizeOf(over)[1] + (userDist ?? 1), over.p[2]];
+        return { p: round3(p), ry: r4(faceYaw(p, head)) };
+      }
       const d = userDist ?? 1.5;
       const p = [head[0] + fwd[0] * d, head[1] + 1.2, head[2] + fwd[2] * d];
       return { p: round3(p), ry: r4(faceYaw(p, head)) };
@@ -251,7 +257,8 @@ export function resolvePlacement(place, ctx = {}) {
       const sides = { left: [vz, 0, -vx], right: [-vz, 0, vx], front: [-vx, 0, -vz], behind: [vx, 0, vz] };
       const u = sides[pl.side] || sides.left;
       const refSize = sizeOf(ref);
-      const off = extentAlong(ref, refSize, u) + GAP + radius;
+      // "20 meters to the left of the crate": dist is center to center, never closer than touching.
+      const off = Math.max(userDist ?? 0, extentAlong(ref, refSize, u) + GAP + radius);
       const raised = (ref.p[1] || 0) > 0.05 && ref.onto;
       const p = [ref.p[0] + u[0] * off, raised ? ref.p[1] : 0, ref.p[2] + u[2] * off];
       // The reference itself is cleared by its box extent above; its footprint circle would over-push.

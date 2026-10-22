@@ -143,6 +143,8 @@ function convertNumbers(tokens) {
 export function normalizeText(text) {
   let s = String(text ?? "").normalize("NFKC").toLowerCase();
   s = s.replace(/[‘’‛′´`]/g, "'").replace(/[“”„″]/g, '"');
+  // Whisper writes "20%"; the tokenizer would drop the sign.
+  s = s.replace(/(\d)\s*%/g, "$1 percent ");
   const tokens = [];
   const re = /#[0-9a-f]{6}(?![\p{L}\p{N}])|#[0-9a-f]{3}(?![\p{L}\p{N}])|[\p{L}\p{N}]+(?:['.][\p{L}\p{N}]+)*:?/gu;
   for (const m of s.matchAll(re)) {
@@ -255,10 +257,25 @@ function phraseIndex(metas) {
   return entries;
 }
 
+// Real words one edit from a catalog word. Speech recognition spells words correctly, so
+// "horse" is a horse, not a typo for "house": these never fuzzy-match.
+const REAL_WORDS = new Set([
+  "horse", "mouse", "louse", "rouse", "plane", "plank", "planet", "plans", "slant", "chain", "choir", "crane",
+  "create", "crater", "grate", "drill", "frill", "krill", "beach", "bunch", "coach", "cough", "pouch", "touch",
+  "crouch", "canyon", "canon", "cannot", "chest", "stack", "stuck", "stock", "slick", "stink", "stinky", "power",
+  "lower", "mower", "towel", "stuff", "stiff", "speak", "swear", "smear", "shear", "dance", "glance", "narrow",
+  "barrow", "marrow", "aware", "manner", "banter", "banned", "barren", "birth", "brunch", "fridge", "bride",
+  "ridge", "bridle", "carts", "cares", "yards", "ships", "clips", "chops", "chimps", "chirps", "danger", "digger",
+  "mummy", "tummy", "gummy", "rummy", "weasel", "hence", "hamper", "hummer", "ratchet", "hatched", "hatches",
+  "wedge", "ledge", "market", "marked", "darker", "maker", "postal", "mortal", "ratio", "settle",
+  "shell", "shrug", "state", "stake", "stare", "stale", "stars", "stains", "status", "statute", "stops", "stems",
+  "store", "stove", "scone", "stamp", "stomp", "slump", "swore", "sworn", "huddle", "night", "cattle",
+]);
+
 function wordScore(w, sw, e, se) {
   if (w === e) return 1;
   if (sw === se) return 0.95;
-  if (/^\d/.test(w) || /^\d/.test(e)) return 0;
+  if (/^\d/.test(w) || /^\d/.test(e) || REAL_WORDS.has(w) || REAL_WORDS.has(sw)) return 0;
   if (w.length >= 5 && e.length >= 5 && editDistance(w, e, 1) <= 1) return 0.8;
   if (sw.length >= 5 && se.length >= 5 && editDistance(sw, se, 1) <= 1) return 0.75;
   return 0;

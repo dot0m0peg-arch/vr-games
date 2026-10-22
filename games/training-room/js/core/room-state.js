@@ -11,6 +11,8 @@ const PATCH_KEYS = ["p", "ry", "s", "color", "text", "data", "attach", "onto", "
 const NULLABLE = new Set(["color", "text", "data", "attach", "onto"]);
 
 const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+// Own records only: "__proto__" or "constructor" must never reach Object.prototype.
+const own = (objects, id) => typeof id === "string" && Object.hasOwn(objects, id);
 
 export function createState() {
   return { objects: {}, order: [], env: { time: "day" }, seq: 0 };
@@ -28,9 +30,9 @@ export function applyOp(state, op) {
   switch (op.t) {
     case "add": {
       const obj = op.obj;
-      if (!obj || typeof obj.id !== "string") break;
+      if (!obj || typeof obj.id !== "string" || Object.hasOwn(Object.prototype, obj.id)) break;
       const record = clone(obj);
-      const existed = !!state.objects[record.id];
+      const existed = own(state.objects, record.id);
       state.objects[record.id] = record;
       if (!existed) {
         const at = Number.isInteger(op.at) ? Math.max(0, Math.min(op.at, state.order.length)) : state.order.length;
@@ -42,13 +44,13 @@ export function applyOp(state, op) {
       break;
     }
     case "set": {
-      const record = state.objects[op.id];
+      const record = own(state.objects, op.id) ? state.objects[op.id] : null;
       if (!record) break;
       const patch = op.patch && typeof op.patch === "object" ? op.patch : {};
       const prev = {};
       let touched = false;
       for (const key of PATCH_KEYS) {
-        if (!(key in patch) || patch[key] === undefined) continue;
+        if (!Object.hasOwn(patch, key) || patch[key] === undefined) continue;
         prev[key] = record[key] === undefined ? null : clone(record[key]);
         setKey(record, key, patch[key]);
         touched = true;
@@ -57,7 +59,7 @@ export function applyOp(state, op) {
       break;
     }
     case "del": {
-      const ids = new Set((Array.isArray(op.ids) ? op.ids : []).filter((id) => state.objects[id]));
+      const ids = new Set((Array.isArray(op.ids) ? op.ids : []).filter((id) => own(state.objects, id)));
       if (!ids.size) break;
       for (const id of ids) {
         const record = state.objects[id];
@@ -101,22 +103,22 @@ export function invertOp(state, op) {
     case "add": {
       const id = op.obj?.id;
       if (!id) return [];
-      const old = state.objects[id];
+      const old = own(state.objects, id) ? state.objects[id] : null;
       if (old) return [{ t: "add", obj: clone(old), at: state.order.indexOf(id) }];
       return [{ t: "del", ids: [id] }];
     }
     case "set": {
-      const record = state.objects[op.id];
+      const record = own(state.objects, op.id) ? state.objects[op.id] : null;
       if (!record) return [];
       const patch = {};
       for (const key of PATCH_KEYS) {
-        if (!op.patch || !(key in op.patch) || op.patch[key] === undefined) continue;
+        if (!op.patch || typeof op.patch !== "object" || !Object.hasOwn(op.patch, key) || op.patch[key] === undefined) continue;
         patch[key] = record[key] === undefined ? null : clone(record[key]);
       }
       return Object.keys(patch).length ? [{ t: "set", id: op.id, patch }] : [];
     }
     case "del": {
-      const ids = new Set((Array.isArray(op.ids) ? op.ids : []).filter((id) => state.objects[id]));
+      const ids = new Set((Array.isArray(op.ids) ? op.ids : []).filter((id) => own(state.objects, id)));
       if (!ids.size) return [];
       const adds = [];
       const links = [];
@@ -182,7 +184,8 @@ const fail = (message) => {
   throw new Invalid(message);
 };
 
-const isId = (v) => typeof v === "string" && ID_RE.test(v);
+// "__proto__" and "constructor" fit ID_RE but name Object.prototype members.
+const isId = (v) => typeof v === "string" && ID_RE.test(v) && !Object.hasOwn(Object.prototype, v);
 function id(v, what) {
   if (!isId(v)) fail(`bad ${what}`);
   return v;

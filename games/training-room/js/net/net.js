@@ -27,6 +27,16 @@ function codeForStatus(status, body) {
   return `http-${status}`;
 }
 
+// An op built before a re-join names the old user id in attach.user; move it to the new id.
+function rebindUser(op, from, to) {
+  if (from === to || !op || typeof op !== "object") return op;
+  const swap = (a) => (a && typeof a === "object" && a.user === from ? { ...a, user: to } : a);
+  const out = { ...op };
+  if (op.patch?.attach) out.patch = { ...op.patch, attach: swap(op.patch.attach) };
+  if (op.obj?.attach) out.obj = { ...op.obj, attach: swap(op.obj.attach) };
+  return out;
+}
+
 const defaultFetch = () => (typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : null);
 
 // One HTTP call with timeout → { status, headers, body (parsed JSON | text | null) }.
@@ -168,13 +178,15 @@ export class Net extends Emitter {
     } catch (err) {
       if (err.status !== 410 || this._left) throw err;
       await this._gone(id);
-      return this._json("op", { method: "POST", json: { user: this._requireUser(), op } });
+      const user = this._requireUser();
+      return this._json("op", { method: "POST", json: { user, op: rebindUser(op, id, user) } });
     }
   }
 
   // Latest pose wins; at most 15 per second and one request in flight.
   sendPose(pose) {
-    if (!this.connected) return;
+    // With a wrong key every pose would count as a failed guess and lock this address out.
+    if (!this.connected || this._status === "auth") return;
     this._pose = pose;
     if (this._poseBusy || this._poseTimer) return;
     const wait = this._poseAt + POSE_MS - Date.now();

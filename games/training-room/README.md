@@ -7,7 +7,8 @@ what it is and brings it to life.
 - **Play:** https://dot0m0peg-arch.github.io/vr-games/games/training-room/
 - **Status:** early access. Tested in headless Chromium on desktop and phone layouts, in an
   emulated Quest 3 (IWER), and with three devices through the laptop bridge using stand-in
-  model and Whisper servers. **Not yet tested on a real headset or with a real local model.**
+  model and Whisper servers. **Not yet tested on a real headset, or with a real local model,
+  Whisper, Piper or Kokoro server.**
 
 > "AI, spawn a villa to my left." · "AI, spawn an axe in my hand." ·
 > "AI, spawn a deck of playing cards on a card table."
@@ -41,12 +42,20 @@ node server.mjs            (or double-click start-bridge.cmd on Windows)
 It prints a **room key**, the headset/phone address `https://<laptop-ip>:8787/?k=KEY` with a QR
 code, and the laptop address `http://localhost:8788/?k=KEY`.
 
-1. **Laptop:** open the localhost address. The menu shows a QR code for the phone.
+1. **Laptop:** open the localhost address. Menu → People shows a QR code for the phone (the
+   bridge window prints one too).
 2. **Headset:** open the `https://<laptop-ip>:8787/?k=KEY` address in Quest Browser and accept the
-   self-signed certificate once (Advanced → Proceed). Over USB you can skip the warning:
+   self-signed certificate (Advanced → Proceed). Over USB you can skip the warning:
    `adb reverse tcp:8788 tcp:8788`, then open `http://localhost:8788/?k=KEY` in the headset.
-3. **Phone:** scan the QR code and accept the certificate warning once.
+3. **Phone:** scan the QR code and accept the certificate warning.
 4. The first time, Windows asks whether Node.js may use the network: allow **Private networks**.
+   The laptop's Wi-Fi must also be set to Private (Settings → Network & internet → Wi-Fi → your
+   network → Network profile type: Private). Windows 11 sets new networks to Public, and on a
+   Public or company network the headset and phone cannot reach the bridge; use the USB route
+   (`adb reverse`) there instead.
+
+The certificate warning can come back after the laptop moves to another network: the bridge then
+makes a new certificate for its new address, and each device asks once more.
 
 Devices start on different spots around the center. With a headset player in the room, the phone
 acts for them: "spawn an axe in my hand" from the phone puts it in the headset player's hand, and
@@ -56,7 +65,8 @@ you're in the headset.
 Settings live in `config.json` in the bridge data folder (`%APPDATA%\dot-training-room` on
 Windows, `~/.config/dot-training-room` elsewhere): ports, room key, model, Ollama/LM Studio
 address, Whisper, laptop voice and extra parts-bin folders. `bridge/config.example.json` explains
-every key. Nothing is written into this repository.
+every key. Nothing is written into this repository. Ollama, Whisper and the laptop voice can be
+started before or after the bridge; open pages notice them within a minute or two, no reload needed.
 
 ### Local model
 
@@ -69,25 +79,42 @@ answer faster; measure on your own laptop. The bridge sends the parts catalog, t
 you and your words, and asks for JSON only (Ollama structured outputs; Ollama 0.31.2 or newer).
 For anything outside the catalog the model designs a new part from primitive shapes ("spawn a
 dragon statue"); designs are saved to the parts bin and reused. Model output is data, never code.
+For LM Studio set `"provider": "openai"` and `"openaiUrl": "http://127.0.0.1:1234/v1"` in
+config.json.
 
 ### Voice on the laptop (Whisper)
 
-Run whisper.cpp's server: `whisper-server -m ggml-base.en.bin --port 8080`. Windows builds are in
-the whisper.cpp releases marked `bNNNN` (`whisper-bin-x64.zip`). `small.en` recognizes better in
-loud places but is slower. While you hold the talk button the device records 16 kHz audio and the
-bridge forwards it to `http://127.0.0.1:8080/inference`. An OpenAI-compatible transcription server
-also works (`"sttKind": "openai"`).
+Windows builds of whisper.cpp are in its releases marked `bNNNN` (`whisper-bin-x64.zip`). The zip
+holds only the programs, so also download a model:
+https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin (or run
+`models\download-ggml-model.cmd base.en` from the whisper.cpp source zip, which saves it in
+`models`). Put `ggml-base.en.bin` in the zip's `Release` folder and run the server there:
+`.\whisper-server -m ggml-base.en.bin --port 8080`. `small.en` (`ggml-small.en.bin`) recognizes
+better in loud places but is slower. While you hold the talk button the device records 16 kHz
+audio and the bridge forwards it to `http://127.0.0.1:8080/inference`. An OpenAI-compatible
+transcription server also works: set `"sttKind": "openai"` and `"sttUrl"` to its
+`/v1/audio/transcriptions` address.
 
 ### The AI's voice (optional)
 
-Set `"ttsKind": "piper"` and run Piper's HTTP server (`python3 -m piper.http_server -m
-en_US-lessac-medium`, port 5000), or `"ttsKind": "openai"` for Kokoro-FastAPI on port 8880.
+Set `"ttsKind": "piper"` and run Piper's HTTP server on port 5000 (all three in one folder):
+
+```text
+python -m pip install "piper-tts[http]"
+python -m piper.download_voices en_US-lessac-medium
+python -m piper.http_server -m en_US-lessac-medium
+```
+
+(`python3` on macOS/Linux.) Or set `"ttsKind": "openai"` for Kokoro-FastAPI on port 8880.
 Without it each device uses its own browser voice, and Quest Browser may have none; replies are
 always shown as captions.
 
 ### Laptop parts bin
 
-Drop files into the bridge's `parts` folder, or add your own folders to `partsDirs`:
+Drop files into the `parts` folder inside the bridge data folder
+(`%APPDATA%\dot-training-room\parts` on Windows, `~/.config/dot-training-room/parts` elsewhere;
+the bridge's `Parts:` line shows it), or add your own folders to `partsDirs` in `config.json`
+(relative paths start in the data folder):
 
 - `*.json` blueprints: `{ "name", "aliases", "desc", "parts": [ { "shape", "p", "s", "r", "color", "mat" } ] }`
 - `*.glb` / `*.gltf` models, with an optional `<name>.part.json` sidecar (`aliases`, `size`, `holdable`, `grip`, `desc`)
@@ -99,7 +126,8 @@ Drop files into the bridge's `parts` folder, or add your own folders to `partsDi
 Draw in the air, on a laptop sheet or on the phone, then say **"make it real"**. The model guesses
 what you drew and makes it, right where you drew it, at the size you drew it, and it comes alive:
 fish swim, birds fly, dogs walk, balls bounce, trees sway. It tells you what it thought it was.
-If it gets it wrong, say **"no, it's a gun"** and it swaps it in place, or just "undo".
+If it gets it wrong, say **"no, it's a gun"** and it swaps it in place, or just "undo". Without
+the laptop model, names the game does not know become a labelled crate.
 
 - **VR:** "AI, give me a marker" (or Menu → Marker), then hold the trigger to draw.
 - **Laptop:** press **F** for marker mode and drag on the sheet. Colors, Undo stroke, What is it?,

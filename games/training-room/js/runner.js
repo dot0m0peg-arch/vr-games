@@ -131,7 +131,8 @@ export class Runner extends Emitter {
   exec(intents, { label = "", source = "ui", player = null, decorate = null } = {}) {
     const pose = player || this.getPlayer();
     const user = pose.user || this.getUser();
-    intents = intents.map((intent) => this.resolveRefs(intent));
+    // "it" after a spawn in the same command means that new thing, not the previous command's.
+    intents = intents.map((intent, i) => (intents.slice(0, i).some((x) => x?.do === "spawn") ? intent : this.resolveRefs(intent)));
     // An untargeted erase means this device's latest drawing, like "make it real" does.
     const draw = this.getDraw();
     intents = intents.map((intent) => {

@@ -17,6 +17,7 @@ const BEHAVIOR_KINDS = ["swim", "fly", "walk", "hop", "roll", "spin", "float", "
 const DRAWING_RANGE = 15;
 // Magic marker intents that need the model; the runner handles them before planning.
 const RUNNER_INTENTS = new Set(["realize", "guess", "correct"]);
+const SIDE_WORDS = { left: " on your left", right: " on your right", front: " in front of you", behind: " behind you" };
 
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 const r3 = (n) => Math.round(n * 1000) / 1000;
@@ -188,6 +189,15 @@ export function planIntents(intents, ctx = {}) {
     if (target.part) {
       let matches = records().filter((r) => recordMatches(r, target.part));
       if (!matches.length) matches = records().filter((r) => recordMatchesLoosely(r, target.part));
+      // "the crate on the left": only records on that side of the player.
+      if (target.side) {
+        const f = forwardOf(yaw);
+        const rt = rightOf(yaw);
+        const ahead = (rec) => (rec.p[0] - head[0]) * f[0] + (rec.p[2] - head[2]) * f[2];
+        const across = (rec) => (rec.p[0] - head[0]) * rt[0] + (rec.p[2] - head[2]) * rt[2];
+        const test = { left: (rec) => across(rec) < 0, right: (rec) => across(rec) > 0, front: (rec) => ahead(rec) > 0, behind: (rec) => ahead(rec) < 0 }[target.side];
+        if (test) matches = matches.filter(test);
+      }
       if (!matches.length) return [];
       const which = target.which ?? "nearest";
       if (which === "all") return matches;
@@ -200,7 +210,7 @@ export function planIntents(intents, ctx = {}) {
 
   function describe(target) {
     if (!target) return "that";
-    if (target.part) return `${an(target.part)} ${target.part}`;
+    if (target.part) return `${an(target.part)} ${target.part}${SIDE_WORDS[target.side] || ""}`;
     if (target.ref === "held") return "anything in your hands";
     return "anything to use for that";
   }
@@ -309,9 +319,14 @@ export function planIntents(intents, ctx = {}) {
   function concretePlace(place, index, exclude = []) {
     const pl = place && typeof place === "object" ? { ...place } : { rel: "front" };
     if (!pl.rel) pl.rel = "front";
-    if ((pl.rel === "on" || pl.rel === "next") && pl.ref) {
+    // The model may say { rel: "right", ref }: beside that object, on that side.
+    if (["left", "right", "front", "behind"].includes(pl.rel) && pl.ref) {
+      pl.side = pl.rel;
+      pl.rel = "next";
+    }
+    if ((pl.rel === "on" || pl.rel === "next" || pl.rel === "above") && pl.ref) {
       const ref = resolveRef(pl.ref, index);
-      if (!ref || exclude.includes(ref.id)) return { rel: "front", ...(pl.dist ? { dist: pl.dist } : {}) };
+      if (!ref || exclude.includes(ref.id)) return { rel: pl.rel === "above" ? "above" : "front", ...(pl.dist ? { dist: pl.dist } : {}) };
       pl.ref = { id: ref.id };
     }
     return pl;
@@ -537,19 +552,27 @@ export function planIntents(intents, ctx = {}) {
     spawnRecords({ what: { part, label: meta ? undefined : "sticky note" }, text }, index, place, { trackBatch: true });
   }
 
+  // Empty text wipes the target ("clear the whiteboard"); with no target, the nearest board with writing.
   function write(intent, index) {
     const text = String(intent.text ?? "").trim().slice(0, 2000);
-    if (!text) return fail("What should I write?");
     let target = null;
     if (intent.target) {
       target = resolveTargets(intent.target)[0] || null;
+      if (!target && !text) return notFound(intent.target);
       if (!target) {
         say(`I can't find ${describe(intent.target)}, so I wrote it on a sticky note.`);
         return noteRecord(text, { rel: "front" }, index);
       }
     } else {
-      const writable = records().filter((r) => metaFor(r).writable && distXZ(r.p) <= WRITE_RANGE);
+      const writable = records().filter((r) => metaFor(r).writable && distXZ(r.p) <= WRITE_RANGE && (text || r.text));
       target = nearest(writable);
+    }
+    if (!text) {
+      if (!target || !metaFor(target).writable) return fail(target ? `The ${target.label || target.part} has no writing to wipe.` : "There's no writing near you to wipe.");
+      if (!target.text) return say(`The ${target.label || target.part} is already blank.`);
+      emit({ t: "set", id: target.id, patch: { text: null } });
+      touch(target.id);
+      return;
     }
     if (!target) return noteRecord(text, { rel: "front" }, index);
     if (!metaFor(target).writable) {

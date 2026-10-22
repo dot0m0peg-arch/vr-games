@@ -173,3 +173,17 @@ test("findRef resolves ids, batches, pronouns and nearest parts", () => {
   assert.equal(findRef({ part: "villa" }, ctx), null);
   assert.equal(findRef(null, ctx), null);
 });
+
+test("next keeps a requested distance; above sits over its ref", () => {
+  const player = { user: "u1", p: [0, 1.6, 0], yaw: 0 };
+  const crate = rec("c1", "crate", [0, 0, -10]);
+  const far = resolvePlacement({ rel: "next", side: "left", ref: { id: "c1" }, dist: 20 }, ctxFor(player, "ball", [crate]));
+  assert.ok(near(far.p[0], -20) && near(far.p[2], -10), `20 m left of the crate (${far.p})`);
+  const close = resolvePlacement({ rel: "next", side: "left", ref: { id: "c1" }, dist: 0.1 }, ctxFor(player, "ball", [crate]));
+  assert.ok(near(close.p[0], -(0.5 + 0.3 + 0.115)), "never inside the ref");
+  const table = rec("t1", "card table", [5, 0, 0]);
+  assert.deepEqual(resolvePlacement({ rel: "above", ref: { id: "t1" } }, ctxFor(player, "ball", [table])).p, [5, 1.78, 0]);
+  assert.ok(near(resolvePlacement({ rel: "above", ref: { id: "t1" }, dist: 2 }, ctxFor(player, "ball", [table])).p[1], 2.78));
+  const missing = resolvePlacement({ rel: "above", ref: { id: "nope" } }, ctxFor(player, "ball", [table]));
+  assert.ok(near(missing.p[1], 2.8) && near(missing.p[2], -1.5), "missing ref: over the player's line of sight");
+});

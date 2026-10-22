@@ -12,16 +12,20 @@ const MAX_SUB = 3;
 const DEPTH = 0.06; // doodle cut-out thickness
 const CLOSE_GAP = 0.12; // closed stroke: ends within 12% of the drawing size
 const MAX_OUTLINE = 160; // points per extruded outline
+const SPARE = 0.5; // drawings keep this much extra buffer room (at least SPARE_VERTS) for later strokes
+const SPARE_VERTS = 1024;
 const HEX = /^#[0-9a-f]{6}$/i;
+const noRaycast = () => {};
 
 const COS = Float32Array.from({ length: RADIAL }, (_, k) => Math.cos((k / RADIAL) * Math.PI * 2));
 const SIN = Float32Array.from({ length: RADIAL }, (_, k) => Math.sin((k / RADIAL) * Math.PI * 2));
 const C60 = 0.5;
 const S60 = Math.sqrt(3) / 2;
 
-// Unlit glowing ink (vertex colors carry the stroke color and its bright core).
+// Unlit glowing ink (vertex colors carry the stroke color and its bright core). Shared and never
+// disposed; exported so the start-up warm-up can compile it (the live marker stroke uses the same program).
 let inkMat = null;
-function inkMaterial() {
+export function inkMaterial() {
   if (!inkMat) {
     inkMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
     inkMat.userData = { shared: true, kind: "glow" };
@@ -30,7 +34,7 @@ function inkMaterial() {
 }
 
 let haloMat = null;
-function haloMaterial() {
+export function haloMaterial() {
   if (!haloMat) {
     haloMat = new THREE.MeshBasicMaterial({
       vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
@@ -97,15 +101,27 @@ function parseStrokes(strokes) {
   return out;
 }
 
+const countPoints = (list) => list.reduce((n, s) => n + s.line.length, 0);
+
+// Catmull-Rom steps per segment that still fit `points` points in `strokes` strokes into the budget.
+function subFor(points, strokes, trisPer, budget) {
+  const segs = Math.max(1, points - strokes);
+  const perSegment = trisPer(points + 1, strokes) - trisPer(points, strokes);
+  const spare = (budget - trisPer(points, strokes)) / perSegment;
+  return clamp(Math.floor(1 + spare / segs), 1, MAX_SUB);
+}
+
 // Strokes that fit the triangle budget: simplified (shared limitStrokes) when too dense.
-// trisPer(points, strokes) estimates the cost. → { list, sub } (sub = Catmull-Rom steps per segment).
+// trisPer(points, strokes) estimates the cost. → { list, sub, points, limited } (sub = Catmull-Rom
+// steps per segment, limited = strokes had to be simplified).
 function budgeted(strokes, trisPer, reserve = 0) {
   let list = parseStrokes(strokes);
-  const count = (l) => l.reduce((n, s) => n + s.line.length, 0);
-  let points = count(list);
+  let points = countPoints(list);
+  let limited = false;
   if (points > MAX_POINTS) {
     list = parseStrokes(limitStrokes(strokes, MAX_POINTS));
-    points = count(list);
+    points = countPoints(list);
+    limited = true;
   }
   const budget = MAX_TRIS - reserve;
   if (trisPer(points, list.length) > budget) {
@@ -113,13 +129,18 @@ function budgeted(strokes, trisPer, reserve = 0) {
     let max = points;
     while (max > list.length && trisPer(max, list.length) > budget) max = Math.floor(max * 0.9);
     list = parseStrokes(limitStrokes(strokes, max));
-    points = count(list);
+    points = countPoints(list);
+    limited = true;
   }
-  const segs = Math.max(1, points - list.length);
-  const perSegment = trisPer(points + 1, list.length) - trisPer(points, list.length);
-  const spare = (budget - trisPer(points, list.length)) / perSegment;
-  const sub = clamp(Math.floor(1 + spare / segs), 1, MAX_SUB);
-  return { list, sub };
+  return { list, sub: subFor(points, list.length, trisPer, budget), points, limited };
+}
+
+// Same stroke data: an in-place append needs the old strokes as an unchanged prefix.
+function sameStroke(a, b) {
+  if (a === b) return true;
+  if (!a || !b || a.c !== b.c || a.w !== b.w || a.pts?.length !== b.pts?.length) return false;
+  for (let i = 0; i < (a.pts?.length || 0); i++) if (a.pts[i] !== b.pts[i]) return false;
+  return true;
 }
 
 // Sharp turn (> ~50°) at point i: segments touching it stay straight so corners do not bulge.
@@ -256,8 +277,8 @@ function addTube(buf, { line, radius, rgb, shade, capRing }) {
   for (let k = 0; k < RADIAL; k++) tri(buf, last + k, last + ((k + 1) % RADIAL), tip);
 }
 
-// Writes the queued tubes ({ line, radius, rgb, shade, capRing }) into one preallocated mesh.
-function tubeMesh(jobs, material, name) {
+// Vertex and index counts of the queued tubes.
+function tubeSize(jobs) {
   let verts = 0;
   let index = 0;
   for (const job of jobs) {
@@ -265,6 +286,26 @@ function tubeMesh(jobs, material, name) {
     verts += rings * RADIAL + 2;
     index += ((rings - 1) * 2 + 2) * RADIAL * 3;
   }
+  return { verts, index };
+}
+
+// Bounds of the vertices written from `from` on (the spare room is zeros) and the draw range.
+function fitTubes(g, buf, from = 0) {
+  if (!g.boundingBox) g.boundingBox = new THREE.Box3();
+  for (let o = from * 3; o < buf.v * 3; o += 3) g.boundingBox.expandByPoint(_a.set(buf.pos[o], buf.pos[o + 1], buf.pos[o + 2]));
+  g.boundingSphere = g.boundingBox.getBoundingSphere(g.boundingSphere || new THREE.Sphere());
+  g.setDrawRange(0, buf.i);
+}
+
+const tubeBuffers = new WeakMap(); // tube geometry with spare room → its write buffer
+
+// Writes the queued tubes ({ line, radius, rgb, shade, capRing }) into one preallocated mesh.
+// spare > 0 leaves room for appendTubes (at least SPARE_VERTS, capped near the triangle budget).
+function tubeMesh(jobs, material, name, spare = 0) {
+  const need = tubeSize(jobs);
+  const grow = spare ? Math.max(1 + spare, (need.verts + SPARE_VERTS) / Math.max(1, need.verts)) : 1;
+  const verts = Math.min(Math.ceil(need.verts * grow), Math.max(need.verts, MAX_TRIS));
+  const index = Math.min(Math.ceil(need.index * grow), Math.max(need.index, MAX_TRIS * 3));
   const buf = {
     pos: new Float32Array(verts * 3), nor: new Float32Array(verts * 3), col: new Float32Array(verts * 3),
     idx: verts > 65535 ? new Uint32Array(index) : new Uint16Array(index), v: 0, i: 0,
@@ -275,10 +316,37 @@ function tubeMesh(jobs, material, name) {
   g.setAttribute("normal", new THREE.BufferAttribute(buf.nor, 3));
   g.setAttribute("color", new THREE.BufferAttribute(buf.col, 3));
   g.setIndex(new THREE.BufferAttribute(buf.idx, 1));
-  g.computeBoundingSphere();
+  if (spare) {
+    fitTubes(g, buf);
+    tubeBuffers.set(g, buf);
+  } else g.computeBoundingSphere();
   const mesh = new THREE.Mesh(g, material);
   mesh.name = name;
   return mesh;
+}
+
+// Room left in a tubeMesh(…, spare) for these tubes.
+function tubesFit(mesh, jobs) {
+  const buf = tubeBuffers.get(mesh.geometry);
+  const need = tubeSize(jobs);
+  return !!buf && buf.v + need.verts <= buf.pos.length / 3 && buf.i + need.index <= buf.idx.length;
+}
+
+// Writes more tubes into the spare room (check tubesFit first); only the new spans are uploaded.
+function appendTubes(mesh, jobs) {
+  const g = mesh.geometry;
+  const buf = tubeBuffers.get(g);
+  const v0 = buf.v;
+  const i0 = buf.i;
+  for (const job of jobs) addTube(buf, job);
+  if (buf.v === v0) return;
+  for (const name of ["position", "normal", "color"]) {
+    g.attributes[name].addUpdateRange(v0 * 3, (buf.v - v0) * 3);
+    g.attributes[name].needsUpdate = true;
+  }
+  g.index.addUpdateRange(i0, buf.i - i0);
+  g.index.needsUpdate = true;
+  fitTubes(g, buf, v0);
 }
 
 // Triangles of a tube: 2R per segment, plus per stroke two caps (3R each with a cap ring, R without).
@@ -367,23 +435,55 @@ const flatten = (line, z) => line.map((p) => new THREE.Vector3(p.x, p.y, z));
 export const builders = {
   // Glowing crayon lines: one ink tube mesh for the whole drawing (colors in the vertices) and a
   // wider additive halo around it.
+  // root.userData.appendStrokes(strokes) adds the strokes of a pen-up in place: true when the old
+  // strokes are an unchanged prefix and the new ones fit, false when the drawing must be rebuilt.
   drawing(opts) {
     const strokes = opts?.data?.strokes;
     const capRing = !Array.isArray(strokes) || strokes.length <= 400;
-    const { list, sub } = budgeted(strokes, (p, s) => 2 * tubeTris(capRing)(p, s));
+    const trisPer = (p, s) => 2 * tubeTris(capRing)(p, s);
+    const { list, sub, points, limited } = budgeted(strokes, trisPer);
     if (!list.length) return empty("drawing");
-    const ink = [];
-    const halo = [];
-    for (const s of list) {
-      const line = smoothLine(s.line, sub);
-      const rgb = rgbOf(s.c);
-      ink.push({ line, radius: s.w / 2, rgb, shade: inkColor, capRing });
-      halo.push({ line, radius: s.w * 1.4, rgb, shade: haloColor, capRing });
-    }
-    const mesh = kit.place(tubeMesh(ink, inkMaterial(), "ink"), { tint: true });
-    const glow = tubeMesh(halo, haloMaterial(), "halo");
+    const tubes = (more) => {
+      const ink = [];
+      const halo = [];
+      for (const s of more) {
+        const line = smoothLine(s.line, sub);
+        const rgb = rgbOf(s.c);
+        ink.push({ line, radius: s.w / 2, rgb, shade: inkColor, capRing });
+        halo.push({ line, radius: s.w * 1.4, rgb, shade: haloColor, capRing });
+      }
+      return { ink, halo };
+    };
+    const { ink, halo } = tubes(list);
+    const mesh = kit.place(tubeMesh(ink, inkMaterial(), "ink", limited ? 0 : SPARE), { tint: true });
+    const glow = tubeMesh(halo, haloMaterial(), "halo", limited ? 0 : SPARE);
     glow.renderOrder = 1;
-    return kit.finish(kit.group([mesh, glow]), "drawing");
+    glow.raycast = noRaycast; // the wide halo must not steal picks from what is behind the ink
+    const root = kit.finish(kit.group([mesh, glow]), "drawing");
+    if (limited) return root; // simplified: the next stroke rebuilds
+    let done = strokes;
+    let total = points;
+    let count = list.length;
+    root.userData.appendStrokes = (next) => {
+      if (!Array.isArray(next) || next.length < done.length) return false;
+      for (let i = 0; i < done.length; i++) if (!sameStroke(done[i], next[i])) return false;
+      if (next.length === done.length) return true; // strokes unchanged (e.g. a behavior patch)
+      if ((next.length <= 400) !== capRing) return false;
+      // Same limits and subdivision as a fresh build of all strokes, or rebuild.
+      const more = parseStrokes(next.slice(done.length));
+      const p = total + countPoints(more);
+      const n = count + more.length;
+      if (p > MAX_POINTS || trisPer(p, n) > MAX_TRIS || subFor(p, n, trisPer, MAX_TRIS) !== sub) return false;
+      const add = tubes(more);
+      if (!tubesFit(mesh, add.ink) || !tubesFit(glow, add.halo)) return false;
+      appendTubes(mesh, add.ink);
+      appendTubes(glow, add.halo);
+      done = next;
+      total = p;
+      count = n;
+      return true;
+    };
+    return root;
   },
 
   // The drawing made solid: closed strokes → extruded cut-outs with a rounded rim, open strokes →

@@ -135,19 +135,28 @@ export class SceneObjects extends Emitter {
     for (const entry of this.entries.values()) if (entry.meta.surface !== undefined && !entry.attach) surfaces.push(entry);
     for (const entry of this.entries.values()) this._updateEntry(entry, dt, t, now);
     for (const entry of this.dying) this._updateEntry(entry, dt, t, now);
+    this._checkSurfaces();
     this.screenTimer += dt;
     if (this.screenTimer > 0.5) {
       this.screenTimer = 0;
-      for (const entry of this.entries.values()) if (entry.screenStream) this._refreshScreen(entry);
+      const shown = new Set();
+      for (const entry of this.entries.values()) {
+        if (!entry.screenStream) continue;
+        shown.add(entry.screenStream);
+        this._refreshScreen(entry);
+      }
+      this.share?.prune?.(shown); // frees ended streams no screen shows any more
     }
     this._updateShadows(dt);
   }
 
   // Nearest object hit by the ray. Helpers (shells, shadows, labels) are never hit.
-  pick(raycaster, { holdableOnly = false } = {}) {
+  // skipDrawings: marker drawings are ignored (dense tube meshes; the per-frame VR hover skips them).
+  pick(raycaster, { holdableOnly = false, skipDrawings = false } = {}) {
     let best = null;
     const hits = this._hits;
     for (const entry of this.entries.values()) {
+      if (skipDrawings && entry.part === "drawing") continue;
       if (holdableOnly && !entry.meta.holdable) continue;
       const box = this._bounds(entry);
       const enter = raycaster.ray.intersectBox(box, this._t.v);
@@ -231,6 +240,8 @@ export class SceneObjects extends Emitter {
     for (const entry of [...this.entries.values(), ...this.dying]) this._destroy(entry);
     this.entries.clear();
     this.dying.clear();
+    this._spareLabel?.dispose();
+    this._spareLabel = null;
     this.shadows?.removeFromParent();
     this.shadows?.dispose();
     this.shadowGeometry.dispose();
@@ -269,9 +280,14 @@ export class SceneObjects extends Emitter {
       this._rebuild(entry);
       return;
     }
-    if ("data" in patch && !entry.hooks.setDeck && !entry.meta.screen && shapeKey(record) !== entry.shapeKey) {
-      this._rebuild(entry);
-      return;
+    if ("data" in patch && !entry.hooks.setDeck && !entry.meta.screen) {
+      // Drawings grow one stroke per pen-up: the new tubes are appended in place (false = rebuild).
+      const append = entry.inner.userData.appendStrokes;
+      if (append ? !append(record.data?.strokes) : shapeKey(record) !== entry.shapeKey) {
+        this._rebuild(entry);
+        return;
+      }
+      if (append) this._measure(entry);
     }
 
     if ("attach" in patch) {
@@ -355,7 +371,8 @@ export class SceneObjects extends Emitter {
       tween: null, fly: null, attach: null, gripP: new THREE.Vector3(), gripQ: new THREE.Quaternion(), relP: new THREE.Vector3(), relQ: new THREE.Quaternion(),
       wobble: { axis: new THREE.Vector3(1, 0, 0), angle: 0, vel: 0 }, innerDirty: false,
       behavior: null, lastBehavior: null, behaveBlend: 0, seed: hashString(record.id), hits: 0, label: null, labelTexture: null,
-      shapeKey: shapeKey(record), screenStream: null, screenTexture: undefined, removing: false, fade: 1, fadeSpeed: 0,
+      // Drawings compare their strokes themselves (appendStrokes), so they skip the JSON key.
+      shapeKey: (inner || wrapper).userData.appendStrokes ? "" : shapeKey(record), screenStream: null, screenTexture: undefined, removing: false, fade: 1, fadeSpeed: 0,
     };
     const innerObject = entry.inner;
     entry.innerRest.p.copy(innerObject.position);
@@ -449,8 +466,12 @@ export class SceneObjects extends Emitter {
     entry.hlCache.clear();
     if (entry.label) {
       entry.label.removeFromParent();
-      entry.label.material.dispose();
       entry.labelTexture?.dispose();
+      // One retired label material is kept, so the sprite GPU program survives for the next label.
+      const material = entry.label.material;
+      material.map = null;
+      if (this._spareLabel) material.dispose();
+      else this._spareLabel = material;
       entry.label = null;
     }
   }
@@ -647,6 +668,30 @@ export class SceneObjects extends Emitter {
       if (Math.abs(lx) <= (size[0] * s) / 2 + 0.02 && Math.abs(lz) <= (size[1] * s) / 2 + 0.02) best = top;
     }
     return best;
+  }
+
+  // Flags the surfaces dirty when one appeared, left or moved since the last frame. Blob shadows
+  // re-test their support only then (or when their own box moved), so a still room skips the
+  // O(objects × surfaces) _support work.
+  _checkSurfaces() {
+    const surfaces = this._surfaces;
+    let dirty = surfaces.length !== this._surfaceCount;
+    for (const e of surfaces) {
+      const p = e.wrapper.position;
+      const r = e.record;
+      const c = e.surfacePose || (e.surfacePose = []);
+      if (e.surfaceFrame !== this.frame - 1 || c[0] !== p.x || c[1] !== p.y || c[2] !== p.z || c[3] !== r.ry || c[4] !== r.s) {
+        dirty = true;
+        c[0] = p.x;
+        c[1] = p.y;
+        c[2] = p.z;
+        c[3] = r.ry;
+        c[4] = r.s;
+      }
+      e.surfaceFrame = this.frame;
+    }
+    this._surfaceCount = surfaces.length;
+    this._surfacesDirty = dirty;
   }
 
   // ---------- per frame ----------
@@ -868,7 +913,9 @@ export class SceneObjects extends Emitter {
     if (!entry.label) {
       const texture = textTexture(options);
       if (!texture) return;
-      const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false, fog: false });
+      const material = this._spareLabel || new THREE.SpriteMaterial({ transparent: true, depthWrite: false, toneMapped: false, fog: false });
+      this._spareLabel = null;
+      material.map = texture;
       const sprite = new THREE.Sprite(material);
       sprite.scale.set(0.48, 0.18, 1);
       sprite.raycast = noRaycast;
@@ -920,7 +967,15 @@ export class SceneObjects extends Emitter {
       const box = this._bounds(entry);
       const x = (box.min.x + box.max.x) / 2;
       const z = (box.min.z + box.max.z) / 2;
-      const support = this._support(entry, x, z, box.min.y + 0.05);
+      // Cached while this box and every surface stay put (and it had a shadow last frame).
+      let support = entry.shadowSupport;
+      if (this._surfacesDirty || entry.shadowFrame !== this.frame - 1 || entry.shadowX !== x || entry.shadowZ !== z || entry.shadowY !== box.min.y) {
+        support = entry.shadowSupport = this._support(entry, x, z, box.min.y + 0.05);
+        entry.shadowX = x;
+        entry.shadowZ = z;
+        entry.shadowY = box.min.y;
+      }
+      entry.shadowFrame = this.frame;
       const lift = Math.max(0, box.min.y - support);
       const s = entry.wrapper.scale.x || 1;
       const w0 = (entry.restBox.max.x - entry.restBox.min.x) * s;

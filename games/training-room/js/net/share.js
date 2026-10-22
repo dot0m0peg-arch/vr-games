@@ -166,14 +166,27 @@ export class Share extends Emitter {
     return this._viewer(stream).texture;
   }
 
+  // Frees the texture and last frame of ended streams that no screen shows (SceneObjects passes the
+  // shown stream ids twice a second). An ended stream still on a screen keeps its last frame.
+  prune(shown) {
+    for (const [stream, viewer] of this._viewers) {
+      if (!viewer.ended || shown?.has(stream)) continue;
+      this._free(viewer);
+      this._viewers.delete(stream);
+    }
+  }
+
   dispose() {
     this.stop();
-    for (const viewer of this._viewers.values()) {
-      viewer.disposed = true;
-      viewer.bitmap?.close?.();
-      viewer.texture.dispose();
-    }
+    for (const viewer of this._viewers.values()) this._free(viewer);
     this._viewers.clear();
+  }
+
+  _free(viewer) {
+    viewer.disposed = true;
+    viewer.bitmap?.close?.();
+    viewer.bitmap = null;
+    viewer.texture.dispose();
   }
 
   _viewer(stream) {

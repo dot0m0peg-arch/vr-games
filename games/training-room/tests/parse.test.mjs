@@ -403,3 +403,94 @@ test("every real catalog part parses from 'spawn a <name>'", (t) => {
     assert.ok(r.confidence >= 0.8, `${meta.name} confidence ${r.confidence}`);
   }
 });
+
+test("percent and 'by N' scale factors", () => {
+  const factor = (text) => one(text).factor;
+  assert.equal(factor("AI, grow the tree by 20%."), 1.2);
+  assert.equal(factor("shrink the crate by 50%"), 0.5);
+  assert.equal(factor("scale it up by 10%"), 1.1);
+  assert.equal(factor("enlarge it by 25 percent"), 1.25);
+  assert.equal(factor("shrink it by 25 percent"), 0.75);
+  assert.equal(factor("scale it down by 2"), 0.5);
+  assert.equal(factor("scale it to 50%"), 0.5);
+  assert.equal(factor("make it 10% smaller"), 0.9);
+  assert.deepEqual(one("make the tree 20% bigger"), { do: "scale", target: { part: "tree", which: "nearest" }, factor: 1.2 });
+  assert.equal(factor("scale the crate by 2"), 2);
+  assert.equal(factor("shrink it by half"), 0.5);
+  assert.ok(parse("grow the tree by 20%").confidence >= 0.8);
+});
+
+test("wiping a board clears its text, not the room or the board", () => {
+  for (const text of ["AI, clear the board.", "wipe the board", "clean the board", "erase the writing on the board"]) {
+    assert.deepEqual(parse(text).intents, [{ do: "write", text: "" }], text);
+  }
+  for (const text of ["clear the whiteboard", "erase the whiteboard", "wipe the whiteboard clean", "clear the whiteboard text"]) {
+    assert.deepEqual(parse(text).intents, [{ do: "write", target: { part: "whiteboard", which: "nearest" }, text: "" }], text);
+  }
+  assert.deepEqual(one("clear the desk"), { do: "remove", target: { part: "desk", which: "nearest" } }, "no writing: removed");
+  assert.deepEqual(one("delete the whiteboard"), { do: "remove", target: { part: "whiteboard", which: "nearest" } });
+  assert.deepEqual(one("clear the whole thing"), { do: "clear" });
+});
+
+test("Whisper commas and 'between ... and' stay in one clause", () => {
+  const villa = parse("Spawn a villa, to my left.");
+  assert.deepEqual(villa.intents, [{ do: "spawn", what: { part: "villa" }, place: { rel: "left" } }]);
+  assert.ok(villa.confidence >= 0.8);
+  assert.deepEqual(one("Give me a sword, in my left hand.").place, { rel: "hand", hand: "left" });
+  assert.deepEqual(one("AI, spawn a tree, 20 meters away.").place, { rel: "front", dist: 20 });
+  assert.deepEqual(one("Spawn a villa... to my left.").place, { rel: "left" });
+  assert.equal(one("Spawn three, uh, crates.").count, 3);
+  assert.deepEqual(one("Remove the crate, the one on the left."), { do: "remove", target: { part: "crate", which: "nearest", side: "left" } });
+  assert.equal(parse("Put the crate between the tree and the house").intents.length, 1);
+  assert.equal(parse("spawn a desk, a chair and a ball").intents.length, 3, "lists still split");
+  assert.deepEqual(parse("undo 3, spawn a crate").intents, [{ do: "undo", count: 3 }, { do: "spawn", what: { part: "crate" } }]);
+});
+
+test("a side after the target narrows it", () => {
+  assert.deepEqual(one("remove the crate on the left"), { do: "remove", target: { part: "crate", which: "nearest", side: "left" } });
+  assert.equal(one("remove the crate to my left").target.side, "left");
+  assert.deepEqual(one("remove the tree behind me").target, { part: "tree", which: "nearest", side: "behind" });
+  assert.deepEqual(one("paint the crate on the left red"), { do: "color", target: { part: "crate", which: "nearest", side: "left" }, color: COLORS.red });
+  assert.deepEqual(one("remove the crate on the desk").target, { part: "crate", which: "nearest" }, "object relations are not sides");
+});
+
+test("a count of cards means single cards", () => {
+  assert.deepEqual(one("AI, give me five cards."), { do: "spawn", what: { part: "playing card" }, count: 5, place: { rel: "hand", hand: "right" } });
+  assert.deepEqual(one("spawn five playing cards"), { do: "spawn", what: { part: "playing card" }, count: 5 });
+  assert.equal(one("give me cards").what.part, "deck of cards");
+  assert.equal(one("spawn a deck of cards").what.part, "deck of cards");
+  assert.equal(one("spawn two decks").what.part, "deck of cards");
+});
+
+test("typo matches are guesses; real words are not typos", () => {
+  const real = allMeta();
+  for (const word of ["horse", "mouse", "plane", "chain", "crane", "drill", "beach", "coach", "canyon", "chest", "power"]) {
+    const r = parseCommand(`spawn a ${word}`, { metas: real });
+    assert.deepEqual(r.unknown, [word], word);
+    assert.ok(r.confidence < 0.8, word);
+  }
+  assert.deepEqual(parseCommand("remove all the stuff", { metas: real }).intents, [{ do: "remove", target: { ref: "all" } }], "not every staff");
+  const typo = parse("spawn a vilal");
+  assert.deepEqual(typo.intents, [{ do: "spawn", what: { part: "villa" } }]);
+  assert.ok(typo.confidence > 0.4 && typo.confidence < 0.8, "a typo is a guess, so the model is asked");
+  assert.match(typo.say, /"vilal".*villa/, "and the player is told");
+  assert.equal(parse("spawn a villa").say, "");
+});
+
+test("unknown verbs before a part do not spawn a copy", () => {
+  for (const text of ["hide the crate", "kick the ball", "attack the dummy", "turn the crate around", "make the tree 10 meters tall", "make the crate dark purple"]) {
+    assert.deepEqual(parse(text).intents, [], text);
+  }
+  const chained = parse("spawn a crate and hide the crate");
+  assert.deepEqual(chained.intents, [{ do: "spawn", what: { part: "crate" } }]);
+  assert.ok(chained.confidence < 0.5);
+  for (const text of ["crate", "a crate", "red crate", "a big red crate", "two crates"]) assert.equal(one(text).what.part, "crate", text);
+  assert.deepEqual(one("spawn a dragon the size of a house").what, { label: "dragon" }, "unknown nouns still reach the model");
+});
+
+test("a distance after a direction keeps the direction", () => {
+  assert.deepEqual(one("spawn a tree to my left 20 meters away").place, { rel: "left", dist: 20 });
+  assert.deepEqual(one("spawn a crate behind me 10 meters away").place, { rel: "behind", dist: 10 });
+  assert.deepEqual(one("spawn a crate 10 feet away").place, { rel: "front", dist: 3.048 });
+  assert.deepEqual(one("spawn a crate 20 meters to the left of the tree").place, { rel: "next", side: "left", ref: { part: "tree", which: "nearest" }, dist: 20 });
+});

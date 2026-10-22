@@ -23,6 +23,8 @@ import { cleanTranscript, SpeechToText } from "../bridge/stt.mjs";
 import { cleanSpeech } from "../bridge/tts.mjs";
 import { sanitizeConfig, generateRoomKey, defaultDataDir } from "../bridge/config.mjs";
 import { allMeta, getMeta } from "../js/parts/meta/index.js";
+import { planIntents } from "../js/core/execute.js";
+import { createState, applyOp } from "../js/core/room-state.js";
 import { Net } from "../js/net/net.js";
 import { qrcode } from "../vendor/qrcode.mjs";
 import { startFakeOllama, startFakeWhisper, startFakeOpenAI, startFakePiper, makeWav, closeServer, PNG_DATA_URL, ASCII_CIRCLE } from "./fixtures/bridge-fakes.mjs";
@@ -233,7 +235,7 @@ describe("bridge units", () => {
     assert.deepEqual(config.partsDirs, ["a"]);
     assert.deepEqual(config.allowOrigins, ["https://x.example"]);
     assert.deepEqual(problems, ["port"]);
-    assert.match(generateRoomKey(), /^[A-HJ-NP-Z2-9]{6}$/);
+    assert.match(generateRoomKey(), /^[A-HJ-NP-Z2-9]{10}$/);
     assert.match(defaultDataDir({}, "linux"), /\.config[\\/]dot-training-room$/);
     assert.match(defaultDataDir({ APPDATA: "C:/Users/me/AppData/Roaming" }, "win32"), /Roaming[\\/]dot-training-room$/);
     assert.equal(defaultDataDir({ TRAINING_ROOM_DATA: "/srv/tr" }, "linux"), path.resolve("/srv/tr"));
@@ -429,6 +431,33 @@ describe("bridge units", () => {
     assert.equal(many.intents.length, 30);
   });
 
+  it("normalizeOutput keeps { batch: n } targets: the part spawned earlier in this command", () => {
+    const metas = allMeta();
+    const norm = (list) => normalizeOutput(list, { metas }).intents;
+    const spawn = (part) => ({ do: "spawn", what: { part } });
+    assert.deepEqual(norm([spawn("whiteboard"), { do: "write", target: { batch: 0 }, text: "Q3 goals" }])[1], { do: "write", target: { batch: 0 }, text: "Q3 goals" });
+    assert.deepEqual(norm([spawn("crate"), { do: "remove", target: { batch: 0 } }])[1], { do: "remove", target: { batch: 0 } }, "not dropped");
+    assert.deepEqual(norm([spawn("ball"), { do: "color", target: { batch: "0" }, color: "red" }])[1].target, { batch: 0 }, "not { ref: it }");
+    assert.deepEqual(norm([spawn("ball"), { do: "scale", target: 0, factor: 2 }])[1].target, { batch: 0 }, "bare number");
+    assert.deepEqual(norm([spawn("ball"), { do: "animate", target: { batch: 0 }, behavior: "bounce" }])[1].target, { batch: 0 });
+    assert.deepEqual(norm([{ do: "nonsense" }, spawn("crate"), { do: "color", target: { batch: 1 }, color: "red" }])[1].target, { batch: 0 }, "renumbered after a dropped intent");
+    assert.equal(norm([spawn("crate"), { do: "remove", target: { batch: 5 } }]).length, 1, "a batch that is not an earlier intent names nothing");
+    assert.deepEqual(norm([{ do: "color", target: { batch: 0 }, color: "red" }])[0].target, { ref: "it" }, "no earlier intent: the usual fallback");
+    assert.deepEqual(norm([spawn("crate"), { ...spawn("ball"), place: { rel: "on", ref: { batch: 0 } } }])[1].place.ref, { batch: 0 }, "placement refs unchanged");
+
+    // The executor writes on the new whiteboard, not on the older one nearer the player.
+    const state = createState();
+    applyOp(state, { t: "add", obj: { id: "old", part: "whiteboard", label: "whiteboard", p: [0, 0, -1], ry: 0, s: 1 } });
+    let n = 0;
+    const plan = planIntents(norm([{ ...spawn("whiteboard"), place: { rel: "front", dist: 4 } }, { do: "write", target: { batch: 0 }, text: "Q3 goals" }]), {
+      state, player: { p: [0, 1.6, 0], yaw: 0, hands: {} }, user: "u1", metas, metaOf: getMeta, newId: (prefix = "o") => `${prefix}${++n}`,
+    });
+    const added = plan.ops.filter((op) => op.t === "add");
+    const wrote = plan.ops.find((op) => op.t === "set" && op.patch?.text === "Q3 goals");
+    assert.equal(added.length, 1, "no sticky note");
+    assert.equal(wrote?.id, added[0].obj.id);
+  });
+
   it("prompt: static system first, catalog, examples that use real part names, live command last", () => {
     const metas = allMeta();
     for (const [, answer] of EXAMPLES) {
@@ -578,7 +607,7 @@ describe("bridge server", () => {
 
   it("created the data folder with config, room key, certificate and parts README", () => {
     const config = JSON.parse(fs.readFileSync(path.join(dataDir, "config.json"), "utf8"));
-    assert.match(config.roomKey, /^[A-HJ-NP-Z2-9]{6}$/);
+    assert.match(config.roomKey, /^[A-HJ-NP-Z2-9]{10}$/);
     assert.equal(config.ollamaUrl, "http://127.0.0.1:11434", "CLI/test overrides are not written back");
     assert.ok(config._help);
     assert.ok(fs.existsSync(path.join(dataDir, "key.pem")));
@@ -664,6 +693,24 @@ describe("bridge server", () => {
     assert.equal(wrong.headers["set-cookie"], undefined);
     const secure = await raw(sp, `/?k=${key}`, { secure: true });
     assert.match(secure.headers["set-cookie"][0], /; Secure/);
+  });
+
+  it("?k= redirects stay on the bridge: //host and /\\host become plain paths", async () => {
+    const cases = [
+      ["//evil.example/path?k=x&a=1", "/evil.example/path?a=1"],
+      ["//evil.example?k=1", "/evil.example"],
+      ["/\\evil.example/?k=1", "/evil.example/"],
+      ["///\\//evil?k=1", "/evil"],
+    ];
+    for (const [reqPath, location] of cases) {
+      const res = await raw(hp, reqPath);
+      assert.equal(res.status, 302, reqPath);
+      assert.equal(res.headers.location, location, reqPath);
+      assert.equal(new URL(res.headers.location, `http://127.0.0.1:${hp}${reqPath}`).host, `127.0.0.1:${hp}`, `${reqPath} stays on this origin`);
+    }
+    const ok = await raw(hp, `/vr-games/games/training-room/?k=${key}`);
+    assert.equal(ok.headers.location, "/vr-games/games/training-room/");
+    assert.ok(ok.headers["set-cookie"]);
   });
 
   it("requires the room key for the API (header, cookie or query) and hello reports auth", async () => {

@@ -93,6 +93,8 @@ export class XR extends Emitter {
     // attached to xr.hands.left.grip (HUD, models) never end up on the wrong hand.
     this.hands = {};
     for (const handedness of HANDS) this.hands[handedness] = this._makeHand(handedness);
+    // Built hidden up front so the start-up warm-up compiles its programs (no hitch on the first aim).
+    this._ensureTeleportFx();
   }
 
   _makeHand(handedness) {

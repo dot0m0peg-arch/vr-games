@@ -8,7 +8,7 @@
 // Materials: each distinct mesh material is swapped for a clone patched with onBeforeCompile
 // (programs shared through customProgramCacheKey) and restored when the effect ends. One clone per
 // shader variant is kept alive (never rendered) so its GPU program survives for the next spawn;
-// precompile() warms the common variants up front.
+// precompile() warms the common variants up front, warmUp() the other first-use programs.
 import * as THREE from "../../vendor/three.module.min.js";
 import { rng } from "../util/ids.js";
 import { setClearing, removeClearing } from "./field.js";
@@ -141,10 +141,12 @@ function patchShell(shader) {
 }
 
 // Approximate shader-variant key (what changes the compiled program) for the keep-alive cache.
+// Only used before precompile() has seen the renderer; after that keepers are keyed by the real program.
 function variantKey(prefix, material, object) {
   return [
     prefix, material.type, material.side, !!material.map, !!material.emissiveMap, !!material.normalMap, !!material.alphaMap,
     !!material.vertexColors, !!material.flatShading, !!material.transparent, material.toneMapped, !!object?.isInstancedMesh, !!object?.isSkinnedMesh,
+    material.alphaTest > 0, !!material.alphaHash, !!material.roughnessMap, !!material.metalnessMap, !!material.aoMap,
   ].join("|");
 }
 
@@ -533,7 +535,18 @@ export class Phaser {
   }
 
   // Keeps the first material of each variant alive (its GPU program stays cached); disposes the rest.
+  // With the renderer known, the variant is the compiled program itself and never-drawn materials
+  // (nothing compiled) are not kept, so they cannot block a real keeper.
   _retire(material, key) {
+    const props = this.renderer?.properties;
+    if (props) {
+      const program = props.get(material).currentProgram;
+      if (!program) {
+        material.dispose();
+        return;
+      }
+      key = program.cacheKey;
+    }
     if (!this.keepers.has(key)) {
       stripTextures(material);
       this.keepers.set(key, material);
@@ -643,6 +656,7 @@ export class Phaser {
   // every lit program). The materials compiled here are kept alive, so the programs stay cached.
   precompile(renderer, camera) {
     if (!renderer?.compile || !camera) return Promise.resolve();
+    this.renderer = renderer; // from now on _retire keys keepers by the compiled program
     const stage = new THREE.Scene();
     const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
     const texture = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
@@ -679,6 +693,15 @@ export class Phaser {
       console.warn("[phase] precompile failed", err);
     }
     if (job) this._finish(job);
+    // The warmed plain/rune/column keepers are keyed by their compiled program too, so _retire finds them.
+    const props = renderer.properties;
+    for (const [key, material] of props ? [...this.keepers] : []) {
+      const program = props.get(material).currentProgram;
+      if (!program || key === program.cacheKey) continue;
+      this.keepers.delete(key);
+      if (this.keepers.has(program.cacheKey)) material.dispose();
+      else this.keepers.set(program.cacheKey, material);
+    }
     burst.points.removeFromParent();
     this.freeBursts.push(burst);
     stage.clear();
@@ -709,4 +732,35 @@ export class Phaser {
     for (const geometry of Object.values(this.geo)) geometry.dispose();
     this.group.removeFromParent();
   }
+}
+
+// ---------- first-use warm-up ----------
+
+// Compiles the programs that would otherwise link in the frame that first draws them. compile()
+// visits invisible objects too, so one pass over `scene` covers the hidden HUD, controller models,
+// lasers, night stars and the teleport arc. `extras` are materials (or detached objects) not in the
+// scene yet, such as the marker ink and halo. A material is compiled with the scene's lights and fog
+// on two stand-in meshes, with normals (built parts, finished drawings) and without (procedural
+// strokes such as the live marker pen), or on a sprite for a SpriteMaterial. The materials must stay
+// alive afterwards (shared ones do), or three releases their programs again. Call once at start,
+// after precompile().
+export function warmUp(renderer, scene, camera, extras = []) {
+  if (!renderer?.compile || !scene || !camera) return;
+  const lit = new THREE.PlaneGeometry(0.01, 0.01);
+  const bare = new THREE.BufferGeometry().setAttribute("position", lit.attributes.position);
+  const stage = new THREE.Scene();
+  try {
+    renderer.compile(scene, camera);
+    for (const item of extras) {
+      if (item?.isSpriteMaterial) stage.add(new THREE.Sprite(item));
+      else if (item?.isMaterial) stage.add(new THREE.Mesh(lit, item), new THREE.Mesh(bare, item));
+      else if (item?.isObject3D) renderer.compile(item, camera, scene);
+    }
+    if (stage.children.length) renderer.compile(stage, camera, scene);
+  } catch (err) {
+    console.warn("[phase] warm-up failed", err);
+  }
+  stage.clear();
+  lit.dispose();
+  bare.dispose();
 }

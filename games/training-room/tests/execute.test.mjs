@@ -461,3 +461,76 @@ test("planning never mutates the caller's state", () => {
   room.plan(parseCommand("deal 5 cards and move the card table to my left and clear everything", { metas: METAS }).intents);
   assert.deepEqual(snapshot(room.state), before);
 });
+
+test("wiping a board clears its text and keeps everything else", () => {
+  const room = makeRoom();
+  room.run("spawn a whiteboard");
+  room.run("spawn a villa to my left");
+  room.run("write Q3 goals on the whiteboard");
+  room.run("AI, clear the board.");
+  assert.equal(room.all().length, 2, "nothing is removed");
+  assert.equal(room.find("whiteboard")[0].text, undefined);
+  room.run("write Q4 goals on the whiteboard");
+  room.run("erase the whiteboard");
+  assert.equal(room.find("whiteboard").length, 1);
+  assert.equal(room.find("whiteboard")[0].text, undefined);
+  const blank = room.run("wipe the whiteboard");
+  assert.deepEqual(blank.ops, []);
+  assert.match(blank.say.join(" "), /already blank/);
+  room.run("undo");
+  assert.equal(room.find("whiteboard")[0].text, "Q4 goals", "undo brings the text back");
+  assert.match(makeRoom().run("clear the board").say.join(" "), /no writing/);
+  assert.match(makeRoom().run([{ do: "write", target: { part: "whiteboard" }, text: "" }]).say.join(" "), /can't find a whiteboard/);
+});
+
+test("a side picks the object on that side of the player", () => {
+  const room = makeRoom();
+  room.run([
+    { do: "spawn", what: { part: "crate" }, place: { rel: "at", p: [-3, 0, 0] } },
+    { do: "spawn", what: { part: "crate" }, place: { rel: "at", p: [0, 0, -1.45] } },
+    { do: "spawn", what: { part: "tree" }, place: { rel: "at", p: [0, 0, -6] } },
+    { do: "spawn", what: { part: "tree" }, place: { rel: "at", p: [0, 0, 8] } },
+  ]);
+  const [left, front] = room.find("crate");
+  room.run("paint the crate on the left red");
+  assert.equal(room.find("crate").find((r) => r.id === left.id).color, COLORS.red);
+  assert.equal(room.find("crate").find((r) => r.id === front.id).color, undefined);
+  const none = room.run("remove the crate on the right");
+  assert.deepEqual(none.ops, []);
+  assert.match(none.say.join(" "), /can't find a crate on your right/);
+  room.run("Remove the crate, the one on the left.");
+  assert.deepEqual(room.find("crate").map((r) => r.id), [front.id], "only the left crate goes");
+  assert.equal(room.find("tree").length, 2);
+  room.run("remove the tree behind me");
+  assert.deepEqual(room.find("tree").map((r) => r.p[2]), [-6]);
+});
+
+test("model placements with a ref: a direction beside it, above over it, next at a distance", () => {
+  const room = makeRoom();
+  room.run([
+    { do: "spawn", what: { part: "villa" }, place: { rel: "at", p: [0, 0, -30] } },
+    { do: "spawn", what: { part: "desk" }, place: { rel: "at", p: [5, 0, 0] } },
+  ]);
+  room.run([{ do: "spawn", what: { part: "chair" }, place: { rel: "right", ref: { part: "villa" } } }]);
+  assert.deepEqual(room.find("chair")[0].p, [7.525, 0, -30], "beside the villa, not the player");
+  room.run([{ do: "spawn", what: { part: "ball" }, place: { rel: "above", ref: { part: "desk" } } }]);
+  assert.deepEqual(room.find("ball")[0].p, [5, 1.76, 0], "1 m over the desk top");
+  room.run("spawn a crate 20 meters to the left of the villa");
+  assert.deepEqual(room.find("crate")[0].p, [-20, 0, -30]);
+  room.run("spawn a tree to my left 20 meters away");
+  assert.deepEqual(room.find("tree")[0].p, [-20, 0, 0]);
+});
+
+test("percent scaling and a count of cards", () => {
+  const room = makeRoom();
+  room.run("spawn a tree");
+  room.run("grow the tree by 20%");
+  assert.equal(room.find("tree")[0].s, 1.2);
+  room.run("shrink it by 50%");
+  assert.equal(room.find("tree")[0].s, 0.6);
+  room.run("scale it down by 2");
+  assert.equal(room.find("tree")[0].s, 0.3);
+  room.run("give me five cards");
+  assert.equal(room.find("playing card").length, 5);
+  assert.equal(room.find("deck of cards").length, 0, "no decks");
+});

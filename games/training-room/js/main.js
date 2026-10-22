@@ -4,7 +4,7 @@ import { detectDevice, apiBase, isRemoteBridge, PARAMS, WAKE_WORDS, loadJSON, sa
 import { UI } from "./ui/ui.js";
 import { Hud } from "./ui/hud.js";
 import { Field } from "./world/field.js";
-import { Phaser } from "./world/phase.js";
+import { Phaser, warmUp } from "./world/phase.js";
 import { SceneObjects } from "./world/objects.js";
 import * as build from "./parts/build/index.js";
 import { buildBlueprint } from "./parts/build/blueprint.js";
@@ -14,6 +14,7 @@ import { XR } from "./xr/xr.js";
 import { Interact } from "./play/interact.js";
 import { DesktopControls, TouchControls } from "./play/desktop.js";
 import { Draw } from "./play/draw.js";
+import { inkMaterial, haloMaterial } from "./parts/build/sketch.js";
 import { Voice } from "./voice/voice.js";
 import { speak, cancelSpeech, canSpeak, setSpeechSource } from "./voice/speak.js";
 import { Net } from "./net/net.js";
@@ -122,7 +123,7 @@ function actingPose() {
 }
 
 // ---------- room → objects ----------
-const objects = new SceneObjects({ scene, room, build, phaser, getHand, share: { textureFor: (stream) => share?.textureFor(stream) || null } });
+const objects = new SceneObjects({ scene, room, build, phaser, getHand, share: { textureFor: (stream) => share?.textureFor(stream) || null, prune: (shown) => share?.prune(shown) } });
 const thrownByMe = new Set();
 
 function send(op) {
@@ -665,6 +666,8 @@ async function start() {
   ui.setParts(allMeta());
   ui.setMic({ mode: voice.mode, listening: false, engine: voice.engine });
   phaser.precompile?.(renderer, camera);
+  // Compile first-use shaders now (HUD, controllers, teleport arc, marker ink, stars) to avoid hitches in VR.
+  warmUp(renderer, scene, camera, [inkMaterial(), haloMaterial()]);
   xrSupported = await xr.isSupported().catch(() => false);
   const online = await connectBridge().catch((err) => {
     console.warn("[net] bridge connection failed", err);

@@ -26,10 +26,13 @@
 // Joining:
 //   Laptop:  http://localhost:8788/?k=KEY
 //   Headset/phone on the same Wi-Fi: https://<laptop-ip>:8787/?k=KEY (or scan the QR code). The
-//            certificate is self-signed: accept the browser warning once ("Advanced" → "Proceed").
+//            certificate is self-signed: accept the browser warning ("Advanced" → "Proceed"); it can
+//            come back after the laptop moves to another network, because the certificate is renewed.
 //   Headset over USB without the warning: adb reverse tcp:8788 tcp:8788, then open
 //            http://localhost:8788/?k=KEY in Quest Browser.
-//   Windows asks whether Node.js may use the network the first time: allow Private networks.
+//   Windows asks whether Node.js may use the network the first time: allow Private networks, and make
+//   sure the Wi-Fi itself is set to Private (Settings → Network & internet → Wi-Fi → network profile).
+//   On Public or company networks use USB (adb reverse) instead.
 //
 // Local AI (optional; the game falls back to its built-in command parser):
 //   Model:  install Ollama, then e.g. `ollama pull qwen2.5-coder:7b`. For LM Studio set
@@ -63,7 +66,7 @@ import { PartsBin } from "./parts-bin.mjs";
 import { LocalModel, catalogText, createMatcher } from "./llm.mjs";
 import { SpeechToText, isWav } from "./stt.mjs";
 import { TextToSpeech, cleanSpeech } from "./tts.mjs";
-import { loadConfig, defaultDataDir, isInside } from "./config.mjs";
+import { loadConfig, defaultDataDir, isInside, KEY_LENGTH } from "./config.mjs";
 
 export const VERSION = "1.0.0";
 export const GAME_PATH = "/vr-games/games/training-room/";
@@ -73,6 +76,7 @@ const COOKIE_DAYS = 30;
 // Calls that would flood the console; logged only with --verbose.
 const QUIET = /^(pose|share\/[^/]+|parts\/file\/.*)$/;
 const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/i;
 
 // ---------- small helpers ----------
 function sendJSON(res, status, body, headers = {}) {
@@ -83,6 +87,12 @@ function sendJSON(res, status, body, headers = {}) {
   const text = JSON.stringify(body);
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "content-length": Buffer.byteLength(text), ...headers });
   res.end(text);
+}
+
+// 401/429 without reading the body: close the connection instead of draining a body still coming.
+function refuse(req, res, status, body) {
+  const hasBody = Number(req.headers["content-length"]) > 0 || !!req.headers["transfer-encoding"];
+  sendJSON(res, status, body, hasBody ? { connection: "close" } : {});
 }
 
 function noContent(res) {
@@ -242,22 +252,32 @@ export async function createBridge(options = {}) {
     const digest = crypto.createHash("sha256").update(candidate.trim().toUpperCase()).digest();
     return crypto.timingSafeEqual(digest, keyDigest());
   };
-  const isAuthed = (req, url) => {
-    const cookie = parseCookies(req.headers.cookie).tr_key;
-    return keyMatches(cookie) || keyMatches(req.headers["x-room-key"]) || keyMatches(url.searchParams.get("k"));
-  };
+  // Keys a request offers: tr_key cookie, x-room-key header, ?k= (a stale cookie may come with a fresh header).
+  const offeredKeys = (req, url) => [parseCookies(req.headers.cookie).tr_key, req.headers["x-room-key"], url.searchParams.get("k")]
+    .filter((k) => k !== undefined && k !== null);
   const throttled = (ip) => {
     const entry = failures.get(ip);
     return !!entry && entry.until > Date.now();
   };
-  const noteFailure = (ip) => {
+  const noteFailure = (ip, n = 1) => {
     const now = Date.now();
     const entry = failures.get(ip) || { count: 0, first: now, until: 0 };
     if (now - entry.first > 60000) Object.assign(entry, { count: 0, first: now });
-    entry.count++;
-    if (entry.count >= 30) entry.until = now + 60000;
+    entry.count += n;
+    if (entry.count >= 30 && entry.until <= now) {
+      entry.until = now + 60000;
+      log.warn?.(`${time()} [auth] ${entry.count} wrong room keys from ${ip}; refusing it for 60 s`);
+    }
     failures.set(ip, entry);
     if (failures.size > 1000) failures.delete(failures.keys().next().value);
+  };
+  // A throttled address is refused without checking any key, so it cannot keep guessing; every
+  // wrong key offered counts as one guess.
+  const authorize = (ip, keys) => {
+    if (throttled(ip)) return false;
+    if (keys.some(keyMatches)) return true;
+    if (keys.length) noteFailure(ip, keys.length);
+    return false;
   };
 
   const corsAllowed = (origin) => !!origin && origin !== "null" && (config.allowOrigins.includes(origin) || LOCAL_ORIGIN.test(origin));
@@ -278,7 +298,7 @@ export async function createBridge(options = {}) {
   async function api(req, res, route, url, ctx) {
     const method = req.method === "HEAD" ? "GET" : req.method;
     if (route === "hello" && method === "GET") {
-      const authed = isAuthed(req, url);
+      const authed = authorize(ctx.ip, offeredKeys(req, url));
       model.refresh().catch(() => {});
       const stt0 = stt.status();
       const tts0 = tts.status();
@@ -303,10 +323,9 @@ export async function createBridge(options = {}) {
     const parts = route.split("/");
     const isFile = parts[0] === "parts" && parts[1] === "file" && method === "GET";
     const fileRest = isFile ? route.slice("parts/file/".length) : "";
-    if (!(isFile && bin.hasCap(fileRest)) && !isAuthed(req, url)) {
-      if (throttled(ctx.ip)) return sendJSON(res, 429, { error: "slow-down" });
-      noteFailure(ctx.ip);
-      return sendJSON(res, 401, { error: "auth" });
+    if (!(isFile && bin.hasCap(fileRest))) {
+      if (throttled(ctx.ip)) return refuse(req, res, 429, { error: "slow-down" });
+      if (!authorize(ctx.ip, offeredKeys(req, url))) return refuse(req, res, 401, { error: "auth" });
     }
 
     if (isFile) {
@@ -518,6 +537,11 @@ export async function createBridge(options = {}) {
 
   // ---------- request handler ----------
   async function handle(req, res) {
+    // Plain HTTP listens on 127.0.0.1 only: refuse other Host names (DNS rebinding).
+    if (!req.socket.encrypted && !LOCAL_HOST.test(String(req.headers.host || ""))) {
+      res.writeHead(421, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", connection: "close" });
+      return res.end("Open the Training Room on this laptop as http://localhost\n");
+    }
     const started = Date.now();
     const rawPath = String(req.url || "/").split("?")[0] || "/";
     let url;
@@ -578,9 +602,10 @@ export async function createBridge(options = {}) {
       const key = url.searchParams.get("k");
       url.searchParams.delete("k");
       const rest = url.searchParams.toString();
-      const location = (rawPath === "/" ? GAME_PATH : rawPath) + (rest ? `?${rest}` : "");
+      // Same-origin path only: a leading "//host" or "/\host" would send the browser elsewhere.
+      const location = (rawPath === "/" ? GAME_PATH : `/${rawPath.replace(/^[/\\]+/, "")}`) + (rest ? `?${rest}` : "");
       const headers = { location, "cache-control": "no-store" };
-      if (keyMatches(key)) {
+      if (authorize(req.socket.remoteAddress || "?", [key])) {
         const secure = req.socket.encrypted ? "; Secure" : "";
         headers["set-cookie"] = `tr_key=${encodeURIComponent(config.roomKey)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${COOKIE_DAYS * 86400}${secure}`;
       }
@@ -650,7 +675,8 @@ export async function createBridge(options = {}) {
     for (const server of servers) {
       server.keepAliveTimeout = 65000;
       server.headersTimeout = 70000;
-      server.requestTimeout = 0; // event streams stay open
+      // requestTimeout keeps Node's default (300 s, at least headersTimeout): it only bounds receiving
+      // a request, so event streams stay open while stalled uploads are closed.
     }
     await probes;
     if (!servers.length) {
@@ -679,9 +705,10 @@ export async function createBridge(options = {}) {
     const line = "─".repeat(64);
     out.push("", line, "  DOT / GAMES · TRAINING ROOM · laptop bridge " + VERSION, line);
     out.push(`  Room key:  ${config.roomKey}`);
+    if (config.roomKey.length < KEY_LENGTH) out.push(`  Tip: a longer room key is safer. Delete "roomKey" in ${path.basename(configFile)} and restart to get a ${KEY_LENGTH}-character one.`);
     const lan = lanUrls();
     if (lan.length) {
-      out.push("  Headset / phone (same Wi-Fi; accept the certificate warning once):");
+      out.push("  Headset / phone (same Wi-Fi; accept the certificate warning; it returns on a new network):");
       for (const url of lan) out.push(`    ${withKey(url)}`);
     } else if (useHttps && !ports.https) {
       out.push("  HTTPS is not running, so only this laptop can join.");
@@ -710,7 +737,7 @@ export async function createBridge(options = {}) {
     out.push(`  Data:   ${dataDir} (settings: ${path.basename(configFile)})`);
     for (const problem of problems) out.push(`  Problem: ${problem}`);
     out.push("");
-    out.push("  Windows: when asked, allow Node.js on Private networks (not Public).");
+    out.push("  Windows: when asked, allow Node.js on Private networks, and set this Wi-Fi's profile to Private.");
     if (ports.http) out.push(`  USB headset: adb reverse tcp:${ports.http} tcp:${ports.http} then open ${withKey(`http://localhost:${ports.http}/`)} in the headset.`);
     out.push("  Stop with Ctrl+C.", line, "");
     log.log?.(out.join("\n"));
