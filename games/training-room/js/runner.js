@@ -62,6 +62,7 @@ export class Runner extends Emitter {
         brain = response.model ? `model:${response.model}` : "model";
         if (!intents.length && parsed.intents.length && parsed.confidence >= 0.8) {
           intents = parsed.intents;
+          say = parsed.say ? [parsed.say] : [];
           brain = "parser";
         }
       } catch (err) {

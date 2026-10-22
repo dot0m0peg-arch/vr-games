@@ -23,6 +23,7 @@ const FATAL_RECOGNITION = new Set(["not-allowed", "service-not-allowed", "audio-
 
 const MSG = {
   didntCatch: "Didn't catch that",
+  silent: "The mic is sending pure silence. On Android, check that Mic access is on in Quick settings.",
   permission: "Microphone permission is blocked. Allow the microphone for this site in the browser's site settings, then turn the mic back on.",
   insecure: "The microphone needs a secure page (https or localhost). Open the game from the laptop bridge's https address.",
   noMic: "No microphone found. Switch on or reconnect your Bluetooth headset mic, then try again.",
@@ -397,8 +398,9 @@ export class Voice extends Emitter {
   // Audio → WAV → transcribe(). via "push" (always a command) or "wake" (needs the wake word).
   async _transcribeAudio(audio, rate, via) {
     const push = via === "push";
-    if (audio.length / rate < 0.25 || rms(audio) < this.minRms) {
-      if (push) this.emit("error", MSG.didntCatch);
+    const level = rms(audio);
+    if (audio.length / rate < 0.25 || level < this.minRms) {
+      if (push) this.emit("error", level === 0 && audio.length / rate >= 0.25 ? MSG.silent : MSG.didntCatch);
       return;
     }
     const fn = this._transcribe;

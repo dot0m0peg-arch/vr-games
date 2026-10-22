@@ -75,7 +75,7 @@ function headPose() {
   camera.getWorldPosition(tmpPos);
   camera.getWorldDirection(tmpDir);
   camera.getWorldQuaternion(tmpQuat);
-  return { p: tmpPos.toArray(), q: tmpQuat.toArray(), yaw: Math.atan2(-tmpDir.x, -tmpDir.z) };
+  return { p: tmpPos.toArray(), q: tmpQuat.toArray(), yaw: Math.atan2(-tmpDir.x, -tmpDir.z), pitch: Math.asin(Math.max(-1, Math.min(1, tmpDir.y))) };
 }
 
 function localHand(hand) {
@@ -85,7 +85,7 @@ function localHand(hand) {
 }
 
 function getHand(user, hand) {
-  if (user === me.id) return localHand(hand);
+  if (user === me.id) return interact.applySwing(hand, localHand(hand));
   return avatars.handPose(user, hand);
 }
 
@@ -193,10 +193,12 @@ runner.on("reply", ({ text, source, speak: spoken }) => {
 runner.on("parts-changed", () => ui.setParts(allMeta()));
 
 // ---------- voice ----------
-const voice = new Voice({ wakeWords: WAKE_WORDS });
+// Phones release the mic right after each utterance: an open Bluetooth mic keeps the headset in
+// low-quality call mode. Headset and laptop keep it warm for 30 s so the next press is instant.
+const voice = new Voice({ wakeWords: WAKE_WORDS, idleReleaseMs: device === "phone" ? 1200 : 30000 });
 let talking = false;
 voice.on("state", (state) => {
-  talking = state.listening;
+  talking = !!state.talking;
   ui.setMic(state);
   hud.setMic(state);
 });
@@ -258,6 +260,8 @@ xr.on("end", () => {
   camera.quaternion.identity();
   ui.showLaunchAgain("Left VR. Your room is still here.");
 });
+xr.on("turn", () => interact.resetMotion());
+xr.on("teleport", () => interact.resetMotion());
 xr.on("button", ({ hand, name, pressed }) => {
   if (name === "a") return pressed ? talkDown() : talkUp();
   if (name === "b" && pressed) return hand === "left" ? toggleMute() : hud.toggleMenu();
@@ -325,12 +329,19 @@ function desktopThrow() {
 }
 
 // ---------- UI events ----------
+// Ask for the mic on the flat page first: a permission prompt inside VR would drop you out of it.
+let micAsked = false;
 ui.on("enter-vr", async () => {
+  await unlockAudio();
+  let justAsked = false;
+  if (!micAsked && voice.mode !== "off") {
+    micAsked = true;
+    justAsked = await voice.prepare();
+  }
   try {
-    await unlockAudio();
     await xr.enter();
   } catch (err) {
-    ui.toast(err.message || "Could not start VR.", "error");
+    ui.toast(justAsked ? "Microphone ready. Press Enter VR again." : err.message || "Could not start VR.", justAsked ? "info" : "error");
   }
 });
 ui.on("play-flat", async () => {
@@ -416,23 +427,40 @@ async function connectBridge(key = null) {
   wireNet(net);
   const joined = await net.join({ name: me.name, device });
   me = { ...me, ...joined.user };
+  placeAtSpawn();
   room.load(joined.state);
   setUsers(joined.users || []);
   share = new Share({ net });
-  share.on("ended", () => ui.setShare({ active: false }));
+  share.on("ended", (stream, info) => {
+    if (info?.local) ui.setShare({ active: false });
+  });
   runner.modelAvailable = !!bridgeInfo.model?.available;
   if (bridgeInfo.stt?.available) voice.setTranscriber((blob) => net.transcribe(blob));
   ui.setConnection({ state: "online", model: bridgeInfo.model, stt: bridgeInfo.stt, url: joinUrl(), users: lastUsers });
   hud.setConnection?.({ state: "online", model: bridgeInfo.model });
   if (device === "desktop") ui.showJoinQR(joinUrl());
+  loadLaptopParts(true);
+  return true;
+}
+
+function loadLaptopParts(announce = false) {
+  if (!net) return;
   loadRemoteParts(net, { registerMeta, registerBuilder: build.registerBuilder, buildBlueprint })
     .then(({ count, errors }) => {
       ui.setParts(allMeta());
       if (errors?.length) console.warn("[parts] laptop parts bin issues", errors);
-      if (count) ui.toast(`Loaded ${count} parts from the laptop parts bin.`);
+      if (count && announce) ui.toast(`Loaded ${count} parts from the laptop parts bin.`);
     })
     .catch((err) => console.warn("[parts] could not load the laptop parts bin", err));
-  return true;
+}
+
+// Devices in one room start on different spots around the center, facing it.
+function placeAtSpawn() {
+  const spots = { headset: [0, 0], desktop: [2.5, 3], phone: [-2.5, 3] };
+  const [x, z] = spots[device] || [0, 0];
+  if (rig.position.lengthSq() > 0.01) return;
+  rig.position.set(x, 0, z);
+  rig.rotation.y = Math.atan2(x, z);
 }
 
 function joinUrl() {
@@ -451,6 +479,8 @@ function setUsers(users) {
 
 function wireNet(client) {
   client.on("op", ({ seq, op }) => room.apply(op, { seq }));
+  client.on("state", ({ state }) => state && room.load(state));
+  client.on("parts", () => loadLaptopParts(false));
   client.on("users", setUsers);
   client.on("poses", (poses) => avatars.setPoses(poses));
   client.on("fx", ({ user, fx }) => {
@@ -524,15 +554,18 @@ async function start() {
 }
 
 // ---------- frame loop ----------
-const clock = new THREE.Clock();
 const headWorld = new THREE.Vector3();
 let poseTimer = 0;
+let lastFrame = performance.now();
+let t = 0;
 
 renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.05);
-  const t = clock.elapsedTime;
+  const now = performance.now();
+  const dt = Math.min((now - lastFrame) / 1000, 0.05);
+  lastFrame = now;
+  t += dt;
   if (xr.presenting) xr.update(dt);
-  else if (touch.enabled) touch.update(dt);
+  else if (touch.following || touch.enabled) touch.update(dt);
   else if (desktop.enabled) desktop.update(dt);
 
   camera.getWorldPosition(headWorld);

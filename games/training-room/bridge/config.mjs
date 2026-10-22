@@ -20,7 +20,7 @@ export const DEFAULTS = {
   sttUrl: "http://127.0.0.1:8080/inference",
   sttModel: "whisper-1",
   sttLanguage: "en",
-  sttPrompt: "",
+  sttPrompt: "AI, spawn a villa to my left, an axe in my hand, a deck of playing cards on a card table, training dummy, whiteboard, make it real, undo.",
   partsDirs: [],
   allowOrigins: ["https://dot0m0peg-arch.github.io"],
 };
