@@ -79,6 +79,8 @@ export function buildObject(record) {
   for (const key of ["update", "setText", "setDeck", "setScreen"]) {
     if (typeof inner.userData[key] === "function") hooks[key] = inner.userData[key];
   }
+  // Parts whose hooks keep references to individual meshes are left as built.
+  if (!Object.keys(hooks).length && record.part !== "drawing") kit.mergeStatic(inner);
   wrapper.userData = { id: record.id, record, meta, inner, hooks };
   if (record.text && hooks.setText) hooks.setText(record.text);
   if (record.data && hooks.setDeck && (meta.deck || record.data.cards || record.data.card)) hooks.setDeck(record.data);

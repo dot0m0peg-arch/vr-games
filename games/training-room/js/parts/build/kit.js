@@ -171,6 +171,65 @@ export function finish(root, name) {
   return root;
 }
 
+// Merges static meshes that share a material (and tint flag) into one mesh each, so a villa
+// built from 140 boxes costs a dozen draw calls instead of 140. Only for parts without hooks
+// that keep references to individual meshes. Mirrored meshes and multi-material meshes stay as they are.
+const mergeInverse = new THREE.Matrix4();
+const mergeMatrix = new THREE.Matrix4();
+
+export function mergeStatic(root) {
+  root.updateMatrixWorld(true);
+  mergeInverse.copy(root.matrixWorld).invert();
+  const groups = new Map();
+  root.traverse((object) => {
+    if (!object.isMesh || object.isInstancedMesh || object.isSkinnedMesh || Array.isArray(object.material)) return;
+    if (object.userData.keep || object.morphTargetInfluences || !object.geometry?.attributes?.position) return;
+    if (object.matrixWorld.determinant() <= 0) return;
+    const key = `${object.material.uuid}|${object.userData.tint ? 1 : 0}|${object.renderOrder}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(object);
+  });
+  let merged = 0;
+  for (const meshes of groups.values()) {
+    if (meshes.length < 2) continue;
+    const parts = [];
+    let vertices = 0;
+    for (const mesh of meshes) {
+      const source = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+      source.applyMatrix4(mergeMatrix.multiplyMatrices(mergeInverse, mesh.matrixWorld));
+      parts.push(source);
+      vertices += source.attributes.position.count;
+    }
+    const position = new Float32Array(vertices * 3);
+    const normal = new Float32Array(vertices * 3);
+    const uv = new Float32Array(vertices * 2);
+    let offset = 0;
+    for (const part of parts) {
+      const count = part.attributes.position.count;
+      position.set(part.attributes.position.array.subarray(0, count * 3), offset * 3);
+      if (part.attributes.normal) normal.set(part.attributes.normal.array.subarray(0, count * 3), offset * 3);
+      if (part.attributes.uv) uv.set(part.attributes.uv.array.subarray(0, count * 2), offset * 2);
+      offset += count;
+      part.dispose();
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(position, 3));
+    geometry.setAttribute("normal", new THREE.BufferAttribute(normal, 3));
+    geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    geometry.computeBoundingSphere();
+    geometry.computeBoundingBox();
+    const first = meshes[0];
+    const combined = new THREE.Mesh(geometry, first.material);
+    combined.name = `${root.name || "part"}:merged`;
+    combined.renderOrder = first.renderOrder;
+    if (first.userData.tint) combined.userData.tint = true;
+    for (const mesh of meshes) mesh.removeFromParent();
+    root.add(combined);
+    merged += meshes.length - 1;
+  }
+  return merged;
+}
+
 // Measures an object's bounding box size [w, h, d] (used by tests and blueprint sizing).
 export function measure(object) {
   object.updateMatrixWorld(true);
@@ -191,5 +250,5 @@ export function disposeObject(object) {
   });
 }
 
-export const kit = { THREE, mat, box, cyl, sphere, cone, torus, capsule, plane, lathe, extrude, prism, group, textPanel, place, finish, measure, disposeObject, DEG };
+export const kit = { THREE, mat, box, cyl, sphere, cone, torus, capsule, plane, lathe, extrude, prism, group, textPanel, place, finish, measure, mergeStatic, disposeObject, DEG };
 export default kit;

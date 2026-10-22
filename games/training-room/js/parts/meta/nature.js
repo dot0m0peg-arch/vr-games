@@ -18,7 +18,7 @@ export const metas = [
   },
   {
     name: "rock", aliases: ["stone"], category: "nature",
-    desc: "knee-high gray rock", size: [1.11, 0.62, 0.99], color: "#8f8d86",
+    desc: "knee-high gray rock", size: [1.02, 0.62, 0.85], color: "#8f8d86",
   },
   {
     name: "boulder", aliases: ["big rock"], category: "nature",
@@ -66,7 +66,7 @@ export const metas = [
   },
   {
     name: "crystal", aliases: ["crystal cluster", "magic crystal"], category: "nature",
-    desc: "cluster of glowing purple crystals", size: [1.33, 1.59, 1.18], color: "#a98bff",
+    desc: "cluster of glowing purple crystals", size: [1.17, 1.59, 1.03], color: "#a98bff",
   },
   {
     name: "birch tree", aliases: ["birch"], category: "nature",
