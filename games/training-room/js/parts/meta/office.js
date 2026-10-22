@@ -20,12 +20,12 @@ export const metas = [
   },
   {
     name: "screen", aliases: ["big screen", "tv", "television", "display", "projector screen", "tv screen", "flat screen"],
-    category: "office", desc: "big 16:9 display on a floor stand for screen sharing", size: [2.0, 1.9, 0.6],
+    category: "office", desc: "big 16:9 display on a floor stand for screen sharing", size: [2.0, 1.92, 0.6],
     color: "#1b1f1d", screen: true,
   },
   {
     name: "whiteboard", aliases: ["white board", "dry erase board", "marker board"], category: "office",
-    desc: "rolling whiteboard you can write on", size: [1.8, 1.9, 0.56], color: "#9ea5a0", writable: true,
+    desc: "rolling whiteboard you can write on", size: [1.82, 1.9, 0.56], color: "#9ea5a0", writable: true,
   },
   {
     name: "sticky note", aliases: ["note", "post it", "post-it note", "post-it", "memo", "sticky"], category: "office",
@@ -34,7 +34,7 @@ export const metas = [
   },
   {
     name: "easel", aliases: ["flip chart", "flipchart", "flip board"], category: "office",
-    desc: "flip chart paper pad on a tripod, writable", size: [0.76, 1.8, 0.72], color: "#6b4c32", writable: true,
+    desc: "flip chart paper pad on a tripod, writable", size: [0.74, 1.77, 0.73], color: "#6b4c32", writable: true,
   },
   {
     name: "floor lamp", aliases: ["lamp", "standing lamp"], category: "office",
@@ -42,8 +42,8 @@ export const metas = [
   },
   {
     name: "desk lamp", aliases: ["reading lamp", "table lamp"], category: "office",
-    desc: "small jointed desk lamp", size: [0.15, 0.37, 0.24], color: "#33473c",
-    holdable: true, grip: { p: [0, 0.12, -0.05], r: [-90, 180, 0] },
+    desc: "small jointed desk lamp", size: [0.15, 0.37, 0.26], color: "#33473c",
+    holdable: true, grip: { p: [0, 0.15, -0.098], r: [-90, 180, 0] },
   },
   {
     name: "couch", aliases: ["sofa", "settee"], category: "office",
@@ -59,7 +59,7 @@ export const metas = [
   },
   {
     name: "potted plant", aliases: ["plant", "houseplant", "office plant", "house plant"], category: "office",
-    desc: "leafy office plant in a ceramic pot", size: [0.56, 1.12, 0.56], color: "#d9d4c7",
+    desc: "leafy office plant in a ceramic pot", size: [0.53, 1.21, 0.53], color: "#d9d4c7",
   },
   {
     name: "laptop", aliases: ["notebook computer", "macbook", "laptop computer"], category: "office",
@@ -87,7 +87,7 @@ export const metas = [
   },
   {
     name: "lectern", aliases: ["speaker stand"], category: "office",
-    desc: "wooden lectern with a microphone", size: [0.7, 1.3, 0.6], color: "#5e4330",
+    desc: "wooden lectern with a microphone", size: [0.7, 1.28, 0.55], color: "#5e4330",
   },
   {
     name: "trash can", aliases: ["bin", "garbage can", "wastebasket", "trash bin", "waste bin"], category: "office",
