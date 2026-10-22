@@ -7,9 +7,6 @@
 <meta name="theme-color" content="#5aaee8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Miner</title>
-<style>@font-face{font-family:'Fredoka';font-weight:500;src:url(fonts/fredoka-latin-500-normal.woff2) format('woff2')}@font-face{font-family:'Fredoka';font-weight:600;src:url(fonts/fredoka-latin-600-normal.woff2) format('woff2')}@font-face{font-family:'Fredoka';font-weight:700;src:url(fonts/fredoka-latin-700-normal.woff2) format('woff2')}@font-face{font-family:'Alfa Slab One';font-weight:400;src:url(fonts/alfa-slab-one-latin-400-normal.woff2) format('woff2')}</style>
-<meta name="claude:viewport-fit-sides" content="cover">
-<meta name="theme-color" content="#5aaee8">
 <style>@font-face{font-family:'Fredoka';font-style:normal;font-weight:300 700;font-display:swap;src:url('fredoka-latin.woff2') format('woff2');}</style>
 <style>
 /* Layout: full-bleed 3D canvas; HUD pills pinned to safe-area corners; bottom sheets for menus. One cozy light look on purpose. */
@@ -2029,7 +2026,7 @@ const doorOf = b => ({ x: b.x, z: b.z1 + 1.3 });
 
 // ---------- player ----------
 const PSINK = { acc: [] };
-let digSoundT = 0, hardMsgT = 0, lastDigAt = null;
+let hardMsgT = 0, lastDigAt = null;
 const toolDef = () => TOOLS.find(t => t.id === G.tool) || TOOLS[0];
 function makePlayer(x, z) {
   P = makeEnt('player', x, z);
@@ -2941,7 +2938,7 @@ function newDay() {
   G.crimeToday = false; G.goodwill = Math.max(0, G.goodwill - 1);
   const keepT = G.tombs.filter(t => G.day - t.day < 5); if (keepT.length !== G.tombs.length) { G.tombs = keepT; rebuildTombs(); }
   if (h < (hasB('doctor') ? 12 : 22) && G.residents.length) { const n = pickr(G.residents.filter(r => r.state !== 'leave')); if (n) { n.state = 'leave'; npcGo(n, WS - 4, roadZ(WS - 4)); toast(`${n.name} is leaving. Folks are unhappy.`, 'warn'); } }
-  G.requests = [];
+  G.requests = Array.from({ length: 3 }, makeRequest);
   if (G.day >= 3 && Math.random() < .45) G.meteorAt = .74 + Math.random() * .14;
   townDay();
   saveGame();
@@ -4600,7 +4597,7 @@ function townHtml() {
     const ok = have(r.k) >= r.qty;
     return `<div class="item">${gemI(r.k)}<div class="tx"><b>${r.qty} ${ITEMS[r.k].name.toLowerCase()} for ${escapeHtml(r.who)}</b><span>You have ${have(r.k)} · pays $${fmt(r.reward)}</span></div><button class="btn go sm" data-act="deliver" data-i="${i}" ${ok ? '' : 'disabled'}>Deliver</button></div>`;
   }).join('');
-  return `${statsHtml()}<h4>Reputation</h4><p><b style="color:var(--ink)">${titleOf()}</b>${G.kills ? ` · ${G.kills} gone missing` : ''}${G.arrests ? ` · arrested ${G.arrests}×` : ''} · fossils ${G.relics.length}/12</p>`;
+  return `${statsHtml()}${G.requests.length ? `<h4>Requests</h4><div class="list">${reqs}</div>` : ''}<h4>Reputation</h4><p><b style="color:var(--ink)">${titleOf()}</b>${G.kills ? ` · ${G.kills} gone missing` : ''}${G.arrests ? ` · arrested ${G.arrests}×` : ''} · fossils ${G.relics.length}/12</p>`;
 }
 function bunkHtml() {
   const slots = G.buildings.filter(b => b.type === 'bunk').length * 2;
@@ -4807,7 +4804,6 @@ function footTap(sx, sy) {
   if (d > T.reach + 2 && !above) { P.digAt = null; P.goal = { x: w.x, z: w.z, stop: .5 }; tapMarker(w); return; }
   P.digAt = { x: w.x, z: w.z, hold: false, t: 0 }; P.goal = null; tapMarker(w);
 }
-let tapMark = null;
 function tapMarker(w) { floatText(w.x, w.y + .3, w.z, '•', '#ffffff'); }
 function overTap(sx, sy) {
   const w = screenRay(sx, sy);
@@ -5037,6 +5033,7 @@ function settleTrees() { for (const t of trees) if (!t.alive) t.fall = 0; fallin
 function newWorld(seed) {
   clearWorldObjects();
   G = freshState(seed);
+  G.requests = Array.from({ length: 3 }, makeRequest);
   genWorld(seed); townBase(); initTreeGrid(); navW.fill(0);
   addBuilding('office', TOWN.x - 14, TOWN.z - 12, { instant: true });
   addBuilding('shop', TOWN.x + 13, TOWN.z - 12, { instant: true });
