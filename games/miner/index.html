@@ -3936,7 +3936,7 @@ const FURN = {
   chair: () => [[box(.42, .07, .42), '#a8744a', TM(0, .45, 0)], [box(.42, .5, .06), '#a8744a', TM(0, .72, -.19)], ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, b]) => [box(.05, .45, .05), '#7a5234', TM(a * .17, .22, b * .17)])],
   bed: () => [[box(1.2, .35, 2.1), '#8a5a3a', TM(0, .25, 0)], [box(1.1, .2, 1.9), '#f6efe0', TM(0, .5, .05)], [box(1.12, .14, 1.3), '#6aa6e0', TM(0, .62, .35)], [box(.8, .16, .35), '#ffffff', TM(0, .66, -.7)], [box(1.2, .9, .12), '#7a4e2e', TM(0, .55, -1.02)]],
   counter: (len = 4) => [[box(len, 1, .7), '#8a5a3a', TM(0, .5, 0)], [box(len + .1, .08, .8), '#c89a64', TM(0, 1.04, 0)]],
-  shelf: (c = 0) => [[box(1.6, 2, .4), '#7a4e2e', TM(0, 1, 0)], ...[.5, 1.05, 1.6].map(y => [box(1.5, .05, .36), '#a8744a', TM(0, y, .02)]), ...[0, 1, 2, 3, 4, 5].map(k => [box(.2, .3, .24), ['#e2574c', '#5fc2b6', '#e8b04e', '#6aa6e0', '#a48ad8', '#7cbf6b'][(k + c) % 6], TM(-.5 + (k % 3) * .5, k > 2 ? 1.23 : .68, .03)])],
+  shelf: (c = 0) => [[box(1.6, 2, .06), '#6a4630', TM(0, 1, -.17)], [box(.06, 2, .4), '#7a4e2e', TM(-.77, 1, 0)], [box(.06, 2, .4), '#7a4e2e', TM(.77, 1, 0)], [box(1.6, .06, .4), '#7a4e2e', TM(0, 1.97, 0)], ...[.5, 1.05, 1.6].map(y => [box(1.5, .05, .36), '#a8744a', TM(0, y, .02)]), ...[0, 1, 2, 3, 4, 5].map(k => [box(.2, .3, .24), ['#e2574c', '#5fc2b6', '#e8b04e', '#6aa6e0', '#a48ad8', '#7cbf6b'][(k + c) % 6], TM(-.5 + (k % 3) * .5, k > 2 ? 1.23 : .68, .03)])],
   stove: () => [[box(.9, .9, .7), '#3a3440', TM(0, .45, 0)], [cyl(.1, .1, 1.8, 8), '#3a3440', TM(.25, 1.7, -.15)], [box(.5, .3, .05), '!#ff9a52', TM(0, .4, .36)]],
   rug: (w = 3, d = 2, a = '#c8463a', b = '#e8a06a') => [[box(w, .03, d), a, TM(0, .015, 0)], [box(w - .4, .035, d - .4), b, TM(0, .02, 0)], [box(w - .7, .04, d - .7), a, TM(0, .025, 0)]],
   barrel: () => [[cyl(.32, .32, .8, 12), '#8a5a3a', TM(0, .4, 0)], [cyl(.335, .335, .06, 12), '#4a4a52', TM(0, .2, 0)], [cyl(.335, .335, .06, 12), '#4a4a52', TM(0, .6, 0)]],
@@ -4143,13 +4143,19 @@ function openDecor() { if (!room) return; openSheet({ title: 'Decorate', b: room
 function freeSpot(D) {
   const R = room, me = R.me;
   if (D.wall) { const used = (R.b.decor || []).filter(i => DECOR.find(x => x.id === i.id).wall).map(i => i.x); let x = clamp(me.x, -R.w / 2 + .8, R.w / 2 - .8); for (let k = 0; k < 20 && used.some(u => Math.abs(u - x) < 1.3); k++) x = clamp(me.x + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 1.3, -R.w / 2 + .8, R.w / 2 - .8); return { x, z: -R.d / 2 + .06, rot: 0 }; }
-  const r = FURN_R[D.f] || .5;
+  const r = FURN_R[D.f] || .5, door = (x, z) => Math.abs(x) < 1.5 && z > R.d / 2 - 2;   // keep the way out clear
   for (let k = 0; k < 40; k++) {
     const a = me.face + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * .5, dd = 1 + r + Math.floor(k / 12) * .8, x = me.x + Math.sin(a) * dd, z = me.z + Math.cos(a) * dd;
-    if (Math.abs(x) > R.w / 2 - r - .2 || z < -R.d / 2 + r + .2 || z > R.d / 2 - r - .9) continue;
+    if (Math.abs(x) > R.w / 2 - r - .2 || z < -R.d / 2 + r + .2 || z > R.d / 2 - r - .9 || door(x, z)) continue;
     if (D.f === 'rug' || !R.solid.some(s => Math.hypot(s.x - x, s.z - z) < s.r + r)) return { x, z, rot: Math.round((me.face + Math.PI) / (Math.PI / 2)) * (Math.PI / 2) };
   }
-  return { x: me.x, z: me.z, rot: 0 };
+  // nothing free in front of you: the nearest open floor anywhere in the room
+  let best = null, bd = 1e9;
+  for (let x = -R.w / 2 + r + .3; x <= R.w / 2 - r - .3; x += .5) for (let z = -R.d / 2 + r + .3; z <= R.d / 2 - r - 1; z += .5) {
+    if (door(x, z) || R.solid.some(s => Math.hypot(s.x - x, s.z - z) < s.r + r)) continue;
+    const d = Math.hypot(x - me.x, z - me.z); if (d > .9 + r && d < bd) { bd = d; best = { x, z, rot: 0 }; }
+  }
+  return best || { x: 0, z: 0, rot: 0 };
 }
 function decorHtml(tab) {
   const b = sheet.b, T = BTYPES[b.type];
@@ -4373,6 +4379,15 @@ function picSVG(kind, type) {
   const T = BTYPES[type];
   if (type === 'field') return `<svg viewBox="0 0 64 52"><rect x="6" y="20" width="52" height="28" rx="3" fill="#7a5236"/>${[0, 1, 2, 3].map(k => `<rect x="10" y="${24 + k * 6}" width="44" height="3" rx="1.5" fill="#5e3e28"/>`).join('')}${[0, 1, 2, 3, 4, 5].map(k => `<path d="M${11 + k * 8} 24l3-11 3 11z" fill="#9fd06a"/>`).join('')}</svg>`;
   if (type === 'well') return `<svg viewBox="0 0 64 52"><path d="M13 18L32 6l19 12z" fill="#b0573f"/><rect x="17" y="17" width="4" height="20" fill="#7a5234"/><rect x="43" y="17" width="4" height="20" fill="#7a5234"/><rect x="12" y="34" width="40" height="14" rx="3" fill="#a3a1ab"/><ellipse cx="32" cy="34" rx="20" ry="4" fill="#4f86c0"/></svg>`;
+  const fl = ['#ff8fb1', '#ffe066', '#ffffff', '#ff7a5a', '#c08cff'];
+  if (type === 'flowerbed') return `<svg viewBox="0 0 64 52"><rect x="8" y="32" width="48" height="12" rx="3" fill="#8a6242"/>${[0, 1, 2, 3, 4, 5, 6].map(k => `<rect x="${13 + k * 6.5}" y="24" width="2" height="9" fill="#5fae4f"/><circle cx="${14 + k * 6.5}" cy="23" r="4" fill="${fl[k % 5]}"/>`).join('')}</svg>`;
+  if (type === 'bench') return `<svg viewBox="0 0 64 52"><rect x="10" y="20" width="44" height="6" rx="2" fill="#a8744a"/><rect x="10" y="30" width="44" height="6" rx="2" fill="#a8744a"/><rect x="14" y="36" width="4" height="10" fill="#7a5234"/><rect x="46" y="36" width="4" height="10" fill="#7a5234"/></svg>`;
+  if (type === 'tree') return `<svg viewBox="0 0 64 52"><rect x="29" y="30" width="6" height="18" fill="#7a5234"/><circle cx="32" cy="22" r="15" fill="#5fae4f"/><circle cx="40" cy="16" r="9" fill="#7cbf5a"/><circle cx="24" cy="20" r="8" fill="#4f9a44"/></svg>`;
+  if (type === 'windmill') return `<svg viewBox="0 0 64 52"><path d="M24 50l3-30h10l3 30z" fill="#efe7d8"/><path d="M22 21l10-9 10 9z" fill="#7a3e34"/><rect x="29" y="38" width="6" height="12" fill="#6a4630"/><g transform="translate(32 18) rotate(20)" fill="#f3e9d2" stroke="#7a5234" stroke-width="1.5"><rect x="-2" y="-17" width="5" height="15"/><rect x="-2" y="2" width="5" height="15"/><rect x="-17" y="-2" width="15" height="5"/><rect x="2" y="-2" width="15" height="5"/></g></svg>`;
+  if (type === 'tower') return `<svg viewBox="0 0 64 52"><path d="M20 50l4-24M44 50l-4-24M22 40h20M24 32h16" stroke="#7a5234" stroke-width="3"/><rect x="18" y="12" width="28" height="15" rx="2" fill="#c9a476"/><rect x="18" y="16" width="28" height="2" fill="#6a4630"/><path d="M16 13l16-9 16 9z" fill="#7a3e34"/></svg>`;
+  if (type === 'gazebo') return `<svg viewBox="0 0 64 52"><rect x="10" y="44" width="44" height="5" rx="2" fill="#e8dcc6"/>${[14, 25, 39, 50].map(x => `<rect x="${x - 1.5}" y="22" width="3" height="22" fill="#fffaf0"/>`).join('')}<path d="M8 23L32 6l24 17z" fill="#4f7d5c"/><circle cx="32" cy="6" r="2.5" fill="#c9a43a"/></svg>`;
+  if (type === 'fountain') return `<svg viewBox="0 0 64 52"><ellipse cx="32" cy="42" rx="24" ry="7" fill="#a3a1ab"/><ellipse cx="32" cy="40" rx="20" ry="4.5" fill="#5aaee8"/><rect x="29" y="22" width="6" height="18" fill="#a3a1ab"/><ellipse cx="32" cy="22" rx="10" ry="3.5" fill="#a3a1ab"/><path d="M32 8c-4 4-6 9-6 13M32 8c4 4 6 9 6 13" stroke="#7ec4f0" stroke-width="2.5" fill="none"/></svg>`;
+  if (type === 'statue') return `<svg viewBox="0 0 64 52"><rect x="20" y="38" width="24" height="12" fill="#d9cfbe"/><rect x="26" y="20" width="12" height="18" rx="4" fill="#d9b44a"/><circle cx="32" cy="15" r="6" fill="#e8c45a"/><path d="M25 12a7 7 0 0114 0z" fill="#f0cf6a"/><rect x="38" y="20" width="3" height="14" rx="1.5" fill="#c9a43a"/></svg>`;
   if (type === 'lamp') return `<svg viewBox="0 0 64 52"><rect x="30" y="16" width="4" height="34" fill="#3a3440"/><rect x="25" y="6" width="14" height="12" rx="2" fill="#ffd46b"/><path d="M23 6l9-5 9 5z" fill="#3a3440"/></svg>`;
   const wall = type === 'house' ? '#f3c98b' : T.wall, roof = T.roof;
   let extra = '';
@@ -5339,7 +5354,7 @@ function boot() {
   showTitle();
   xrProbe();
   if (!STILL) nextFrame();
-  if (/[?&]debug/.test(location.search)) window.MINER = { get G() { return G; }, get P() { return P; }, rig, rigT, camera, setMode, startPlay, startNewGame, newWorld, update, hAt, h0: h0At, matAt, digBrush, placeCheck, doPlace, harvestMachine, hireCrew, PADS, obstacleAt, treesNear, moveEnt, CAVES: () => CAVES, openCave, LIFTS, sellBag, bagCount, bagCap, padActivate, updPads, startMeteor, killNpc, screenRay, toScreen, findPath, MACHINES, get trees() { return trees; }, renderer, scene, get mode() { return mode; }, get placing() { return placing; }, startPlacing, confirmPlace, openShop, closeSheet, saveGame, readSave, loadGame, applyDaylight, flushTerrain, newDay, input, keys, footTap, nearestV, H: () => H, fossils: () => fossils, get pet() { return pet; }, adoptPet, rebuildPet, petsHtml, openPerson, openBuilding, assignJob, townDay, plantField, harvestField, addBuilding, workSpot, fillBrush, XR, xrInitRig, xrFrame, xrTap, xrRay, updateCamera, camera_: () => camera,
+  if (/[?&]debug/.test(location.search)) window.MINER = { get G() { return G; }, get P() { return P; }, rig, rigT, camera, setMode, startPlay, startNewGame, newWorld, update, hAt, h0: h0At, matAt, digBrush, placeCheck, doPlace, harvestMachine, hireCrew, PADS, obstacleAt, treesNear, moveEnt, CAVES: () => CAVES, openCave, LIFTS, sellBag, bagCount, bagCap, padActivate, updPads, startMeteor, killNpc, screenRay, toScreen, findPath, MACHINES, get trees() { return trees; }, renderer, scene, get mode() { return mode; }, get placing() { return placing; }, startPlacing, confirmPlace, openShop, closeSheet, saveGame, readSave, loadGame, applyDaylight, flushTerrain, newDay, input, keys, footTap, nearestV, H: () => H, fossils: () => fossils, get pet() { return pet; }, adoptPet, rebuildPet, petsHtml, get room() { return room; }, get roomScene() { return roomScene; }, openPerson, openBuilding, assignJob, townDay, plantField, harvestField, addBuilding, workSpot, fillBrush, XR, xrInitRig, xrFrame, xrTap, xrRay, updateCamera, camera_: () => camera,
     step(n, dt) { let t0 = performance.now(); for (let k = 0; k < (n || 1); k++) { lastT = performance.now() - (dt || 16); frame(performance.now()); } return performance.now() - t0; },
     sim(n, dt) { for (let k = 0; k < n; k++) update(dt || .05); }, };
 }
