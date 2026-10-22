@@ -1,10 +1,12 @@
 // Local model brain: turns a spoken command into intents (ARCHITECTURE "Intents") through Ollama
-// (/api/chat with a JSON schema) or any OpenAI-compatible server (LM Studio, llama.cpp, Ollama /v1).
-// Model output is data only: it is parsed, filtered to known intents and clamped, never executed.
+// (/api/chat with a JSON schema) or any OpenAI-compatible server (LM Studio, llama.cpp, Ollama /v1),
+// and guesses what a magic-marker drawing shows (a vision model looks at the image; otherwise the
+// text model reads it as ASCII art). Model output is data only: it is parsed, filtered and clamped,
+// never executed.
 import { matchPart, singularize, normalizeText } from "../js/core/lexicon.js";
 import { normalizeBp } from "./parts-bin.mjs";
 
-export const DOS = ["spawn", "remove", "move", "scale", "color", "hold", "drop", "write", "deal", "shuffle", "flip", "undo", "clear", "time", "say", "list"];
+export const DOS = ["spawn", "remove", "move", "scale", "color", "hold", "drop", "write", "deal", "shuffle", "flip", "undo", "clear", "time", "say", "list", "animate", "realize", "guess", "correct"];
 const DO_ALIASES = {
   create: "spawn", summon: "spawn", add: "spawn", make: "spawn", place: "spawn", build: "spawn", give: "spawn", conjure: "spawn",
   delete: "remove", destroy: "remove", despawn: "remove", erase: "remove", banish: "remove",
@@ -28,6 +30,22 @@ export const MAX_INTENTS = 30;
 
 // ---------- JSON schema for structured output ----------
 // Property order matters to grammar-constrained decoders (required first, then listed order).
+function blueprintSchema() {
+  const num = { type: "number" };
+  const str = { type: "string" };
+  const vec3 = { type: "array", items: num, minItems: 3, maxItems: 3 };
+  const primitive = {
+    type: "object",
+    properties: { shape: { type: "string", enum: SHAPES }, p: vec3, s: vec3, color: str, mat: { type: "string", enum: MATS }, r: vec3 },
+    required: ["shape", "p", "s", "color", "mat"],
+  };
+  return {
+    type: "object",
+    properties: { name: str, desc: str, holdable: { type: "boolean" }, parts: { type: "array", items: primitive, minItems: 1, maxItems: 40 } },
+    required: ["name", "desc", "holdable", "parts"],
+  };
+}
+
 export function intentSchema() {
   const num = { type: "number" };
   const str = { type: "string" };
@@ -37,16 +55,7 @@ export function intentSchema() {
     type: "object",
     properties: { ref: { type: "string", enum: REFS }, part: str, which: str, id: str, batch: { type: "integer" } },
   };
-  const primitive = {
-    type: "object",
-    properties: { shape: { type: "string", enum: SHAPES }, p: vec3, s: vec3, color: str, mat: { type: "string", enum: MATS }, r: vec3 },
-    required: ["shape", "p", "s", "color", "mat"],
-  };
-  const blueprint = {
-    type: "object",
-    properties: { name: str, desc: str, holdable: { type: "boolean" }, parts: { type: "array", items: primitive, minItems: 1, maxItems: 40 } },
-    required: ["name", "desc", "holdable", "parts"],
-  };
+  const blueprint = blueprintSchema();
   const intent = {
     type: "object",
     properties: {
@@ -65,6 +74,9 @@ export function intentSchema() {
       text: str,
       hand,
       value: { type: "string", enum: ["day", "sunset", "night", "dawn"] },
+      behavior: { type: "string", enum: ["swim", "fly", "walk", "hop", "roll", "spin", "float", "bounce", "sway", "none"] },
+      hint: str,
+      label: str,
     },
     required: ["do"],
   };
@@ -91,6 +103,8 @@ deal {do:"deal", target?:TARGET, count:number}  shuffle {do:"shuffle", target?:T
 undo {do:"undo", count?:number}  clear {do:"clear"} (removes everything)  list {do:"list"} (says what is around)
 time {do:"time", value:"day"|"sunset"|"night"|"dawn"}
 say {do:"say", text:"<answer>"} (questions, ideas, chat)
+animate {do:"animate", target:TARGET, behavior:"swim"|"fly"|"walk"|"hop"|"roll"|"spin"|"float"|"bounce"|"sway"|"none"} ("make the fish swim", "stop moving" = none)
+magic marker drawings: realize {do:"realize", hint?:"<thing>"} ("make it real", "bring my drawing to life", "make it a fish" → hint "fish"); guess {do:"guess"} ("what is this?"); correct {do:"correct", label:"<thing>"} ("no, it's a gun")
 
 TARGET = {ref:"it"|"last"|"all"|"held"} or {part:"<name>", which?:"nearest"|"last"|"all"|"<n>"} or {id:"<id listed in the scene>"}
 PLACE = {rel, hand?, dist?, side?, ref?, p?}
@@ -351,7 +365,9 @@ export function createMatcher(metas, extraNames = []) {
       // keep the plain word count
     }
     const whole = typeof hit === "object" && hit.start === 0 && hit.end === total && hit.score >= 0.95;
-    return { name, exact: whole };
+    // head: the part name ends on the last word ("big red ball" → ball, but not "tree house" → tree).
+    const head = typeof hit === "object" && hit.end === total && hit.score >= 0.9;
+    return { name, exact: whole, head };
   };
 }
 
@@ -535,6 +551,20 @@ function normIntent(item, { match, sceneNames, batchMap, index }) {
       const text = cleanStr(item.text ?? item.value, 400);
       return text ? { ...out, text } : null;
     }
+    case "animate": {
+      const kind = word(item.behavior?.kind ?? item.behavior ?? item.value ?? "");
+      if (!BEHAVIORS.includes(kind) && kind !== "none") return null;
+      const t = target();
+      return { ...out, target: t || { ref: "it" }, behavior: kind };
+    }
+    case "realize": {
+      const hint = cleanStr(item.hint ?? item.label ?? item.value, 48);
+      return hint ? { ...out, hint } : out;
+    }
+    case "correct": {
+      const label = cleanStr(item.label ?? item.hint ?? item.value, 48);
+      return label ? { ...out, label } : null;
+    }
     default:
       return out; // clear, list
   }
@@ -563,8 +593,176 @@ function normWhat(item, match) {
   return { part: raw, label: label || raw };
 }
 
+// ---------- magic marker: a drawing becomes a real thing ----------
+export const BEHAVIORS = ["swim", "fly", "walk", "hop", "roll", "spin", "float", "bounce", "sway", "none"];
+const BEHAVIOR_ALIASES = {
+  swimming: "swim", swims: "swim", flying: "fly", flies: "fly", flap: "fly", flapping: "fly", glide: "fly", gliding: "fly",
+  walking: "walk", walks: "walk", run: "walk", running: "walk", runs: "walk", crawl: "walk", crawling: "walk", trot: "walk",
+  hopping: "hop", hops: "hop", jump: "hop", jumping: "hop", jumps: "hop", rolling: "roll", rolls: "roll", drive: "roll", driving: "roll",
+  spinning: "spin", spins: "spin", rotate: "spin", rotating: "spin", turn: "spin", floating: "float", floats: "float", hover: "float",
+  hovering: "float", drift: "float", drifting: "float", bouncing: "bounce", bounces: "bounce", swaying: "sway", sways: "sway",
+  wave: "sway", waving: "sway", wiggle: "sway", still: "none", static: "none", idle: "none", nothing: "none", stand: "none", sit: "none",
+};
+// Vision model names; used only when the server cannot report capabilities (Ollama /api/show).
+export const VISION_NAME = /vl|vision|llava|gemma3|gemma4|minicpm-v|moondream|qwen2\.5vl|qwen3-vl|llama3\.2-vision/i;
+// When several vision models are installed: the ones that read sketches best first.
+const VISION_RANK = [/qwen[\d.]*-?vl/i, /gemma[34]/i, /minicpm-v/i, /llama3\.2-vision/i, /llava/i];
+
+export function interpretSchema() {
+  const str = { type: "string" };
+  return {
+    type: "object",
+    properties: {
+      guess: str,
+      confidence: { type: "number" },
+      part: str,
+      blueprint: blueprintSchema(),
+      behavior: { type: "string", enum: BEHAVIORS },
+      say: str,
+    },
+    required: ["guess", "confidence", "part", "behavior", "say"],
+  };
+}
+
+const SNAIL = {
+  name: "snail", desc: "garden snail with a brown shell", holdable: false,
+  parts: [
+    { shape: "capsule", p: [0, 0.08, 0], s: [0.16, 0.6, 0.18], color: "#c9b48a", mat: "matte", r: [0, 0, 90] },
+    { shape: "sphere", p: [-0.05, 0.28, 0], s: [0.36, 0.36, 0.16], color: "#a0522d", mat: "matte" },
+    { shape: "cylinder", p: [0.26, 0.24, 0.04], s: [0.02, 0.14, 0.02], color: "#c9b48a", mat: "matte" },
+    { shape: "cylinder", p: [0.26, 0.24, -0.04], s: [0.02, 0.14, 0.02], color: "#c9b48a", mat: "matte" },
+  ],
+};
+
+const MARKER_JOB = `A player in a VR sandbox drew something in the air with a magic marker, like Harold and the Purple Crayon or ChalkZone. Look at the drawing and guess honestly what it depicts — do not flatter bad drawings: if it looks like a fish, say fish. Then make it real.
+Reply with JSON only: {"guess":"...","confidence":0.5,"part":"...","blueprint":{...},"behavior":"...","say":"..."}
+
+FIELDS
+guess: what the drawing shows, a short noun phrase ("house", "rocket", "smiling sun").
+confidence: 0 to 1, how sure you are.
+part: the exact catalog name when a catalog part matches the guess well, else "".
+blueprint: only when part is "": a BLUEPRINT of the guess. Size the primitives so the object's width and height roughly match the drawing size in meters, ground at y=0.
+behavior: what that thing would naturally do: swim|fly|walk|hop|roll|spin|float|bounce|sway|none (fish swim, birds fly, dogs walk, frogs hop, cars roll, balls bounce, clouds float, trees sway, houses none).
+say: one short, warm, funny line naming the guess, spoken aloud (e.g. "That's clearly a fish. Go on, little fish!").
+
+BLUEPRINT = {name:"<lowercase name>", desc:"<short description>", holdable:true|false, parts:[{shape, p:[x,y,z], s:[w,h,d], color:"#rrggbb", mat, r?:[rx,ry,rz]}]}
+  shape: box|sphere|cylinder|cone|capsule|torus. mat: matte|wood|metal|glass|glow|stone|fabric|plastic.
+  p = center of the shape in meters (y up, ground at y=0, the front faces +z). s = bounding size in meters. r = rotation in degrees (cylinder/cone/capsule stand along y).
+  3 to 40 primitives, a recognizable silhouette, sensible colors.
+
+RULES
+- Judge the drawing as drawn: name what it most looks like, even when the player probably meant something else. Air sketches are rough, so read the overall shape rather than single wobbly lines.
+- If the player's words name a thing ("a fish", "make it a fish", "it's a gun"), skip guessing and build that thing (confidence 1).
+- Use catalog names exactly as written below. Only design a BLUEPRINT when nothing in the catalog fits.
+- Respond with JSON only.
+
+EXAMPLE ANSWERS
+${JSON.stringify({ guess: "ball", confidence: 0.8, part: "ball", behavior: "bounce", say: "A ball! Boing, boing, boing." })}
+${JSON.stringify({ guess: "snail", confidence: 0.6, part: "", blueprint: SNAIL, behavior: "walk", say: "A snail! Take your time, little buddy." })}`;
+
+const plural = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+// stats: sketchStats() → "3 strokes, 240 points, 1 closed shape, aspect 1.5 (width / height)".
+function statsText(stats) {
+  if (!stats || typeof stats !== "object") return "";
+  const out = [];
+  const n = (v) => (finite(v) && v >= 0 ? Math.round(v) : undefined);
+  if (n(stats.strokes) !== undefined) out.push(plural(n(stats.strokes), "stroke"));
+  if (n(stats.points) !== undefined) out.push(plural(n(stats.points), "point"));
+  if (typeof stats.closed === "boolean") out.push(stats.closed ? "a closed outline" : "open lines");
+  else if (n(stats.closed) !== undefined) out.push(plural(n(stats.closed), "closed shape"));
+  if (finite(stats.aspect) && stats.aspect > 0) out.push(`aspect ${r2(stats.aspect)} (width / height)`);
+  return out.join(", ");
+}
+
+// messages for one drawing: static system prompt with the catalog, then the drawing.
+// vision: the drawing goes along as an image (attachImage); otherwise as ASCII art in the text.
+export function buildInterpretPrompt({ ascii = "", stats = {}, size = null, hint = "", extraParts = [], metas = [], catalog, vision = false, numCtx = 8192 } = {}) {
+  const known = new Set(metas.map((m) => m.name));
+  const extra = (extraParts || []).filter((n) => typeof n === "string" && n && !known.has(n.toLowerCase())).slice(0, 60);
+  const w = Array.isArray(size) && finite(size[0]) ? size[0] : stats?.width;
+  const h = Array.isArray(size) && finite(size[1]) ? size[1] : stats?.height;
+  const lines = [];
+  if (vision) lines.push("The drawing is in the attached image (drawn in the air, seen from the front).");
+  else lines.push("The drawing as ASCII art (drawn in the air, seen from the front; # is ink, dots and spaces are empty):", "```", String(ascii).replace(/`/g, "'"), "```");
+  const facts = statsText(stats);
+  lines.push(`Size: ${finite(w) && finite(h) ? `about ${r2(w)} m wide and ${r2(h)} m tall` : "unknown"}.${facts ? ` ${facts[0].toUpperCase()}${facts.slice(1)}.` : ""}`);
+  if (extra.length) lines.push(`Also available parts: ${extra.join(", ")}.`);
+  const words = cleanStr(hint, 200);
+  lines.push(words ? `Player's words: ${JSON.stringify(words)}` : "Player's words: none (guess from the drawing).");
+  const user = lines.join("\n");
+  const build = (catalogString) => [
+    { role: "system", content: `${MARKER_JOB}\n\nCATALOG (name (alias) size WxHxD meters: description)\n${catalogString}` },
+    { role: "user", content: user },
+  ];
+  // Room for the answer (and the image) stays free; a tight context gets a names-only catalog.
+  const budget = Math.max(2048, numCtx - 2200 - (vision ? 800 : 0));
+  const messages = build(catalog || catalogText(metas, { compact: true }));
+  if (tokens(messages) <= budget) return messages;
+  return build(metas.map((m) => m.name).join(", "));
+}
+
+// The drawing as an image on the user message, in the provider's format.
+export function attachImage(message, dataUrl, provider = "ollama") {
+  const url = String(dataUrl || "");
+  if (provider === "openai") return { role: message.role, content: [{ type: "text", text: message.content }, { type: "image_url", image_url: { url } }] };
+  return { ...message, images: [url.slice(url.indexOf(",") + 1)] };
+}
+
+export function pickVisionModel(names, textModel = null) {
+  const list = names.filter((n) => typeof n === "string" && n && !NOT_CHAT.test(n));
+  if (textModel && list.includes(textModel)) return textModel; // one model for both: nothing extra to load
+  for (const re of VISION_RANK) {
+    const hit = list.find((n) => re.test(n));
+    if (hit) return hit;
+  }
+  return list[0] || null;
+}
+
+const withArticle = (noun) => `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
+
+// Raw model JSON → { guess, confidence, part, blueprint?, behavior, say } or null when unusable.
+// part is a catalog name (exact, or the guess's head noun) or ""; blueprint only when part is "".
+export function normalizeInterpret(raw, { metas = [], extraNames = [], match = createMatcher(metas, extraNames) } = {}) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  let guess = word(raw.guess ?? raw.label ?? raw.name ?? raw.what ?? "");
+  let part = "";
+  const rawPart = typeof raw.part === "string" ? word(raw.part) : "";
+  if (rawPart && !["none", "null", "n/a", "custom", "blueprint"].includes(rawPart)) {
+    const hit = match(rawPart);
+    if (hit && (hit.exact || hit.head)) part = hit.name;
+  }
+  if (!part && guess) {
+    const hit = match(guess);
+    if (hit?.exact) part = hit.name;
+  }
+  let blueprint;
+  const draft = raw.blueprint ?? raw.custom;
+  if (!part && draft && typeof draft === "object") {
+    const result = normalizeBp({ ...draft, name: draft.name || guess || "doodle" });
+    if (result.ok) blueprint = { ...result.blueprint, name: String(result.blueprint.name).toLowerCase().slice(0, 48) };
+  }
+  if (!guess) guess = part || blueprint?.name || "";
+  if (!guess) return null;
+  let confidence = toNumber(raw.confidence);
+  if (confidence === undefined) confidence = 0.5;
+  else if (confidence > 1 && confidence <= 100) confidence /= 100; // "85" meant 85 %
+  confidence = r2(clamp(confidence, 0, 1));
+  const kind = word(raw.behavior ?? raw.behaviour ?? raw.motion ?? "").replace(/\s+/g, "");
+  const behavior = BEHAVIORS.includes(kind) ? kind : BEHAVIOR_ALIASES[kind] || "none";
+  let say = cleanStr(raw.say ?? raw.text, 400).replace(/\s+/g, " ");
+  if (!say) say = `That looks like ${withArticle(guess)}!`;
+  say = shorten(say, 160);
+  const out = { guess, confidence, part };
+  if (blueprint) out.blueprint = blueprint;
+  out.behavior = behavior;
+  out.say = say;
+  return out;
+}
+
 // ---------- model servers ----------
 const NOT_CHAT = /(embed|bge-|minilm|rerank|whisper|tts|clip|e5-|gte-)/i;
+const SHOW_CACHE_MS = 10 * 60000;
 
 export function pickModel(names, preferred = "") {
   const list = names.filter((n) => typeof n === "string" && n);
@@ -596,7 +794,8 @@ function upstreamError(status, body) {
 const trimSlash = (url) => String(url || "").replace(/\/+$/, "");
 
 // One chat completion. Returns { content, model }. Throws errors with .status/.body.
-export async function callModel({ provider = "ollama", url, model, messages, schema = intentSchema(), think = false, numCtx = 8192, apiKey = "", signal, fetchImpl = globalThis.fetch }) {
+// Messages may carry images: Ollama `images: [base64]`, OpenAI-compatible `image_url` content parts.
+export async function callModel({ provider = "ollama", url, model, messages, schema = intentSchema(), schemaName = "intents", temperature = 0.1, think = false, numCtx = 8192, apiKey = "", signal, fetchImpl = globalThis.fetch }) {
   const base = trimSlash(url);
   const post = async (path, body) => {
     const headers = { "content-type": "application/json" };
@@ -608,11 +807,11 @@ export async function callModel({ provider = "ollama", url, model, messages, sch
   let path;
   if (provider === "openai") {
     path = "/chat/completions";
-    body = { model, messages, temperature: 0.1, stream: false, response_format: { type: "json_schema", json_schema: { name: "intents", schema, strict: false } } };
+    body = { model, messages, temperature, stream: false, response_format: { type: "json_schema", json_schema: { name: schemaName, schema, strict: false } } };
     if (think === false) body.reasoning_effort = "none";
   } else {
     path = "/api/chat";
-    body = { model, messages, stream: false, format: schema, options: { temperature: 0.1, num_ctx: numCtx }, keep_alive: "30m" };
+    body = { model, messages, stream: false, format: schema, options: { temperature, num_ctx: numCtx }, keep_alive: "30m" };
     if (typeof think === "boolean") body.think = think;
   }
   let { res, text } = await post(path, body);
@@ -635,10 +834,12 @@ export async function callModel({ provider = "ollama", url, model, messages, sch
 }
 
 export class LocalModel {
-  constructor(config = {}, { log = console, fetchImpl = globalThis.fetch, timeoutMs = 25000, cacheMs = 60000 } = {}) {
+  // timeoutMs: text model calls; visionTimeoutMs: calls with a drawing image (vision models are slower).
+  constructor(config = {}, { log = console, fetchImpl = globalThis.fetch, timeoutMs = 25000, visionTimeoutMs = 45000, cacheMs = 60000 } = {}) {
     this.log = log;
     this.fetch = fetchImpl;
     this.timeoutMs = timeoutMs;
+    this.visionTimeoutMs = visionTimeoutMs;
     this.cacheMs = cacheMs;
     this.configure(config);
   }
@@ -647,6 +848,7 @@ export class LocalModel {
     this.provider = config.provider === "openai" ? "openai" : "ollama";
     this.url = trimSlash(this.provider === "openai" ? config.openaiUrl || "http://127.0.0.1:1234/v1" : config.ollamaUrl || "http://127.0.0.1:11434");
     this.preferred = String(config.model || "").trim();
+    this.visionPreferred = String(config.visionModel || "").trim();
     this.think = typeof config.think === "boolean" ? config.think : null;
     this.numCtx = Number.isInteger(config.numCtx) && config.numCtx >= 2048 ? config.numCtx : 8192;
     this.apiKey = String(config.openaiKey || "");
@@ -657,6 +859,9 @@ export class LocalModel {
     this.version = null;
     this.checkedAt = 0;
     this.checking = null;
+    this.vision = null; // vision model for drawings, or null
+    this.showCache = new Map(); // model name → { caps, at, ttl } from /api/show
+    this.noVision = new Map(); // model name → time until which it is not tried with images again
   }
 
   status() {
@@ -689,6 +894,7 @@ export class LocalModel {
         : (json.models || []).map((m) => m.name || m.model).filter(Boolean);
       this.name = pickModel(this.models, this.preferred);
       this.available = !!this.name;
+      await this.detectVision();
       this.detail = this.available ? "" : this.preferred
         ? `model "${this.preferred}" is not installed${this.provider === "ollama" ? ` (ollama pull ${this.preferred})` : ""}`
         : this.provider === "ollama" ? "Ollama has no models yet (try: ollama pull qwen2.5-coder:7b)" : "the server lists no models";
@@ -706,11 +912,80 @@ export class LocalModel {
     } catch (err) {
       this.available = false;
       this.name = this.preferred || null;
+      this.vision = null;
       const label = this.provider === "openai" ? "OpenAI-compatible server" : "Ollama";
       this.detail = `${label} not reachable at ${this.url} (${err.cause?.code || err.name || err.message})`;
     }
     this.checkedAt = Date.now();
     return this.status();
+  }
+
+  // Picks the vision model: config.visionModel, else an installed model whose capabilities include
+  // "vision" (Ollama /api/show), else (no capability info) a model whose name looks like one.
+  async detectVision() {
+    if (this.visionPreferred) {
+      this.vision = pickModel(this.models, this.visionPreferred);
+      return this.vision;
+    }
+    const names = this.models.filter((n) => !NOT_CHAT.test(n) && !(this.noVision.get(n) > Date.now()));
+    const flags = await Promise.all(names.map(async (name) => {
+      const caps = this.provider === "ollama" ? await this.capabilities(name) : null;
+      return caps ? caps.includes("vision") : VISION_NAME.test(name);
+    }));
+    this.vision = pickVisionModel(names.filter((_, i) => flags[i]), this.name);
+    return this.vision;
+  }
+
+  // Ollama /api/show → ["completion", "vision", …], or null when the server cannot say.
+  // Cached per model for 10 minutes (failures for cacheMs).
+  async capabilities(name) {
+    const hit = this.showCache.get(name);
+    if (hit && Date.now() - hit.at < hit.ttl) return hit.caps;
+    let caps = null;
+    try {
+      const res = await this.fetch(`${this.url}/api/show`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: name }), signal: AbortSignal.timeout(3000),
+      });
+      const json = await res.json().catch(() => null);
+      if (res.ok && json && typeof json === "object") {
+        if (Array.isArray(json.capabilities)) caps = json.capabilities.map((c) => String(c).toLowerCase());
+        else if (json.projector_info || (json.details?.families || []).some((f) => /clip|mllama/i.test(f))) caps = ["completion", "vision"];
+      }
+    } catch {
+      caps = null;
+    }
+    this.showCache.set(name, { caps, at: Date.now(), ttl: caps ? SHOW_CACHE_MS : this.cacheMs });
+    return caps;
+  }
+
+  // One model call with the bridge's timeout and error mapping → { parsed, content, model }.
+  // Throws errors with .status/.body: 503 no-model, 502 model-error/bad-output, 504 timeout, 499 aborted.
+  async ask({ model = this.name, messages, schema, schemaName, temperature, timeoutMs = this.timeoutMs, signal }) {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+    let out;
+    try {
+      out = await callModel({
+        provider: this.provider, url: this.url, model, messages, schema, schemaName, temperature, think: this.think, numCtx: this.numCtx,
+        apiKey: this.apiKey, signal: combined, fetchImpl: this.fetch,
+      });
+    } catch (err) {
+      if (err.status) {
+        if (err.body?.error === "no-model") this.checkedAt = 0;
+        throw err;
+      }
+      if (timeout.aborted) throw upstreamError(504, { error: "timeout", detail: `the model took longer than ${timeoutMs / 1000} s` });
+      if (signal?.aborted) throw upstreamError(499, { error: "aborted" });
+      this.available = false;
+      this.checkedAt = 0;
+      this.detail = `not reachable at ${this.url} (${err.cause?.code || err.message})`;
+      throw upstreamError(503, { error: "no-model", detail: this.detail });
+    }
+    try {
+      return { parsed: extractJSON(out.content), content: out.content, model: out.model };
+    } catch {
+      throw upstreamError(502, { error: "bad-output", raw: String(out.content).slice(0, 500) });
+    }
   }
 
   // Full command round trip. ctx: { player, scene, parts }, held: [{ hand, label }], metas: catalog.
@@ -722,36 +997,57 @@ export class LocalModel {
     if (!this.available) throw upstreamError(503, { error: "no-model", detail: this.detail });
     const extraParts = Array.isArray(ctx.parts) ? ctx.parts.filter((n) => typeof n === "string") : [];
     const messages = buildPrompt({ text, player: ctx.player, scene: scene ?? ctx.scene, held, metas, extraParts, catalog, numCtx: this.numCtx });
-    const timeout = AbortSignal.timeout(this.timeoutMs);
-    const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-    let out;
-    try {
-      out = await callModel({
-        provider: this.provider, url: this.url, model: this.name, messages, think: this.think, numCtx: this.numCtx,
-        apiKey: this.apiKey, signal: combined, fetchImpl: this.fetch,
-      });
-    } catch (err) {
-      if (err.status) {
-        if (err.body?.error === "no-model") this.checkedAt = 0;
-        throw err;
-      }
-      if (timeout.aborted) throw upstreamError(504, { error: "timeout", detail: `the model took longer than ${this.timeoutMs / 1000} s` });
-      if (signal?.aborted) throw upstreamError(499, { error: "aborted" });
-      this.available = false;
-      this.checkedAt = 0;
-      this.detail = `not reachable at ${this.url} (${err.cause?.code || err.message})`;
-      throw upstreamError(503, { error: "no-model", detail: this.detail });
-    }
-    let parsed;
-    try {
-      parsed = extractJSON(out.content);
-    } catch {
-      throw upstreamError(502, { error: "bad-output", raw: String(out.content).slice(0, 500) });
-    }
+    const out = await this.ask({ messages, signal });
+    const parsed = out.parsed;
     const usable = parsed && typeof parsed === "object" && (Array.isArray(parsed) || Array.isArray(parsed.intents) || typeof parsed.say === "string" || typeof parsed.do === "string" || (parsed.intents && typeof parsed.intents === "object"));
     if (!usable) throw upstreamError(502, { error: "bad-output", raw: String(out.content).slice(0, 500) });
     const matcher = extraParts.length || !match ? createMatcher(metas, extraParts) : match;
     const { intents, say } = normalizeOutput(parsed, { metas, sceneNames, match: matcher });
     return { intents, say, source: "model", model: out.model, ms: Date.now() - started };
+  }
+
+  // Magic marker round trip: what does the drawing show, and how does it come alive?
+  // image: PNG data URL for a vision model; ascii/stats/size: the drawing as text for any model.
+  // hint: the player's words ("make it a fish"). parts: extra part names the client knows.
+  // Returns { guess, confidence, part, blueprint?, behavior, say, source, model, vision, ms }.
+  async interpret({ image = null, ascii = "", stats = {}, size = null, hint = "", parts = [], metas = [], catalog, match, signal } = {}) {
+    const started = Date.now();
+    await this.refresh();
+    if (!this.available && Date.now() - this.checkedAt > 3000) await this.refresh(true);
+    if (!this.available) throw upstreamError(503, { error: "no-model", detail: this.detail });
+    const extraParts = (Array.isArray(parts) ? parts : []).filter((n) => typeof n === "string" && n).slice(0, 200);
+    const matcher = extraParts.length || !match ? createMatcher(metas, extraParts) : match;
+    const hasAscii = typeof ascii === "string" && /\S/.test(ascii);
+    const run = async (visionName) => {
+      let messages = buildInterpretPrompt({ ascii, stats, size, hint, extraParts, metas, catalog, vision: !!visionName, numCtx: this.numCtx });
+      if (visionName) messages = [messages[0], attachImage(messages[1], image, this.provider)];
+      const out = await this.ask({
+        model: visionName || this.name, messages, schema: interpretSchema(), schemaName: "interpret", temperature: 0.3,
+        timeoutMs: visionName ? this.visionTimeoutMs : this.timeoutMs, signal,
+      });
+      const result = normalizeInterpret(out.parsed, { match: matcher });
+      if (!result) throw upstreamError(502, { error: "bad-output", raw: String(out.content).slice(0, 500) });
+      return { ...result, source: "model", model: out.model, vision: !!visionName, ms: Date.now() - started };
+    };
+    const visionName = image ? this.vision : null;
+    if (visionName) {
+      try {
+        return await run(visionName);
+      } catch (err) {
+        // A vision model that vanished or refuses images (a name-based guess): read the ASCII art instead.
+        const code = err.body?.error;
+        if (!hasAscii || (code !== "no-model" && code !== "model-error")) throw err;
+        this.log.warn?.(`[model] ${visionName} could not look at the drawing (${err.body?.detail || code}); reading it as ASCII art`);
+        if (code === "model-error") this.noVision.set(visionName, Date.now() + SHOW_CACHE_MS);
+        this.vision = null;
+        this.checkedAt = 0;
+        if (code === "no-model") {
+          await this.refresh(true);
+          if (!this.available) throw upstreamError(503, { error: "no-model", detail: this.detail });
+        }
+      }
+    }
+    if (!hasAscii) throw upstreamError(400, { error: "no-sketch", detail: image ? "no vision model is installed and the drawing has no ASCII art" : "send image or ascii" });
+    return run(null);
   }
 }

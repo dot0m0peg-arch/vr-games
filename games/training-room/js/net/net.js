@@ -1,10 +1,11 @@
 // Laptop bridge client: shared room (join + server-sent events), ops, poses, model commands,
-// Whisper transcription, parts bin and shared screen frames. See ARCHITECTURE.md "Bridge HTTP API".
+// magic-marker drawings, Whisper transcription, the laptop voice, parts bin and shared screen
+// frames. See ARCHITECTURE.md "Bridge HTTP API".
 // Events: op, state, users, poses, fx, share, say, parts, rejoined, status
 // ("connecting" | "online" | "offline" | "auth").
 import { Emitter } from "../util/emitter.js";
 
-const TIMEOUTS = { request: 8000, command: 30000, transcribe: 30000, probe: 2500, offline: 10000 };
+const TIMEOUTS = { request: 8000, command: 30000, interpret: 50000, transcribe: 30000, tts: 25000, probe: 2500, offline: 10000 };
 const POSE_MS = 1000 / 15;
 const SSE_EVENTS = ["op", "state", "users", "poses", "fx", "share", "say", "parts"];
 const CLOSED = 2; // EventSource.CLOSED
@@ -29,7 +30,8 @@ function codeForStatus(status, body) {
 const defaultFetch = () => (typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : null);
 
 // One HTTP call with timeout → { status, headers, body (parsed JSON | text | null) }.
-async function call(fetchImpl, url, { method = "GET", key = null, json, body, type, timeout = TIMEOUTS.request, keepalive = false } = {}) {
+// binary: a successful answer's body is a Blob (errors are still read as JSON).
+async function call(fetchImpl, url, { method = "GET", key = null, json, body, type, timeout = TIMEOUTS.request, keepalive = false, binary = false } = {}) {
   if (!fetchImpl) throw netError("offline", "fetch is not available");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
@@ -53,6 +55,7 @@ async function call(fetchImpl, url, { method = "GET", key = null, json, body, ty
     }
     let text = "";
     try {
+      if (binary && res.ok) return { status: res.status, ok: true, headers: res.headers, body: await res.blob(), json: false };
       text = await res.text(); // always drain (also 204) so the connection is released
     } catch (err) {
       if (controller.signal.aborted) throw netError("timeout", `The laptop stopped answering after ${Math.round(timeout / 1000)} s.`);
@@ -235,6 +238,28 @@ export class Net extends Emitter {
     });
     if (!result || typeof result !== "object" || !Array.isArray(result.intents)) throw netError("bad-output", "The local model answered with something that is not a command.");
     return result;
+  }
+
+  // Magic marker. payload: { image?: PNG data URL, ascii, stats, size: [w, h], hint?, parts? }
+  // → { guess, confidence, part, blueprint?, behavior, say, source, model, vision, ms }.
+  // Errors carry .code like command: no-model | bad-output | timeout | no-sketch | offline | auth …
+  async interpret(payload = {}) {
+    const result = await this._json("interpret", {
+      method: "POST",
+      json: { user: this._user?.id || null, ...payload },
+      timeout: this.timeouts.interpret,
+    });
+    if (!result || typeof result !== "object" || typeof result.guess !== "string") throw netError("bad-output", "The local model did not say what the drawing is.");
+    return result;
+  }
+
+  // The laptop voice: text → audio Blob (audio/wav). Errors carry .code: no-tts (off or unreachable),
+  // tts-timeout, tts-failed, timeout, offline, auth …
+  async tts(text) {
+    const res = await this._send("tts", { method: "POST", json: { text: String(text ?? "").slice(0, 400) }, timeout: this.timeouts.tts, binary: true });
+    const blob = res.body;
+    if (!blob || typeof blob !== "object" || !(blob.size > 0)) throw netError("no-tts", "The laptop voice sent no audio.", res.status);
+    return blob;
   }
 
   // blob: audio/wav → { text, ms }

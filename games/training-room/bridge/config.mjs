@@ -14,6 +14,7 @@ export const DEFAULTS = {
   openaiUrl: "http://127.0.0.1:1234/v1",
   openaiKey: "",
   model: "",
+  visionModel: "",
   think: false,
   numCtx: 8192,
   sttKind: "whisper.cpp",
@@ -21,11 +22,15 @@ export const DEFAULTS = {
   sttModel: "whisper-1",
   sttLanguage: "en",
   sttPrompt: "AI, spawn a villa to my left, an axe in my hand, a deck of playing cards on a card table, training dummy, whiteboard, make it real, undo.",
+  ttsKind: "none",
+  ttsUrl: "",
+  ttsVoice: "af_heart",
+  ttsModel: "kokoro",
   partsDirs: [],
   allowOrigins: ["https://dot0m0peg-arch.github.io"],
 };
 
-export const HELP = "Training Room bridge settings. Restart the bridge after editing. port: HTTPS port for the headset/phone on your network; httpPort: plain HTTP on this laptop only (also for adb reverse); roomKey: code other devices need (delete it to get a new one); provider: \"ollama\" or \"openai\" (LM Studio or any OpenAI-compatible server at openaiUrl); model: \"\" picks an installed model automatically (names with \"coder\", then \"qwen\"); think: false turns hidden reasoning off for faster answers, true on, null leaves the model default; sttKind: \"whisper.cpp\" (whisper-server at sttUrl), \"openai\" (an /v1/audio/transcriptions URL) or \"none\"; sttPrompt: optional words that help Whisper spell part names; partsDirs: extra folders with parts (blueprint .json, .glb/.gltf, .js); allowOrigins: web pages allowed to call this bridge from another site.";
+export const HELP = "Training Room bridge settings. Restart the bridge after editing. port: HTTPS port for the headset/phone on your network; httpPort: plain HTTP on this laptop only (also for adb reverse); roomKey: code other devices need (delete it to get a new one); provider: \"ollama\" or \"openai\" (LM Studio or any OpenAI-compatible server at openaiUrl); model: \"\" picks an installed model automatically (names with \"coder\", then \"qwen\"); visionModel: \"\" picks an installed vision model (llava, qwen2.5vl, gemma3 and others) that looks at magic-marker drawings, else the text model reads them as ASCII art; think: false turns hidden reasoning off for faster answers, true on, null leaves the model default; sttKind: \"whisper.cpp\" (whisper-server at sttUrl), \"openai\" (an /v1/audio/transcriptions URL) or \"none\"; sttPrompt: optional words that help Whisper spell part names; ttsKind: \"none\" (the headset's own browser voice), \"piper\" (piper1-gpl HTTP server at ttsUrl, default http://127.0.0.1:5000) or \"openai\" (Kokoro-FastAPI, speaches or any /v1/audio/speech URL, default http://127.0.0.1:8880/v1/audio/speech) speaks the AI's replies with a laptop voice; ttsVoice/ttsModel: voice and model for \"openai\"; partsDirs: extra folders with parts (blueprint .json, .glb/.gltf, .js); allowOrigins: web pages allowed to call this bridge from another site.";
 
 // Room key alphabet without look-alikes (no I, O, 0, 1).
 const KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -80,6 +85,7 @@ export function sanitizeConfig(raw = {}) {
   take("openaiUrl", cleanUrl(raw.openaiUrl));
   take("openaiKey", str(raw.openaiKey, 400));
   take("model", str(raw.model, 200));
+  take("visionModel", str(raw.visionModel, 200));
   take("think", typeof raw.think === "boolean" || raw.think === undefined ? raw.think : undefined);
   if (raw.think === null) {
     problems.splice(problems.indexOf("think"), 1);
@@ -91,6 +97,10 @@ export function sanitizeConfig(raw = {}) {
   take("sttModel", str(raw.sttModel, 200) || null);
   take("sttLanguage", typeof raw.sttLanguage === "string" && /^[a-z-]{0,8}$/i.test(raw.sttLanguage.trim()) ? raw.sttLanguage.trim() : null);
   take("sttPrompt", str(raw.sttPrompt, 400));
+  take("ttsKind", ["none", "piper", "openai"].includes(raw.ttsKind) ? raw.ttsKind : null);
+  take("ttsUrl", cleanUrl(raw.ttsUrl)); // "" = the default URL for ttsKind
+  take("ttsVoice", str(raw.ttsVoice, 100) || null);
+  take("ttsModel", str(raw.ttsModel, 200) || null);
   take("partsDirs", Array.isArray(raw.partsDirs) ? raw.partsDirs.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim()) : null);
   take("allowOrigins", Array.isArray(raw.allowOrigins)
     ? raw.allowOrigins.map((o) => (typeof o === "string" ? o.trim().replace(/\/+$/, "") : "")).filter((o) => /^https?:\/\/[^/\s]+$/.test(o))

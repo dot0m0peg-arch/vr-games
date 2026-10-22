@@ -162,7 +162,7 @@ test("validateOp rejects garbage", () => {
     { t: "add", obj: rec("o1", { color: "<script>alert(1)</script>" }) },
     { t: "add", obj: rec("o1", { color: "red" }) },
     { t: "add", obj: rec("o1", { part: "<img src=x>" }) },
-    { t: "add", obj: rec("o1", { data: { blob: "x".repeat(70000) } }) },
+    { t: "add", obj: rec("o1", { data: { blob: "x".repeat(200000) } }) },
     { t: "add", obj: rec("o1", { data: [1, 2, 3] }) },
     { t: "add", obj: rec("o1", { attach: { user: "u1", hand: "foot" } }) },
     { t: "add", obj: rec("o1", { s: NaN }) },

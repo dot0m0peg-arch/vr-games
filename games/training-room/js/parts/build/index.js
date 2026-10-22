@@ -5,10 +5,12 @@ import { builders as nature } from "./nature.js";
 import { builders as office } from "./office.js";
 import { builders as leisure } from "./leisure.js";
 import { builders as combat } from "./combat.js";
+import { builders as sketch } from "./sketch.js";
 import { buildBlueprint } from "./blueprint.js";
 import { getMeta } from "../meta/index.js";
+import { sketchBounds } from "../../core/sketch.js";
 
-const registry = new Map(Object.entries({ ...structures, ...nature, ...office, ...leisure, ...combat }));
+const registry = new Map(Object.entries({ ...structures, ...nature, ...office, ...leisure, ...combat, ...sketch }));
 
 export function registerBuilder(name, fn) {
   registry.set(String(name).toLowerCase(), fn);
@@ -18,8 +20,16 @@ export function hasBuilder(name) {
   return registry.has(String(name).toLowerCase());
 }
 
-// Meta for a record, including AI blueprints that are not in the catalog.
+// Meta for a record, including AI blueprints and marker drawings that are not in the catalog.
 export function metaOfRecord(record) {
+  if (record.part === "drawing" || record.part === "doodle") {
+    // Origin is the drawing frame (record p), not bottom-center. Drawings never move; doodles up to 3 m can.
+    const size = sketchBounds(record.data?.strokes).size.map((n) => Math.max(0.05, n));
+    return {
+      name: record.part, aliases: [], category: "custom", desc: "marker drawing", size,
+      fixed: record.part === "drawing" || Math.max(...size) > 3, origin: "frame",
+    };
+  }
   const meta = getMeta(record.part);
   if (meta) return meta;
   const bp = record.data?.blueprint;

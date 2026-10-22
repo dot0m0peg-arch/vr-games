@@ -2,7 +2,7 @@
 // Used by the browser room and the Node bridge, so it stays pure and JSON-only.
 
 export const TIMES = ["day", "sunset", "night", "dawn"];
-export const LIMITS = { pos: 5000, minScale: 0.02, maxScale: 50, label: 80, text: 2000, data: 65536, ids: 500 };
+export const LIMITS = { pos: 5000, minScale: 0.02, maxScale: 50, label: 80, text: 2000, data: 196608, ids: 500 };
 
 const ID_RE = /^[a-z0-9:_-]{1,40}$/;
 const PART_RE = /^[\p{L}\p{N}][\p{L}\p{N} :'_.-]{0,79}$/u;

@@ -1151,41 +1151,57 @@ const BEHAVIORS = {
   bouncing: "bounce", sway: "sway", swaying: "sway", dance: "sway", dancing: "sway", wiggle: "sway", wobble: "sway",
 };
 const SPEEDS = { fast: 2, faster: 2, quickly: 2, quick: 2, slow: 0.5, slowly: 0.5, slower: 0.5 };
-const GUESS_RE = /^(?:what(?:'s| is) (?:this|that|it|my drawing)|what do you think (?:this|that|it) is|what did i draw|what am i drawing|guess what (?:this|that|it) is|guess|can you guess)$/;
-const CORRECT_RE = /^(?:it's|it is|that's|that is|this is|it should be|it's supposed to be|that's supposed to be|i drew|i meant|make it be) (?:a |an )?(.+)$/;
-const REALIZE_RE = new RegExp(`^(?:(?:make|bring|turn) ${SELF_DRAWING} (?:real|alive|to life|come alive|come to life)|${SELF_DRAWING} come (?:alive|to life)|come (?:alive|to life)|realize(?: ${SELF_DRAWING})?)$`);
+const GUESS_RE = /^(?:what(?:'s| is) (?:this|that|it|my drawing)(?: supposed to be)?|what do you think (?:this|that|it) is|what do you think i drew|what did i (?:just )?draw|what am i drawing|guess what (?:this|that|it) is|guess what i(?: just)? drew|guess what i'm drawing|(?:can you|do you) (?:tell|know) what (?:this|that|it) is|what do you see|what does (?:this|that|it) look like|guess|can you guess)$/;
+// Bare "it's ..." needs "a/an" so chat like "that's awesome" or "it's too big" is not a correction.
+const CORRECT_RE = /^(?:(?:(?:it|that|this)(?:'s| is| was) (?:supposed|meant) to be|(?:it|that|this) should be|i drew|i meant|make it be) (?:actually |really )?(?:a |an )?|(?:it's|it is|that's|that is|this is) (?:actually |really |obviously |clearly )?(?:a|an) )(.+)$/;
+// "it's not a fish (it's a gun)": the negated part alone means nothing to do.
+const NOT_RE = /^(?:it|that|this)(?:'s not| is not| isn't) (?:a|an) .+?(?: (?:but |it's |it is |that's |that is |this is |it should be |i drew |i meant )+(?:actually )?(?:a |an )?(.+))?$/;
+const REALIZE_RE = new RegExp(`^(?:(?:make|bring|turn) ${SELF_DRAWING} (?:real|alive|to life|come alive|come to life)|${SELF_DRAWING} come (?:alive|to life)|come (?:alive|to life)|realize(?: ${SELF_DRAWING})?)(?: as (?:a |an )?(.+))?$`);
 const HINT_RE = new RegExp(`^(?:make|turn) ${SELF_DRAWING} (?:into )?(?:a|an) (.+)$`);
-const ERASE_RE = new RegExp(`^(?:(?:erase|wipe|clear|delete|remove|rub out|scrub) ${DRAWING_RE}s?|wipe(?: it| that| this)?)$`);
+const ERASE_RE = new RegExp(`^(?:(?:erase|wipe|clear|delete|remove|rub out|scrub) ${DRAWING_RE}(?:e?s)?|wipe(?: it| that| this)?)$`);
+const ERASE_ALL_RE = /^(?:erase|wipe|clear|delete|remove|rub out|scrub)(?: out)? (?:all|every|each)(?: of)?(?: the| my)? (?:drawing|sketch|doodle|scribble)(?:e?s)?$/;
 const STOP_RE = /^(?:stop moving|stop it|make it stop|freeze|stay still|stand still|hold still|stop)$/;
+const HINT_TAIL = new Set(["1", "one", "shade", "tone", "hue", "size", "color", "colour"]);
+
+// Behavior words from w[p] to the end ("swim", "fly around fast", "stop moving") → behavior or null.
+function behaviorTail(w, p) {
+  if (w[p] === "stop") return p + 1 === w.length || (w[p + 1] === "moving" && p + 2 === w.length) ? "none" : null;
+  const kind = BEHAVIORS[w[p]];
+  if (!kind) return null;
+  p++;
+  if (w[p] === "around") p++;
+  const speed = SPEEDS[w[p]];
+  if (speed) p++;
+  if (p !== w.length) return null;
+  return speed ? { kind, speed } : kind;
+}
+
+const correctLabel = (label) => label.replace(/ not (?:a |an )?.*$/, "").trim();
 
 // → { intents, conf } for marker phrases, or null.
 function markerClause(w, st) {
   const j = w.join(" ");
   let m;
   if (GUESS_RE.test(j)) return { intents: [{ do: "guess" }], conf: CONF_OK };
-  if (REALIZE_RE.test(j)) return { intents: [{ do: "realize" }], conf: CONF_OK };
+  if ((m = j.match(REALIZE_RE))) return { intents: [m[1] ? { do: "realize", hint: m[1] } : { do: "realize" }], conf: CONF_OK };
   if ((m = j.match(HINT_RE))) {
     const rest = m[1].split(" ");
-    if (!factorPhraseAt(rest, 0) && !colorPhraseAt(rest, 0)) return { intents: [{ do: "realize", hint: m[1] }], conf: CONF_OK };
+    const phrase = factorPhraseAt(rest, 0) || colorPhraseAt(rest, 0);
+    // "make it a bit bigger" / "make it a red color" are not hints; "make it a red fish" is.
+    if (!phrase || (phrase.end < rest.length && !HINT_TAIL.has(rest[phrase.end]))) return { intents: [{ do: "realize", hint: m[1] }], conf: CONF_OK };
   }
   if (ERASE_RE.test(j)) return { intents: [{ do: "erase" }], conf: CONF_OK };
+  if (ERASE_ALL_RE.test(j)) return { intents: [{ do: "erase", target: { part: "drawing", which: "all" } }], conf: CONF_OK };
   if (STOP_RE.test(j)) return { intents: [{ do: "animate", target: pronounTarget("it", st), behavior: "none" }], conf: CONF_OK };
-  if ((m = j.match(CORRECT_RE)) && !m[1].startsWith("not ")) return { intents: [{ do: "correct", label: m[1] }], conf: CONF_OK };
+  if ((m = j.match(NOT_RE))) return { intents: m[1] ? [{ do: "correct", label: correctLabel(m[1]) }] : [], conf: CONF_OK };
+  if ((m = j.match(CORRECT_RE)) && !m[1].startsWith("not ")) return { intents: [{ do: "correct", label: correctLabel(m[1]) }], conf: CONF_OK };
+  // "make it fly", "make the fish swim fast", "let the dog walk", "make the bird stop".
   if (["make", "let", "have"].includes(w[0])) {
-    const t = parseTarget(w, 1, st);
-    if (t) {
-      let p = t.end;
-      if (w[p] === "stop" && (p + 1 === w.length || w[p + 1] === "moving")) {
-        return { intents: [{ do: "animate", target: t.target, behavior: "none" }], conf: CONF_OK };
-      }
-      const kind = BEHAVIORS[w[p]];
-      if (kind) {
-        p++;
-        if (w[p] === "around") p++;
-        const speed = SPEEDS[w[p]];
-        if (speed) p++;
-        if (p === w.length) return { intents: [{ do: "animate", target: t.target, behavior: speed ? { kind, speed } : kind }], conf: CONF_OK };
-      }
+    for (let p = 2; p < w.length; p++) {
+      const behavior = behaviorTail(w, p);
+      if (!behavior) continue;
+      const t = parseTarget(w.slice(0, p), 1, st);
+      if (t && t.end === p) return { intents: [{ do: "animate", target: t.target, behavior }], conf: CONF_OK };
     }
   }
   return null;

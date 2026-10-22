@@ -101,4 +101,9 @@ export const metas = [
     name: "rug", aliases: ["carpet", "area rug"], category: "office",
     desc: "flat patterned area rug", size: [2.4, 0.02, 1.6], color: "#8c3b32",
   },
+  {
+    name: "marker", aliases: ["magic marker", "crayon", "purple crayon", "chalk", "felt tip", "marker pen"], category: "office",
+    desc: "fat magic marker: hold it and pull the trigger to draw glowing lines in the air", size: [0.031, 0.16, 0.031],
+    color: "#9b6bff", holdable: true, marker: true, grip: { p: [0, 0.05, 0], r: [-90, 0, 0] }, tip: [0, 0.16, 0],
+  },
 ];

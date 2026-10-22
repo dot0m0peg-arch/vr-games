@@ -400,6 +400,25 @@ test("magic marker: animate and erase", () => {
   assert.deepEqual(deferred.say, []);
 });
 
+test("magic marker: animate things by their realized label, erase every drawing", () => {
+  const room = makeRoom();
+  applyOp(room.state, { t: "add", obj: { id: "f1", part: "custom:fish", label: "fish", p: [0, 0, -3], ry: 0, s: 1, by: "u1" } });
+  applyOp(room.state, { t: "add", obj: { id: "f2", part: "custom:fish", label: "fish", p: [2, 0, -3], ry: 0, s: 1, by: "u1" } });
+  room.run("make the fish swim");
+  assert.deepEqual(room.state.objects.f1.data, { behavior: { kind: "swim", speed: 1 } }, "the nearest fish");
+  assert.equal(room.state.objects.f2.data, undefined);
+  room.run("make all the fish fly fast");
+  assert.deepEqual(room.state.objects.f2.data.behavior, { kind: "fly", speed: 2 });
+  room.run("make the fish stop moving");
+  assert.equal(room.state.objects.f1.data, undefined);
+  const drawing = (id, p) => ({ t: "add", obj: { id, part: "drawing", label: "drawing", p, ry: 0, s: 1, by: "u1", data: { strokes: [] } } });
+  applyOp(room.state, drawing("d1", [0, 1, -2]));
+  applyOp(room.state, drawing("d2", [3, 1, -2]));
+  room.run("erase all the drawings");
+  assert.equal(room.find("drawing").length, 0);
+  assert.equal(room.all().length, 2, "the fish stay");
+});
+
 test("undo inverts whole commands back to identical snapshots", () => {
   const room = makeRoom();
   const commands = [

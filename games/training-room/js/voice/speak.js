@@ -1,20 +1,38 @@
-// Spoken replies through the browser's speech synthesis (plays on the Bluetooth speakers when
-// they are the output device). Every call cancels what is already speaking.
+// Spoken replies (play on the Bluetooth speakers when they are the output device). With a speech
+// source set (the laptop voice through the bridge) the reply is that audio; otherwise, or when the
+// source fails, the browser's speech synthesis says it. Every call cancels what is already speaking.
 
 const PREFERRED = /Google US English|Samantha|Aria|Jenny|Guy|Zira|Daniel|Karen|Serena|Alex/i;
 let chosenVoice = null;
 let current = null; // { finish, timer }
+let source = null; // (text) → Promise<Blob>
+
+const hasSynth = () => typeof globalThis.speechSynthesis !== "undefined" && typeof globalThis.SpeechSynthesisUtterance === "function";
+const hasAudio = () => typeof globalThis.Audio === "function" && typeof globalThis.URL?.createObjectURL === "function";
+
+// fn(text) → Promise<Blob> of audio (e.g. (text) => net.tts(text)), or null for the browser voice only.
+export function setSpeechSource(fn) {
+  source = typeof fn === "function" ? fn : null;
+}
 
 export function canSpeak() {
-  return typeof globalThis.speechSynthesis !== "undefined" && typeof globalThis.SpeechSynthesisUtterance === "function";
+  return (!!source && hasAudio()) || hasSynth();
 }
 
 export function isSpeaking() {
   if (current) return true;
   try {
-    return canSpeak() && (globalThis.speechSynthesis.speaking || globalThis.speechSynthesis.pending);
+    return hasSynth() && (globalThis.speechSynthesis.speaking || globalThis.speechSynthesis.pending);
   } catch {
     return false;
+  }
+}
+
+function notify(fn, ...args) {
+  try {
+    fn?.(...args);
+  } catch (err) {
+    console.error("[speak] callback failed", err);
   }
 }
 
@@ -60,15 +78,94 @@ function chunks(text, max = 200) {
 }
 
 // → Promise<boolean>: true when it finished speaking, false when cancelled, failed or timed out.
-export function speak(text, { rate = 1.05, pitch = 1, volume = 1, lang = "en-US", onstart, onend } = {}) {
+export function speak(text, options = {}) {
   cancelSpeech();
   const line = String(text ?? "").replace(/\s+/g, " ").trim();
-  if (!line || !canSpeak()) {
-    try {
-      onend?.(false);
-    } catch (err) {
-      console.error("[speak] onend failed", err);
-    }
+  if (line && source && hasAudio()) return speakAudio(line, options);
+  return speakSynth(line, options);
+}
+
+// The source's audio through an <audio> element; any failure before playback falls back to the browser voice.
+function speakAudio(line, options) {
+  const { volume = 1, onstart, onend } = options;
+  const fetchAudio = source;
+  return new Promise((resolve) => {
+    const entry = { done: false, audio: null, url: "", timer: 0 };
+    const release = () => {
+      clearTimeout(entry.timer);
+      const audio = entry.audio;
+      entry.audio = null;
+      if (audio) {
+        audio.onplaying = audio.onended = audio.onerror = null;
+        try {
+          audio.pause();
+          audio.removeAttribute?.("src");
+          audio.load?.(); // drops the buffered clip
+        } catch {
+          // Already stopped.
+        }
+      }
+      if (entry.url) {
+        try {
+          globalThis.URL.revokeObjectURL(entry.url);
+        } catch {
+          // Already revoked.
+        }
+        entry.url = "";
+      }
+      if (current === entry) current = null;
+    };
+    entry.finish = (ok) => {
+      if (entry.done) return;
+      entry.done = true;
+      release();
+      notify(onend, ok);
+      resolve(ok);
+    };
+    const fallback = (err) => {
+      if (entry.done) return;
+      entry.done = true;
+      release();
+      console.warn("[speak] laptop voice unavailable, using the browser voice:", err?.message || err);
+      resolve(speakSynth(line, options));
+    };
+    current = entry;
+    let started = false;
+    entry.timer = setTimeout(() => fallback(new Error("no audio within 30 s")), 30000);
+    Promise.resolve()
+      .then(() => fetchAudio(line))
+      .then((blob) => {
+        if (entry.done) return;
+        if (!blob || !(blob.size > 0)) throw new Error("no audio");
+        clearTimeout(entry.timer);
+        const audio = new globalThis.Audio();
+        entry.audio = audio;
+        entry.url = globalThis.URL.createObjectURL(blob);
+        audio.preload = "auto";
+        audio.volume = Math.min(1, Math.max(0, Number(volume) || 0));
+        audio.onplaying = () => {
+          if (started || entry.done) return;
+          started = true;
+          // Ceiling: the clip's length plus slack, so a stalled element never blocks the mic.
+          const seconds = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 2 + line.length / 10;
+          clearTimeout(entry.timer);
+          entry.timer = setTimeout(() => entry.finish(false), Math.min(120000, seconds * 1000 + 3000));
+          notify(onstart);
+        };
+        audio.onended = () => entry.finish(true);
+        audio.onerror = () => (started ? entry.finish(false) : fallback(new Error("the audio could not be played")));
+        entry.timer = setTimeout(() => fallback(new Error("playback did not start")), 8000);
+        audio.src = entry.url;
+        const playing = audio.play();
+        playing?.catch?.((err) => (started ? entry.finish(false) : fallback(err)));
+      })
+      .catch(fallback);
+  });
+}
+
+function speakSynth(line, { rate = 1.05, pitch = 1, volume = 1, lang = "en-US", onstart, onend } = {}) {
+  if (!line || !hasSynth()) {
+    notify(onend, false);
     return Promise.resolve(false);
   }
   const synth = globalThis.speechSynthesis;
@@ -89,11 +186,7 @@ export function speak(text, { rate = 1.05, pitch = 1, volume = 1, lang = "en-US"
           // Already stopped.
         }
       }
-      try {
-        onend?.(ok);
-      } catch (err) {
-        console.error("[speak] onend failed", err);
-      }
+      notify(onend, ok);
       resolve(ok);
     };
     entry.finish = finish;
@@ -112,11 +205,7 @@ export function speak(text, { rate = 1.05, pitch = 1, volume = 1, lang = "en-US"
       utter.onstart = () => {
         if (started || done) return;
         started = true;
-        try {
-          onstart?.();
-        } catch (err) {
-          console.error("[speak] onstart failed", err);
-        }
+        notify(onstart);
       };
       utter.onerror = (event) => {
         // "interrupted"/"canceled" come from cancelSpeech(); anything else is a real failure.
@@ -140,11 +229,12 @@ export function speak(text, { rate = 1.05, pitch = 1, volume = 1, lang = "en-US"
   });
 }
 
+// Stops the reply: the laptop voice's audio element or the browser voice.
 export function cancelSpeech() {
   const entry = current;
   current = null;
   if (entry) entry.finish(false);
-  else if (canSpeak()) {
+  else if (hasSynth()) {
     try {
       if (globalThis.speechSynthesis.speaking || globalThis.speechSynthesis.pending) globalThis.speechSynthesis.cancel();
     } catch {
@@ -154,7 +244,7 @@ export function cancelSpeech() {
 }
 
 // Voices load asynchronously in Chrome; refresh the cached choice when the list changes.
-if (canSpeak()) {
+if (hasSynth()) {
   try {
     globalThis.speechSynthesis.addEventListener?.("voiceschanged", () => {
       chosenVoice = null;

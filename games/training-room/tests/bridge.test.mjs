@@ -1,5 +1,7 @@
 // Laptop bridge end to end: static serving, auth, room sync over SSE, model/STT proxies (with fake
-// Ollama and whisper servers), parts bin, shared frames, HTTPS certificate and persistence.
+// Ollama and whisper servers), magic-marker interpretation (vision and ASCII art), the laptop voice
+// (fake Piper and Kokoro-style servers, Net.tts and speak()), parts bin, shared frames, HTTPS
+// certificate and persistence.
 // Run: node --test games/training-room/tests/bridge.test.mjs
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -13,12 +15,17 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createBridge, renderQR, GAME_PATH } from "../bridge/server.mjs";
 import { generateCert, ensureCert, certIPs, lanIPs, lanAddresses } from "../bridge/cert.mjs";
-import { extractJSON, normalizeOutput, buildPrompt, EXAMPLES, intentSchema, pickModel, createMatcher, catalogText, LocalModel } from "../bridge/llm.mjs";
+import {
+  extractJSON, normalizeOutput, buildPrompt, EXAMPLES, intentSchema, pickModel, createMatcher, catalogText, LocalModel,
+  interpretSchema, buildInterpretPrompt, normalizeInterpret, attachImage, pickVisionModel, BEHAVIORS, VISION_NAME,
+} from "../bridge/llm.mjs";
 import { cleanTranscript, SpeechToText } from "../bridge/stt.mjs";
+import { cleanSpeech } from "../bridge/tts.mjs";
 import { sanitizeConfig, generateRoomKey, defaultDataDir } from "../bridge/config.mjs";
 import { allMeta, getMeta } from "../js/parts/meta/index.js";
+import { Net } from "../js/net/net.js";
 import { qrcode } from "../vendor/qrcode.mjs";
-import { startFakeOllama, startFakeWhisper, startFakeOpenAI, makeWav, closeServer } from "./fixtures/bridge-fakes.mjs";
+import { startFakeOllama, startFakeWhisper, startFakeOpenAI, startFakePiper, makeWav, closeServer, PNG_DATA_URL, ASCII_CIRCLE } from "./fixtures/bridge-fakes.mjs";
 
 const quietLog = { lines: [], log(...a) { this.lines.push(a.join(" ")); }, warn(...a) { this.lines.push(a.join(" ")); }, error(...a) { this.lines.push(a.join(" ")); } };
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tr-bridge-test-"));
@@ -114,6 +121,17 @@ function openSSE(port, reqPath, headers = {}) {
 }
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function until(predicate, ms = 3000, label = "condition") {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (predicate()) return;
+    await wait(5);
+  }
+  throw new Error(`timed out waiting for ${label}`);
+}
+
+const FISH_PARTS = [{ shape: "sphere", p: [0, 2, 0], s: [1, 0.5, 0.3], color: "orange" }, { shape: "cone", p: [-0.6, 2, 0], s: [0.3, 0.4, 0.1], r: [0, 0, 90] }];
 
 // ---------- pure units ----------
 describe("bridge units", () => {
@@ -221,6 +239,147 @@ describe("bridge units", () => {
     assert.equal(defaultDataDir({ TRAINING_ROOM_DATA: "/srv/tr" }, "linux"), path.resolve("/srv/tr"));
   });
 
+  it("config: vision model and laptop voice settings", () => {
+    const { config: d } = sanitizeConfig({});
+    assert.deepEqual([d.visionModel, d.ttsKind, d.ttsUrl, d.ttsVoice, d.ttsModel], ["", "none", "", "af_heart", "kokoro"]);
+    const { config, problems } = sanitizeConfig({ visionModel: " llava ", ttsKind: "piper", ttsUrl: "http://127.0.0.1:5000/", ttsVoice: "bm_george" });
+    assert.deepEqual(problems, []);
+    assert.deepEqual([config.visionModel, config.ttsKind, config.ttsUrl, config.ttsVoice], ["llava", "piper", "http://127.0.0.1:5000", "bm_george"]);
+    const bad = sanitizeConfig({ ttsKind: "espeak", ttsUrl: "file:///etc/passwd", ttsModel: "" });
+    assert.deepEqual(bad.problems, ["ttsKind", "ttsUrl"]);
+    assert.equal(bad.config.ttsKind, "none");
+    assert.equal(bad.config.ttsUrl, "");
+    assert.equal(bad.config.ttsModel, "kokoro");
+    assert.equal(cleanSpeech(" Hello\n\tthere\u0007! "), "Hello there !");
+    assert.equal(cleanSpeech("word ".repeat(200)), "word ".repeat(80).trim(), "at most 400 characters");
+  });
+
+  it("magic marker prompt: honest-guess system prompt, catalog, ASCII art or image, the player's words", () => {
+    const metas = allMeta();
+    const schema = interpretSchema();
+    assert.deepEqual(schema.required, ["guess", "confidence", "part", "behavior", "say"]);
+    assert.deepEqual(schema.properties.behavior.enum, BEHAVIORS);
+    assert.deepEqual(BEHAVIORS, ["swim", "fly", "walk", "hop", "roll", "spin", "float", "bounce", "sway", "none"]);
+    assert.equal(schema.properties.blueprint.properties.parts.items.properties.shape.enum.length, 6);
+    const stats = { strokes: 1, points: 64, closed: 1, aspect: 1.1, width: 0.6, height: 0.55 };
+    const text = buildInterpretPrompt({ ascii: ASCII_CIRCLE + "\n`", stats, size: [0.6, 0.55], metas, extraParts: ["dragon statue", "ball"] });
+    assert.equal(text.length, 2);
+    assert.equal(text[0].role, "system");
+    assert.match(text[0].content, /drew something in the air with a magic marker, like Harold and the Purple Crayon or ChalkZone/);
+    assert.match(text[0].content, /do not flatter bad drawings: if it looks like a fish, say fish\. Then make it real\./);
+    assert.match(text[0].content, /swim\|fly\|walk\|hop\|roll\|spin\|float\|bounce\|sway\|none/);
+    assert.match(text[0].content, /^- ball \(soccer ball\) /m, "catalog included");
+    assert.match(text[0].content, /"part":"","blueprint":\{"name":"snail"/, "a blueprint example");
+    const user = text[1].content;
+    assert.ok(user.includes("```\n" + ASCII_CIRCLE + "\n'\n```"), "ASCII art fenced, backticks neutralized");
+    assert.match(user, /Size: about 0\.6 m wide and 0\.55 m tall\. 1 stroke, 64 points, 1 closed shape, aspect 1\.1 \(width \/ height\)\./);
+    assert.match(user, /Also available parts: dragon statue\.$/m, "known catalog names are not repeated");
+    assert.match(user, /Player's words: none \(guess from the drawing\)\./);
+    const seen = buildInterpretPrompt({ ascii: ASCII_CIRCLE, stats: { closed: false }, size: [1, 0.5], hint: "make it a fish", metas, vision: true });
+    assert.equal(seen[0].content, text[0].content, "the system prompt is identical across calls (KV cache)");
+    assert.doesNotMatch(seen[1].content, /```|####/, "no ASCII art next to the image");
+    assert.match(seen[1].content, /attached image/);
+    assert.match(seen[1].content, /about 1 m wide and 0\.5 m tall\. Open lines\./);
+    assert.match(seen[1].content, /Player's words: "make it a fish"/);
+    const forOllama = attachImage(seen[1], PNG_DATA_URL, "ollama");
+    assert.deepEqual(forOllama, { role: "user", content: seen[1].content, images: [PNG_DATA_URL.slice("data:image/png;base64,".length)] });
+    const forOpenAI = attachImage(seen[1], PNG_DATA_URL, "openai");
+    assert.deepEqual(forOpenAI, { role: "user", content: [{ type: "text", text: seen[1].content }, { type: "image_url", image_url: { url: PNG_DATA_URL } }] });
+    // A small context window gets a names-only catalog.
+    assert.match(user, /# is ink, dots and spaces are empty/);
+    const tight = buildInterpretPrompt({ ascii: "#", metas, numCtx: 2048 });
+    assert.doesNotMatch(tight[0].content, /^- ball/m);
+    assert.match(tight[0].content, /\bball, /);
+  });
+
+  it("normalizeInterpret: catalog parts by name or head noun, honest blueprints, clamps and defaults", () => {
+    const match = createMatcher(allMeta(), ["owner rocket"]);
+    const n = (raw) => normalizeInterpret(raw, { match });
+    assert.deepEqual(n({ guess: "Soccer Ball", confidence: 85, part: "soccer ball", blueprint: { parts: FISH_PARTS }, behavior: "Bouncing", say: " Boing! " }),
+      { guess: "soccer ball", confidence: 0.85, part: "ball", behavior: "bounce", say: "Boing!" }, "alias → catalog name, no blueprint with a part");
+    assert.equal(n({ guess: "big red ball", part: "big red ball", behavior: "roll", say: "Roll on." }).part, "ball", "head noun");
+    assert.equal(n({ guess: "crate", part: "", behavior: "none", say: "A crate." }).part, "crate", "a guess that is a catalog name");
+    assert.equal(n({ guess: "rocket", part: "Owner Rocket", behavior: "fly", say: "Up!" }).part, "owner rocket", "client parts");
+    const house = n({ guess: "tree house", part: "tree house", behavior: "sway", say: "A tree house!", blueprint: { name: "Tree House", parts: FISH_PARTS } });
+    assert.equal(house.part, "", "a tree house is not a tree");
+    assert.equal(house.blueprint.name, "tree house");
+    const fish = n({ guess: "a fish", confidence: 150, part: "fish", blueprint: { name: "Fish", parts: FISH_PARTS }, behavior: "swimming", say: "That's clearly a fish. ".repeat(20) });
+    assert.equal(fish.guess, "fish");
+    assert.equal(fish.confidence, 1);
+    assert.equal(fish.part, "", "no fish in the catalog");
+    assert.equal(fish.behavior, "swim");
+    assert.ok(fish.say.length <= 160 && fish.say.startsWith("That's clearly a fish."));
+    assert.equal(fish.blueprint.parts.length, 2);
+    assert.ok(Math.abs(Math.min(...fish.blueprint.parts.map((p) => p.p[1] - p.s[1] / 2))) < 0.06, "re-centered to the ground");
+    assert.equal(fish.blueprint.size.length, 3);
+    assert.deepEqual(Object.keys(fish), ["guess", "confidence", "part", "blueprint", "behavior", "say"]);
+    assert.deepEqual(n({ part: "crate", behavior: "teleport", confidence: -3 }), { guess: "crate", confidence: 0, part: "crate", behavior: "none", say: "That looks like a crate!" });
+    assert.deepEqual(n({ guess: "octopus", behavior: "SWIM" }), { guess: "octopus", confidence: 0.5, part: "", behavior: "swim", say: "That looks like an octopus!" }, "no part, no blueprint: the client makes a doodle");
+    assert.equal(n({ guess: "", part: "", say: "Hmm" }), null);
+    assert.equal(n("fish"), null);
+    assert.equal(n([{ guess: "fish" }]), null);
+    assert.equal(n({ guess: "fish", blueprint: { parts: [] } }).blueprint, undefined, "invalid blueprints are dropped");
+  });
+
+  it("vision model: Ollama /api/show capabilities, name fallback, visionModel setting, cache", async () => {
+    const fake = await startFakeOllama({ models: ["qwen2.5-coder:7b", "llava:7b", "qwen2.5vl:7b", "nomic-embed-text:latest"] });
+    const textOnly = await startFakeOllama({ models: ["qwen2.5-coder:7b", "gemma3:1b"], caps: { "gemma3:1b": ["completion"] } });
+    const noShow = await startFakeOllama({ models: ["qwen2.5-coder:7b", "llava:7b"], show: false });
+    try {
+      const model = new LocalModel({ ollamaUrl: fake.url }, { log: quietLog });
+      await model.refresh(true);
+      assert.equal(model.name, "qwen2.5-coder:7b");
+      assert.equal(model.vision, "qwen2.5vl:7b", "Qwen VL ranks above LLaVA");
+      assert.deepEqual([...fake.shows].sort(), ["llava:7b", "qwen2.5-coder:7b", "qwen2.5vl:7b"], "embedding models are not asked");
+      await model.refresh(true);
+      assert.equal(fake.shows.length, 3, "capabilities are cached per model");
+      const pinned = new LocalModel({ ollamaUrl: fake.url, visionModel: "llava:7b" }, { log: quietLog });
+      await pinned.refresh(true);
+      assert.equal(pinned.vision, "llava:7b");
+      const missing = new LocalModel({ ollamaUrl: fake.url, visionModel: "llama3.2-vision" }, { log: quietLog });
+      await missing.refresh(true);
+      assert.equal(missing.vision, null);
+      const plain = new LocalModel({ ollamaUrl: textOnly.url }, { log: quietLog });
+      await plain.refresh(true);
+      assert.equal(plain.vision, null, "a vision-looking name without the capability does not count");
+      const old = new LocalModel({ ollamaUrl: noShow.url }, { log: quietLog });
+      await old.refresh(true);
+      assert.equal(old.vision, "llava:7b", "name-based guess when /api/show cannot tell");
+      assert.equal(pickVisionModel(["llava:7b", "gemma3:4b"], "gemma3:4b"), "gemma3:4b", "one model for both");
+      assert.equal(pickVisionModel(["moondream:latest", "llava:13b"]), "llava:13b");
+      assert.equal(pickVisionModel([]), null);
+      for (const name of ["llava:7b", "qwen2.5vl:7b", "qwen3-vl:8b", "gemma3:4b", "minicpm-v:8b", "llama3.2-vision:11b", "moondream"]) assert.match(name, VISION_NAME);
+      for (const name of ["qwen2.5-coder:7b", "llama3.2:3b", "mistral:7b"]) assert.doesNotMatch(name, VISION_NAME);
+    } finally {
+      await closeServer(fake.server);
+      await closeServer(textOnly.server);
+      await closeServer(noShow.server);
+    }
+  });
+
+  it("OpenAI-compatible provider: the drawing goes along as an image_url content part", async () => {
+    const fake = await startFakeOpenAI({ models: ["text-embedding-nomic-embed-text-v1.5", "qwen2.5-7b-instruct", "qwen2.5-vl-7b-instruct"] });
+    try {
+      const model = new LocalModel({ provider: "openai", openaiUrl: `${fake.url}/v1` }, { log: quietLog });
+      await model.refresh(true);
+      assert.equal(model.name, "qwen2.5-7b-instruct");
+      assert.equal(model.vision, "qwen2.5-vl-7b-instruct");
+      const out = await model.interpret({ image: PNG_DATA_URL, ascii: ASCII_CIRCLE, size: [1, 0.5], metas: allMeta() });
+      assert.equal(out.guess, "fish");
+      assert.equal(out.vision, true);
+      assert.equal(out.model, "qwen2.5-vl-7b-instruct");
+      const sent = fake.requests.at(-1).body;
+      assert.equal(sent.response_format.json_schema.name, "interpret");
+      assert.deepEqual(sent.messages.at(-1).content[1], { type: "image_url", image_url: { url: PNG_DATA_URL } });
+      assert.equal(sent.messages.at(-1).content[0].type, "text");
+      assert.equal(sent.temperature, 0.3);
+      const text = await model.interpret({ ascii: ASCII_CIRCLE, size: [0.5, 0.5], metas: allMeta() });
+      assert.deepEqual([text.part, text.vision, text.model], ["ball", false, "qwen2.5-7b-instruct"]);
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
   it("extractJSON handles fences, thinking tags and chatter", () => {
     assert.deepEqual(extractJSON('{"a":1}'), { a: 1 });
     assert.deepEqual(extractJSON('```json\n{"a":2}\n```'), { a: 2 });
@@ -304,7 +463,7 @@ describe("bridge units", () => {
     assert.match(fitted.at(-1).content, /Command: "spawn a villa"/);
     const schema = intentSchema();
     assert.deepEqual(schema.required, ["intents", "say"]);
-    assert.equal(schema.properties.intents.items.properties.do.enum.length, 16);
+    assert.equal(schema.properties.intents.items.properties.do.enum.length, 20);
   });
 
   it("pickModel prefers coder, then qwen, never embedding models", () => {
@@ -399,6 +558,8 @@ describe("bridge server", () => {
       configOverrides: { ollamaUrl: ollama.url, sttUrl: `${whisper.url}/inference` },
       store: { dropAfter: 400, sweepMs: 100, poseHz: 20, saveDelay: 100 },
       modelTimeoutMs: 1500,
+      visionTimeoutMs: 1500,
+      ttsTimeoutMs: 1000,
       scanMs: 60000,
     });
     const info = await bridge.start();
@@ -523,10 +684,12 @@ describe("bridge server", () => {
     assert.equal(open.json.bridge, true);
     assert.equal(open.json.auth, false);
     assert.equal(open.json.key, undefined);
+    assert.deepEqual(open.json.tts, { available: false, kind: "none" });
     const hello = await raw(hp, "/vr-games/games/training-room/api/hello", { headers: { "x-room-key": key } });
     assert.equal(hello.json.auth, true);
     assert.equal(hello.json.key, key);
-    assert.deepEqual(hello.json.model, { available: true, name: "qwen2.5-coder:7b", provider: "ollama" });
+    assert.deepEqual(hello.json.model, { available: true, name: "qwen2.5-coder:7b", provider: "ollama", vision: null });
+    assert.deepEqual(hello.json.tts, { available: false, kind: "none", url: null, detail: "the laptop voice is off (ttsKind: none)" });
     assert.equal(hello.json.stt.available, true);
     assert.equal(hello.json.stt.kind, "whisper.cpp");
     assert.equal(hello.json.parts.count, 3);
@@ -875,6 +1038,305 @@ describe("bridge server", () => {
       assert.equal(bad.status, 400);
       const list = (await raw(hp, "/api/parts", { headers: { "x-room-key": key } })).json.parts.map((p) => p.name);
       assert.ok(list.includes("robot butler") && list.includes("robot butler 2") && list.includes("robot butler 3"));
+    });
+  });
+
+  describe("magic marker", () => {
+    let vision;
+    let picky;
+    const sketch = { ascii: ASCII_CIRCLE, stats: { strokes: 1, points: 80, closed: 1, aspect: 1.1, width: 0.6, height: 0.55 }, size: [0.6, 0.55] };
+    const useModel = async (url) => {
+      bridge.model.configure({ ...bridge.config, ollamaUrl: url });
+      await bridge.model.refresh(true);
+    };
+
+    before(async () => {
+      vision = await startFakeOllama({ models: ["qwen2.5-coder:7b", "llava:7b"] });
+      picky = await startFakeOllama({ models: ["qwen2.5-coder:7b", "llava-text:7b"], show: false, refuseImages: ["llava-text:7b"] });
+    });
+
+    after(async () => {
+      await useModel(ollama.url);
+      await closeServer(vision?.server);
+      await closeServer(picky?.server);
+    });
+
+    it("without a vision model the text model reads the ASCII art (vision: false)", async () => {
+      const res = await post("interpret", { ...sketch, image: PNG_DATA_URL, parts: ["dragon statue"] });
+      assert.equal(res.status, 200, res.text);
+      assert.deepEqual(res.json, { guess: "ball", confidence: 0.7, part: "ball", behavior: "bounce", say: "A ball! Boing, boing.", source: "model", model: "qwen2.5-coder:7b", vision: false, ms: res.json.ms });
+      assert.ok(res.json.ms >= 0);
+      const sent = ollama.requests.at(-1);
+      assert.equal(sent.model, "qwen2.5-coder:7b");
+      assert.deepEqual(sent.format.required, ["guess", "confidence", "part", "behavior", "say"]);
+      assert.equal(sent.options.temperature, 0.3);
+      assert.equal(sent.think, false);
+      assert.equal(sent.messages.length, 2);
+      assert.match(sent.messages[0].content, /Harold and the Purple Crayon/);
+      assert.match(sent.messages[0].content, /^- snowman$/m, "laptop parts are in the (compact) catalog");
+      const user = sent.messages[1];
+      assert.equal(user.images, undefined);
+      assert.ok(user.content.includes("```\n" + ASCII_CIRCLE + "\n```"));
+      assert.match(user.content, /about 0\.6 m wide and 0\.55 m tall/);
+      assert.match(user.content, /Also available parts: dragon statue/);
+      const hello = await raw(hp, "/api/hello", { headers: { "x-room-key": key } });
+      assert.equal(hello.json.model.vision, null);
+    });
+
+    it("with a vision model the drawing goes along as an image (base64 without the data: prefix)", async () => {
+      await useModel(vision.url);
+      const hello = await raw(hp, "/api/hello", { headers: { "x-room-key": key } });
+      assert.equal(hello.json.model.vision, "llava:7b");
+      assert.equal(hello.json.model.name, "qwen2.5-coder:7b");
+      const res = await raw(hp, `${GAME_PATH}api/interpret`, { method: "POST", headers: auth(), body: { ...sketch, image: PNG_DATA_URL } });
+      assert.equal(res.status, 200, res.text);
+      const { blueprint, ...rest } = res.json;
+      assert.deepEqual(rest, { guess: "fish", confidence: 0.85, part: "", behavior: "swim", say: "That's clearly a fish. Go on, little fish!", source: "model", model: "llava:7b", vision: true, ms: rest.ms });
+      assert.equal(blueprint.name, "fish");
+      assert.equal(blueprint.parts.length, 3);
+      assert.ok(blueprint.size[0] > 1 && blueprint.size[1] > 0.5);
+      const sent = vision.requests.at(-1);
+      assert.equal(sent.model, "llava:7b");
+      assert.deepEqual(sent.messages[1].images, [PNG_DATA_URL.slice("data:image/png;base64,".length)]);
+      assert.match(sent.messages[1].content, /attached image/);
+      assert.doesNotMatch(sent.messages[1].content, /```/);
+      // The same drawing without a picture goes to the text model.
+      const text = await post("interpret", sketch);
+      assert.equal(text.status, 200, text.text);
+      assert.deepEqual([text.json.guess, text.json.part, text.json.vision, text.json.model], ["ball", "ball", false, "qwen2.5-coder:7b"]);
+    });
+
+    it("the player's words name the thing: no guessing", async () => {
+      const res = await post("interpret", { ...sketch, hint: "make it a fish" });
+      assert.equal(res.status, 200, res.text);
+      assert.equal(res.json.guess, "fish");
+      assert.equal(res.json.behavior, "swim");
+      assert.equal(res.json.vision, false);
+      assert.match(vision.requests.at(-1).messages[1].content, /^Player's words: "make it a fish"$/m);
+    });
+
+    it("a model that refuses images (a wrong name-based guess) falls back to the ASCII art", async () => {
+      await useModel(picky.url);
+      assert.equal(bridge.model.vision, "llava-text:7b");
+      const res = await post("interpret", { ...sketch, image: PNG_DATA_URL });
+      assert.equal(res.status, 200, res.text);
+      assert.deepEqual([res.json.guess, res.json.vision, res.json.model], ["ball", false, "qwen2.5-coder:7b"]);
+      assert.equal(picky.requests.length, 2);
+      assert.equal(picky.requests[0].model, "llava-text:7b");
+      await bridge.model.refresh(true);
+      assert.equal(bridge.model.vision, null, "not tried with images again for a while");
+      const image = await post("interpret", { image: PNG_DATA_URL });
+      assert.equal(image.status, 400);
+      assert.equal(image.json.error, "no-sketch");
+    });
+
+    it("errors: bad output 502, slow 504, bad input 400/413, auth 401, no model 503", async () => {
+      await useModel(vision.url);
+      const broken = await post("interpret", { ...sketch, hint: "broken" });
+      assert.equal(broken.status, 502);
+      assert.equal(broken.json.error, "bad-output");
+      assert.match(broken.json.raw, /lovely drawing/);
+      assert.ok(broken.json.raw.length <= 500);
+      const number = await post("interpret", { ...sketch, hint: "number" });
+      assert.equal(number.status, 502);
+      assert.equal(number.json.error, "bad-output");
+      const slowText = await post("interpret", { ...sketch, hint: "slow" });
+      assert.equal(slowText.status, 504);
+      assert.equal(slowText.json.error, "timeout");
+      const slowVision = await post("interpret", { ...sketch, image: PNG_DATA_URL, hint: "slow" });
+      assert.equal(slowVision.status, 504);
+      assert.equal((await post("interpret", { ascii: "   ", size: [1, 1] })).json.error, "no-sketch");
+      const badImage = await post("interpret", { ...sketch, image: "data:text/html;base64,PGh0bWw+" });
+      assert.equal(badImage.status, 400);
+      assert.equal(badImage.json.error, "bad-image");
+      const big = await post("interpret", { ...sketch, image: `data:image/png;base64,${"A".repeat(620 * 1024)}` });
+      assert.equal(big.status, 413);
+      const fits = await post("interpret", { ...sketch, image: `data:image/png;base64,${"A".repeat(500 * 1024)}` });
+      assert.equal(fits.status, 200, "a 500 KB snapshot fits the 600 KB limit");
+      const denied = await post("interpret", sketch, { "content-type": "application/json" });
+      assert.equal(denied.status, 401);
+      await useModel("http://127.0.0.1:9");
+      const down = await post("interpret", sketch);
+      assert.equal(down.status, 503);
+      assert.equal(down.json.error, "no-model");
+    });
+
+    it("Net.interpret returns the guess and reports errors with .code", async () => {
+      await useModel(vision.url);
+      const net = new Net({ base: `http://127.0.0.1:${hp}/api/`, key, EventSourceImpl: null });
+      const out = await net.interpret({ ...sketch, image: PNG_DATA_URL });
+      assert.deepEqual([out.guess, out.behavior, out.vision, out.model], ["fish", "swim", true, "llava:7b"]);
+      assert.equal(out.blueprint.name, "fish");
+      await assert.rejects(net.interpret({ ascii: "" }), (err) => err.code === "no-sketch" && err.status === 400);
+      await useModel("http://127.0.0.1:9");
+      await assert.rejects(net.interpret(sketch), (err) => err.code === "no-model" && err.status === 503);
+    });
+  });
+
+  describe("laptop voice (TTS)", () => {
+    let piper;
+    let legacy;
+    let kokoro;
+    const useVoice = async (overrides) => {
+      bridge.tts.configure({ ...bridge.config, ...overrides });
+      await bridge.tts.probe();
+    };
+
+    before(async () => {
+      piper = await startFakePiper({ delayMs: 40 });
+      legacy = await startFakePiper({ legacy: true });
+      kokoro = await startFakeOpenAI();
+    });
+
+    after(async () => {
+      await useVoice({});
+      await closeServer(piper?.server);
+      await closeServer(legacy?.server);
+      await closeServer(kokoro?.server);
+    });
+
+    it("is off by default: api/tts answers 503 no-tts", async () => {
+      const res = await post("tts", { text: "Hello" });
+      assert.equal(res.status, 503);
+      assert.equal(res.json.error, "no-tts");
+    });
+
+    it("piper: POST / with { text } returns WAV, one request at a time", async () => {
+      await useVoice({ ttsKind: "piper", ttsUrl: piper.url });
+      const hello = await raw(hp, "/api/hello", { headers: { "x-room-key": key } });
+      assert.deepEqual(hello.json.tts, { available: true, kind: "piper", url: piper.url });
+      const open = await raw(hp, "/api/hello");
+      assert.deepEqual(open.json.tts, { available: true, kind: "piper" });
+      const res = await post("tts", { text: "  That's clearly\na fish!  " });
+      assert.equal(res.status, 200, res.text);
+      assert.equal(res.headers["content-type"], "audio/wav");
+      assert.equal(res.headers["cache-control"], "no-store");
+      assert.ok(res.buffer.equals(piper.audio));
+      assert.deepEqual(piper.requests.at(-1), { path: "/", body: { text: "That's clearly a fish!" }, type: "application/json" });
+      const many = await Promise.all([1, 2, 3].map((i) => post("tts", { text: `line ${i}` })));
+      assert.deepEqual(many.map((r) => r.status), [200, 200, 200]);
+      assert.equal(piper.state.maxActive, 1, "serialized");
+      await post("tts", { text: "word ".repeat(200) });
+      assert.equal(piper.requests.at(-1).body.text, "word ".repeat(80).trim());
+      assert.equal((await post("tts", { text: "  " })).status, 400);
+      assert.equal((await post("tts", { text: "hi" }, { "content-type": "application/json" })).status, 401);
+    });
+
+    it("piper wrappers that answer POST /synthesize", async () => {
+      await useVoice({ ttsKind: "piper", ttsUrl: legacy.url });
+      const res = await post("tts", { text: "Hello" });
+      assert.equal(res.status, 200, res.text);
+      assert.ok(res.buffer.equals(legacy.audio));
+      await post("tts", { text: "Again" });
+      assert.deepEqual(legacy.requests.map((r) => r.path), ["/synthesize", "/synthesize"]);
+      assert.equal(bridge.tts.piperTarget, `${legacy.url}/synthesize`);
+    });
+
+    it("openai (Kokoro-FastAPI): model, input, voice, response_format wav", async () => {
+      await useVoice({ ttsKind: "openai", ttsUrl: `${kokoro.url}/v1/audio/speech` });
+      const res = await post("tts", { text: "Hi from the laptop." });
+      assert.equal(res.status, 200, res.text);
+      assert.equal(res.headers["content-type"], "audio/wav");
+      assert.ok(res.buffer.equals(kokoro.audio));
+      assert.deepEqual(kokoro.requests.at(-1), { path: "/v1/audio/speech", body: { model: "kokoro", input: "Hi from the laptop.", voice: "af_heart", response_format: "wav" } });
+    });
+
+    it("slow voice → 504, unreachable → 503 no-tts", async () => {
+      await useVoice({ ttsKind: "piper", ttsUrl: piper.url });
+      const slow = await post("tts", { text: "slow please" });
+      assert.equal(slow.status, 504);
+      assert.equal(slow.json.error, "tts-timeout");
+      assert.equal((await post("tts", { text: "fast again" })).status, 200, "the queue moves on");
+      await useVoice({ ttsKind: "openai", ttsUrl: "http://127.0.0.1:9/v1/audio/speech" });
+      const down = await post("tts", { text: "Hello" });
+      assert.equal(down.status, 503);
+      assert.equal(down.json.error, "no-tts");
+      assert.match(down.json.detail, /not reachable/);
+    });
+
+    it("Net.tts gives a Blob and speak() plays it, stops it and falls back to the browser voice", async () => {
+      await useVoice({ ttsKind: "piper", ttsUrl: piper.url });
+      const net = new Net({ base: `http://127.0.0.1:${hp}/api/`, key, EventSourceImpl: null });
+      const blob = await net.tts("Hello");
+      assert.equal(blob.size, piper.audio.length);
+      assert.equal(blob.type, "audio/wav");
+      const played = [];
+      const spoken = [];
+      class FakeAudio {
+        static endAfter = 20;
+        constructor() {
+          this.paused = true;
+          this.duration = NaN;
+          this.src = "";
+          this.timers = [];
+          played.push(this);
+        }
+        play() {
+          this.paused = false;
+          this.timers.push(setTimeout(() => this.onplaying?.(), 5));
+          this.timers.push(setTimeout(() => this.onended?.(), 5 + FakeAudio.endAfter));
+          return Promise.resolve();
+        }
+        pause() {
+          this.paused = true;
+          this.timers.forEach(clearTimeout);
+        }
+        removeAttribute(name) {
+          if (name === "src") this.src = "";
+        }
+        load() {}
+      }
+      const saved = { Audio: globalThis.Audio, speechSynthesis: globalThis.speechSynthesis, SpeechSynthesisUtterance: globalThis.SpeechSynthesisUtterance };
+      globalThis.Audio = FakeAudio;
+      globalThis.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+      globalThis.speechSynthesis = {
+        speaking: false, pending: false, paused: false, getVoices: () => [], cancel() {},
+        speak(utter) {
+          spoken.push(utter.text);
+          setTimeout(() => {
+            utter.onstart?.();
+            utter.onend?.();
+          }, 5);
+        },
+      };
+      const voice = await import("../js/voice/speak.js");
+      const warn = console.warn;
+      try {
+        voice.setSpeechSource((text) => net.tts(text));
+        assert.equal(voice.canSpeak(), true);
+        let started = 0;
+        let ended = null;
+        assert.equal(await voice.speak("Hello from the laptop", { onstart: () => started++, onend: (ok) => (ended = ok) }), true);
+        assert.equal(played.length, 1);
+        assert.equal(started, 1);
+        assert.equal(ended, true);
+        assert.equal(played[0].src, "", "object URL released");
+        assert.equal(piper.requests.at(-1).body.text, "Hello from the laptop");
+        assert.deepEqual(spoken, []);
+        FakeAudio.endAfter = 60000;
+        const pending = voice.speak("A much longer line");
+        await until(() => played.length === 2 && !played[1].paused, 3000, "playback");
+        assert.equal(voice.isSpeaking(), true);
+        voice.cancelSpeech();
+        assert.equal(await pending, false);
+        assert.equal(played[1].paused, true, "cancelSpeech stops the audio element");
+        console.warn = () => {};
+        voice.setSpeechSource(() => Promise.reject(Object.assign(new Error("off"), { code: "no-tts" })));
+        assert.equal(await voice.speak("Fallback please"), true);
+        assert.deepEqual(spoken, ["Fallback please"]);
+        voice.setSpeechSource(null);
+        assert.equal(await voice.speak("Browser only"), true);
+        assert.equal(played.length, 2);
+        await useVoice({});
+        await assert.rejects(net.tts("Hello"), (err) => err.code === "no-tts" && err.status === 503);
+      } finally {
+        console.warn = warn;
+        voice.setSpeechSource(null);
+        for (const [name, value] of Object.entries(saved)) {
+          if (value === undefined) delete globalThis[name];
+          else globalThis[name] = value;
+        }
+      }
     });
   });
 

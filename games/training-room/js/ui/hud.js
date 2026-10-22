@@ -1,5 +1,6 @@
 // VR HUD from canvas textures: a wrist panel on the left grip, captions that lazily follow the
-// head, and a floating menu (mic mode, undo, clear, time, parts bin, exit). Emits "action" { name, value }.
+// head, and a floating menu (mic mode, undo, clear, time, magic marker, parts bin, exit).
+// Emits "action" { name, value }; marker actions: marker, realize, guess, erase.
 import * as THREE from "../../vendor/three.module.min.js";
 import { Emitter } from "../util/emitter.js";
 import { makeCanvas, canvasTexture, roundRect, wrapLines, FONT } from "../util/text.js";
@@ -16,12 +17,13 @@ const ORDER = 20; // HUD draws after the world
 const CAPTION_SECS = 6;
 const FADE_SECS = 0.6;
 const REDRAW_SECS = 0.1;
-const PER_PAGE = 12;
+const PER_PAGE = 15;
+const MARKER_HINT = "Trigger: draw · say “make it real”";
 
 // Panel sizes: meters and canvas pixels.
 const WRIST = { w: 0.16, h: 0.1, px: 512, py: 320 };
 const CAPTION = { w: 1.0, h: 0.28, px: 1024, py: 288, dist: 1.6, drop: 0.32 };
-const MENU = { w: 0.64, h: 0.48, px: 1024, py: 768, dist: 1.0 };
+const MENU = { w: 0.64, h: 0.56, px: 1024, py: 896, dist: 1.0 };
 const MENU_CAPTION_SCALE = MENU.dist / CAPTION.dist;
 
 const titleCase = (s) => String(s || "").replace(/^./, (c) => c.toUpperCase());
@@ -54,6 +56,8 @@ export class Hud extends Emitter {
     this._cap = { toast: "", heard: null, reply: null }; // what the caption shows until it fades
     this._conn = { state: "standalone", model: null };
     this._time = "day";
+    this._marker = { held: false, color: "#9b6bff" };
+    this._drawingAvailable = true;
     this._menuOpen = false;
     this._page = "main";
     this._partsPage = 0;
@@ -190,6 +194,19 @@ export class Hud extends Emitter {
     if (this._menuOpen) this._dirty.menu = true;
   }
 
+  // A marker is in a hand: the wrist shows how to draw (color = ink, optional).
+  setMarkerHeld(held, { color } = {}) {
+    this._marker = { held: !!held, color: /^#[0-9a-f]{6}$/i.test(color || "") ? color : this._marker.color };
+    this._dirty.wrist = true;
+    if (this._menuOpen) this._dirty.menu = true;
+  }
+
+  // A drawing is near enough to make real, guess or erase (menu buttons dim when not).
+  setDrawingAvailable(available) {
+    this._drawingAvailable = !!available;
+    if (this._menuOpen) this._dirty.menu = true;
+  }
+
   _showCaption() {
     this._capAge = 0;
     this._dirty.caption = true;
@@ -280,6 +297,12 @@ export class Hud extends Emitter {
       case "spawn":
         this.toggleMenu(false);
         return act("spawn", button.value);
+      case "marker":
+      case "realize":
+      case "guess":
+      case "erase":
+        this.toggleMenu(false);
+        return act(kind);
       case "exit":
         this.toggleMenu(false);
         return act("exit-vr");
@@ -407,17 +430,28 @@ export class Hud extends Emitter {
     ctx.font = `400 28px ${FONT}`;
     ctx.fillText(ellipsize(ctx, sub, W - 180), 164, 104);
 
-    // Connection.
+    // Connection, or how to draw while a marker is in hand.
     ctx.fillStyle = C.line;
     ctx.fillRect(24, 168, W - 48, 2);
-    const online = this._conn.state === "online";
-    ctx.beginPath();
-    ctx.arc(36, 199, 8, 0, Math.PI * 2);
-    ctx.fillStyle = online ? C.accent : this._conn.state === "offline" ? C.danger : C.muted;
-    ctx.fill();
-    ctx.fillStyle = C.text;
-    ctx.font = `400 28px ${FONT}`;
-    ctx.fillText(ellipsize(ctx, connectionText(this._conn), W - 80), 56, 184);
+    if (this._marker.held) {
+      ctx.fillStyle = this._marker.color;
+      ctx.fillRect(26, 189, 20, 20);
+      ctx.strokeStyle = C.text;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(26, 189, 20, 20);
+      ctx.fillStyle = C.accent;
+      ctx.font = `700 25px ${FONT}`;
+      ctx.fillText(ellipsize(ctx, MARKER_HINT, W - 84), 60, 186);
+    } else {
+      const online = this._conn.state === "online";
+      ctx.beginPath();
+      ctx.arc(36, 199, 8, 0, Math.PI * 2);
+      ctx.fillStyle = online ? C.accent : this._conn.state === "offline" ? C.danger : C.muted;
+      ctx.fill();
+      ctx.fillStyle = C.text;
+      ctx.font = `400 28px ${FONT}`;
+      ctx.fillText(ellipsize(ctx, connectionText(this._conn), W - 80), 56, 184);
+    }
 
     // Last heard.
     ctx.fillStyle = C.muted;
@@ -522,12 +556,19 @@ export class Hud extends Emitter {
       add("undo", 40, 340, 304, 100, "Undo");
       add("clear", 360, 340, 304, 100, confirming ? "Click again to clear" : "Clear all", { danger: true, active: confirming, size: confirming ? 30 : 36 });
       add("time", 680, 340, 304, 100, `Time: ${TIME_LABEL[this._time]} ▸`);
-      add("parts", 40, 464, 464, 100, "Parts bin ▸", { primary: true });
-      add("exit", 520, 464, 464, 100, "Exit VR");
+      label(ctx, "MAGIC MARKER", 40, 468);
+      const off = !this._drawingAvailable;
+      add("marker", 40, 504, 224, 100, "Marker", { active: this._marker.held, size: 32 });
+      add("guess", 280, 504, 224, 100, "What is it?", { disabled: off, size: 32 });
+      add("erase", 520, 504, 224, 100, "Erase drawing", { disabled: off, size: 32 });
+      add("realize", 760, 504, 224, 100, "Make it real", { disabled: off, primary: true, size: 32 });
+      add("parts", 40, 628, 464, 100, "Parts bin ▸", { primary: true });
+      add("exit", 520, 628, 464, 100, "Exit VR");
       ctx.fillStyle = C.muted;
       ctx.font = `400 28px ${FONT}`;
-      ctx.fillText("Hold A/X: talk · Y: mic off · B: menu", 40, 610);
-      ctx.fillText("Squeeze: grab · Trigger: click · Stick: move", 40, 652);
+      ctx.fillText("Hold A/X: talk · Y: mic off · B: menu", 40, 756);
+      ctx.fillText("Squeeze: grab · Trigger: click · Stick: move", 40, 796);
+      ctx.fillText("Marker in hand: trigger draws", 40, 836);
     } else {
       const cats = this._categories();
       if (!cats.includes(this._category)) this._category = "all";
@@ -550,12 +591,12 @@ export class Hud extends Emitter {
         ctx.font = `400 30px ${FONT}`;
         ctx.fillText("No parts in this category yet.", 40, 140);
       }
-      add("prev", 40, 652, 240, 92, "◂ Prev", { disabled: this._partsPage === 0 });
-      add("next", 744, 652, 240, 92, "Next ▸", { disabled: this._partsPage >= pages - 1 });
+      add("prev", 40, 780, 240, 92, "◂ Prev", { disabled: this._partsPage === 0 });
+      add("next", 744, 780, 240, 92, "Next ▸", { disabled: this._partsPage >= pages - 1 });
       ctx.fillStyle = C.text;
       ctx.font = `400 32px ${FONT}`;
       ctx.textAlign = "center";
-      ctx.fillText(`${this._partsPage + 1} / ${pages}`, W / 2, 682);
+      ctx.fillText(`${this._partsPage + 1} / ${pages}`, W / 2, 810);
       ctx.textAlign = "left";
     }
 

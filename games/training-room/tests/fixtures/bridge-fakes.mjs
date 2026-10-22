@@ -1,5 +1,6 @@
-// Test doubles for the bridge: a fake Ollama (/api/tags, /api/version, /api/chat) that answers
-// with canned JSON chosen by the spoken command, and a fake whisper.cpp server (/inference).
+// Test doubles for the bridge: a fake Ollama (/api/tags, /api/version, /api/show, /api/chat) that
+// answers with canned JSON chosen by the spoken command or the drawing, a fake whisper.cpp server
+// (/inference), an OpenAI-compatible server (LM Studio / Kokoro style) and a fake Piper voice server.
 import http from "node:http";
 
 function listen(server) {
@@ -36,6 +37,51 @@ const TINY_DRAGON = {
   ],
 };
 
+const FISH = {
+  name: "Fish", desc: "orange cartoon fish", holdable: false,
+  parts: [
+    { shape: "sphere", p: [0, 0.5, 0], s: [1.1, 0.6, 0.3], color: "#ff8c1a", mat: "matte" },
+    { shape: "cone", p: [-0.7, 0.5, 0], s: [0.4, 0.5, 0.1], color: "#ff8c1a", mat: "matte", r: [0, 0, 90] },
+    { shape: "sphere", p: [0.35, 0.6, 0.14], s: [0.08, 0.08, 0.04], color: "#111111", mat: "plastic" },
+  ],
+};
+
+// A 1x1 PNG as a data URL (stands in for the drawing snapshot).
+export const PNG_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+// ASCII art of a round blob in asciiArt()'s format (# ink, . empty).
+export const ASCII_CIRCLE = ["......####......", "...###....###...", "..#..........#..", ".#............#.", "..#..........#..", "...###....###...", "......####......"].join("\n");
+
+// Ink rows widen toward the middle and narrow again: a round blob.
+function looksRound(ascii) {
+  const rows = ascii.split("\n").filter((l) => l.includes("#"));
+  if (rows.length < 3) return false;
+  const widths = rows.map((l) => l.lastIndexOf("#") - l.indexOf("#") + 1);
+  const middle = Math.max(...widths.slice(1, -1));
+  return middle > widths[0] && middle > widths[widths.length - 1];
+}
+
+// The text and image of the last user message (Ollama images or OpenAI content parts).
+function lastUser(body) {
+  const last = body.messages?.at(-1) || {};
+  const text = typeof last.content === "string" ? last.content : (last.content || []).filter((p) => p.type === "text").map((p) => p.text).join("\n");
+  const image = (Array.isArray(last.images) && last.images.length > 0) || (Array.isArray(last.content) && last.content.some((p) => p.type === "image_url"));
+  return { text, image };
+}
+
+// Canned magic-marker answers: an image is "clearly a fish", round ASCII art is the catalog ball.
+function interpretReply(body) {
+  const { text, image } = lastUser(body);
+  const words = (text.match(/^Player's words: "(.*)"$/m) || [])[1] || "";
+  const ascii = (text.match(/```\n([\s\S]*?)\n```/) || [])[1] || "";
+  const answer = (obj) => ({ content: JSON.stringify(obj) });
+  if (words.includes("broken")) return { content: "What a lovely drawing! " + "wow ".repeat(200) };
+  if (words.includes("number")) return { content: "7" };
+  if (words.includes("fish") || image) return answer({ guess: "fish", confidence: 0.85, part: "", blueprint: FISH, behavior: "swim", say: "That's clearly a fish. Go on, little fish!" });
+  if (ascii && looksRound(ascii)) return answer({ guess: "ball", confidence: 0.7, part: "Ball", behavior: "bounce", say: "A ball! Boing, boing." });
+  return answer({ guess: "scribble", confidence: 0.2, part: "", behavior: "none", say: "Hmm, a scribble?" });
+}
+
 // Picks the canned model reply for a command.
 function reply(command, body) {
   const text = command.toLowerCase();
@@ -64,12 +110,29 @@ function reply(command, body) {
   return { content: answer({ intents: [], say: "Not sure." }) };
 }
 
-export async function startFakeOllama({ models = ["llama3.2:3b", "nomic-embed-text:latest", "qwen2.5-coder:7b"], slowMs = 4000 } = {}) {
+// Capabilities /api/show reports: vision for llava/qwen2.5vl-style names unless caps overrides.
+function capsOf(name, caps) {
+  if (caps[name]) return caps[name];
+  if (/embed/i.test(name)) return ["embedding"];
+  return /llava|vl\b|vl:|vision/i.test(name) ? ["completion", "vision"] : ["completion"];
+}
+
+// show: false answers /api/show with 404 (a server that cannot report capabilities).
+// refuseImages: models that answer 500 when a message carries images (a wrong name-based guess).
+export async function startFakeOllama({ models = ["llama3.2:3b", "nomic-embed-text:latest", "qwen2.5-coder:7b"], slowMs = 4000, show = true, caps = {}, refuseImages = [] } = {}) {
   const requests = [];
+  const shows = [];
   const server = http.createServer(async (req, res) => {
     const body = await readAll(req);
     if (req.method === "GET" && req.url === "/api/tags") return json(res, 200, { models: models.map((name) => ({ name, model: name })) });
     if (req.method === "GET" && req.url === "/api/version") return json(res, 200, { version: "0.40.1" });
+    if (req.method === "POST" && req.url === "/api/show") {
+      if (!show) return json(res, 404, "404 page not found");
+      const name = JSON.parse(body.toString("utf8") || "{}").model;
+      shows.push(name);
+      if (!models.includes(name)) return json(res, 404, { error: `model '${name}' not found` });
+      return json(res, 200, { details: { family: "llama" }, capabilities: capsOf(name, caps) });
+    }
     if (req.method === "POST" && req.url === "/api/chat") {
       let parsed;
       try {
@@ -78,13 +141,17 @@ export async function startFakeOllama({ models = ["llama3.2:3b", "nomic-embed-te
         return json(res, 400, { error: "bad json" });
       }
       requests.push(parsed);
-      const last = parsed.messages?.at(-1)?.content || "";
-      const command = (last.match(/Command: "(.*)"$/m) || [])[1] || "";
+      if (!models.includes(parsed.model)) return json(res, 404, { error: `model "${parsed.model}" not found, try pulling it first` });
+      const marker = !!parsed.format?.properties?.guess;
+      const { text: last, image } = lastUser(parsed);
+      if (image && refuseImages.includes(parsed.model)) return json(res, 500, { error: `${parsed.model} does not support images` });
+      const command = marker ? (last.match(/^Player's words: "(.*)"$/m) || [])[1] || "" : (last.match(/Command: "(.*)"$/m) || [])[1] || "";
       if (command.includes("slow")) {
         const timer = setTimeout(() => json(res, 200, { model: parsed.model, message: { role: "assistant", content: "{}" } }), slowMs);
         res.on("close", () => clearTimeout(timer));
         return;
       }
+      if (marker) return json(res, 200, { model: parsed.model, message: { role: "assistant", content: interpretReply(parsed).content }, done: true });
       const out = reply(command, parsed);
       if (out.status) return json(res, out.status, { error: out.error });
       return json(res, 200, { model: parsed.model, created_at: new Date().toISOString(), message: { role: "assistant", content: out.content }, done: true });
@@ -92,7 +159,7 @@ export async function startFakeOllama({ models = ["llama3.2:3b", "nomic-embed-te
     json(res, 404, { error: "not found" });
   });
   const port = await listen(server);
-  return { server, url: `http://127.0.0.1:${port}`, requests };
+  return { server, url: `http://127.0.0.1:${port}`, requests, shows };
 }
 
 export async function startFakeWhisper() {
@@ -131,16 +198,25 @@ export function makeWav(seconds = 0.5, rate = 16000) {
   return buffer;
 }
 
-// OpenAI-compatible server (LM Studio style): /v1/models, /v1/chat/completions, /v1/audio/transcriptions.
-export async function startFakeOpenAI() {
+// OpenAI-compatible server (LM Studio / Kokoro-FastAPI style): /v1/models, /v1/chat/completions,
+// /v1/audio/transcriptions and /v1/audio/speech (answers with a short WAV).
+export async function startFakeOpenAI({ models = ["text-embedding-nomic-embed-text-v1.5", "qwen2.5-7b-instruct"] } = {}) {
   const requests = [];
+  const audio = makeWav(0.1, 24000);
   const server = http.createServer(async (req, res) => {
     const body = await readAll(req);
-    if (req.method === "GET" && req.url === "/v1/models") return json(res, 200, { object: "list", data: [{ id: "text-embedding-nomic-embed-text-v1.5" }, { id: "qwen2.5-7b-instruct" }] });
+    if (req.method === "GET" && req.url === "/v1/models") return json(res, 200, { object: "list", data: models.map((id) => ({ id })) });
+    if (req.method === "POST" && req.url === "/v1/audio/speech") {
+      requests.push({ path: req.url, body: JSON.parse(body.toString("utf8")) });
+      res.writeHead(200, { "content-type": "audio/wav" });
+      return res.end(audio);
+    }
     if (req.method === "POST" && req.url === "/v1/chat/completions") {
       const parsed = JSON.parse(body.toString("utf8"));
       requests.push({ path: req.url, body: parsed });
-      const content = JSON.stringify({ intents: [{ do: "spawn", what: { part: "katana" }, place: { rel: "hand", hand: "right" } }], say: "Katana." });
+      const content = parsed.response_format?.json_schema?.name === "interpret"
+        ? interpretReply(parsed).content
+        : JSON.stringify({ intents: [{ do: "spawn", what: { part: "katana" }, place: { rel: "hand", hand: "right" } }], say: "Katana." });
       return json(res, 200, { id: "x", object: "chat.completion", model: parsed.model, choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }] });
     }
     if (req.method === "POST" && req.url === "/v1/audio/transcriptions") {
@@ -150,5 +226,47 @@ export async function startFakeOpenAI() {
     json(res, 404, { error: { message: "not found" } });
   });
   const port = await listen(server);
-  return { server, url: `http://127.0.0.1:${port}`, requests };
+  return { server, url: `http://127.0.0.1:${port}`, requests, audio };
+}
+
+// piper1-gpl HTTP server: POST / with JSON { text } → WAV; GET → 405 like Flask. legacy: only
+// POST /synthesize answers (/ is 404). Texts with "slow" take slowMs; every request takes delayMs.
+// state.maxActive tells whether requests ever overlapped.
+export async function startFakePiper({ legacy = false, delayMs = 0, slowMs = 3000 } = {}) {
+  const requests = [];
+  const state = { active: 0, maxActive: 0 };
+  const audio = makeWav(0.1, 22050);
+  const server = http.createServer(async (req, res) => {
+    const body = await readAll(req);
+    const route = req.url.split("?")[0];
+    if (req.method !== "POST") {
+      res.writeHead(405, { "content-type": "text/html" });
+      return res.end("<h1>Method Not Allowed</h1>");
+    }
+    if (route !== (legacy ? "/synthesize" : "/")) {
+      res.writeHead(404, { "content-type": "text/html" });
+      return res.end("<h1>Not Found</h1>");
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(body.toString("utf8"));
+    } catch {
+      return json(res, 400, { error: "expected JSON" });
+    }
+    requests.push({ path: route, body: parsed, type: req.headers["content-type"] });
+    state.active++;
+    state.maxActive = Math.max(state.maxActive, state.active);
+    const timer = setTimeout(() => {
+      state.active--;
+      res.writeHead(200, { "content-type": "audio/wav" });
+      res.end(audio);
+    }, String(parsed.text).includes("slow") ? slowMs : delayMs);
+    res.on("close", () => {
+      if (res.writableEnded) return;
+      clearTimeout(timer);
+      state.active--;
+    });
+  });
+  const port = await listen(server);
+  return { server, url: `http://127.0.0.1:${port}`, requests, audio, state };
 }

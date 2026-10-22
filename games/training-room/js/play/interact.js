@@ -564,7 +564,7 @@ export class Interact extends Emitter {
       const id = this.held(hand);
       const record = id ? this.state.objects[id] : null;
       const meta = record ? this._meta(record) : null;
-      if (!meta?.tip) {
+      if (!meta?.tip || meta.marker) {
         st.tipValid = false;
         continue;
       }

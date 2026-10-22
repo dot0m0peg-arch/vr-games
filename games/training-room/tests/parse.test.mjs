@@ -306,6 +306,41 @@ test("magic marker phrases", () => {
   assert.deepEqual(one("clear it"), { do: "remove", target: { ref: "it" } }, "'clear it' is not 'clear everything'");
 });
 
+test("magic marker: more ways to say it", () => {
+  for (const text of ["make it real", "bring my drawing to life", "make it come alive", "make this real please", "realize it"]) {
+    assert.deepEqual(one(text), { do: "realize" }, text);
+  }
+  assert.deepEqual(one("make it a red fish"), { do: "realize", hint: "red fish" }, "color + noun is a hint");
+  assert.deepEqual(one("make my drawing a fish"), { do: "realize", hint: "fish" });
+  assert.deepEqual(one("bring it to life as a fish"), { do: "realize", hint: "fish" });
+  assert.deepEqual(one("make it come alive as a dog"), { do: "realize", hint: "dog" });
+  assert.deepEqual(parse("make it a red color").intents, [], "a color phrase is not a hint");
+  for (const text of ["what is this", "guess what I drew", "what do you see", "what does it look like", "what's this supposed to be"]) {
+    assert.deepEqual(one(text), { do: "guess" }, text);
+  }
+  for (const text of ["that's supposed to be a dog", "it's supposed to be a dog", "it was meant to be a dog", "no, it's a dog not a gun",
+    "it's actually a dog", "no it's not a gun it's a dog", "it's not a gun, it's a dog", "it isn't a gun but a dog", "no, I drew a dog"]) {
+    const r = parse(text);
+    assert.deepEqual(r.intents, [{ do: "correct", label: "dog" }], text);
+    assert.ok(r.confidence >= 0.8, `${text}: ${r.confidence}`);
+  }
+  assert.deepEqual(parse("it's not a fish").intents, [], "a bare denial has nothing to do");
+  for (const text of ["that's awesome", "it's too big", "AI, this is cool"]) {
+    assert.ok(!parse(text).intents.some((i) => i.do === "correct"), `${text} is chat, not a correction`);
+  }
+  assert.equal(parse("that's not right, move it left").confidence, 0.2, "other denials still lower confidence");
+  assert.deepEqual(one("make the fish swim"), { do: "animate", target: { part: "fish", which: "nearest" }, behavior: "swim" });
+  assert.deepEqual(one("make the dog walk around"), { do: "animate", target: { part: "dog", which: "nearest" }, behavior: "walk" });
+  assert.deepEqual(one("let the bird fly slowly"), { do: "animate", target: { part: "bird", which: "nearest" }, behavior: { kind: "fly", speed: 0.5 } });
+  assert.deepEqual(one("make all the fish swim"), { do: "animate", target: { part: "fish", which: "all" }, behavior: "swim" });
+  assert.deepEqual(one("make the drawing fly"), { do: "animate", target: { part: "drawing", which: "nearest" }, behavior: "fly" });
+  assert.deepEqual(one("make the fish stop moving"), { do: "animate", target: { part: "fish", which: "nearest" }, behavior: "none" });
+  assert.deepEqual(one("make the training dummy dance"), { do: "animate", target: { part: "training dummy", which: "nearest" }, behavior: "sway" });
+  assert.deepEqual(one("make a crate float above me"), { do: "spawn", what: { part: "crate" }, place: { rel: "above" } }, "spawning still wins");
+  assert.deepEqual(one("erase all drawings"), { do: "erase", target: { part: "drawing", which: "all" } });
+  assert.deepEqual(one("wipe all the sketches"), { do: "erase", target: { part: "drawing", which: "all" } });
+});
+
 test("multiple commands in one sentence", () => {
   assert.deepEqual(parse("spawn a desk and a chair").intents, [{ do: "spawn", what: { part: "desk" } }, { do: "spawn", what: { part: "chair" } }]);
   assert.deepEqual(parse("spawn a desk then put a monitor on it").intents, [

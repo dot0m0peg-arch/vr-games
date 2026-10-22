@@ -1,7 +1,9 @@
-// DOM UI: launch screen, desktop overlay, phone companion and the side drawer (menu).
+// DOM UI: launch screen, desktop overlay, phone companion, the side drawer (menu) and the magic
+// marker (desktop toolbar, phone sketch pad).
 // Emits: enter-vr, play-flat, command (text), talk-down, talk-up, mic-mode (mode), undo, clear,
 // spawn (part), remove (id), share ("screen"|"camera"|"stop"), follow (bool), room-key (key),
-// time (value), settings (settings).
+// time (value), settings (settings), marker (on), marker-color (hex), realize, guess, erase,
+// undo-stroke, sketch ({ lines, aspect, color, colors, realize }).
 import { Emitter } from "../util/emitter.js";
 import qrcode from "../../vendor/qrcode.mjs";
 
@@ -13,6 +15,15 @@ const POPULAR = ["villa", "axe", "card table", "deck of cards", "training dummy"
 const TIMES = [["dawn", "Dawn"], ["day", "Day"], ["sunset", "Sunset"], ["night", "Night"]];
 const TABS = [["parts", "Parts bin"], ["objects", "Objects"], ["people", "People"], ["settings", "Settings"]];
 const QUIET_MS = 12000;
+const MARKER_COLORS = [["#9b6bff", "Purple"], ["#1b1b1b", "Black"], ["#e8574b", "Red"], ["#3d7be0", "Blue"], ["#3fae5a", "Green"], ["#f4f4f4", "White"]];
+const MARKER_DEFAULT = MARKER_COLORS[0][0];
+const KEYS_TEXT = "Click the field to look · WASD move · hold V talk · M mute · E grab · F marker · Z undo · Esc frees the mouse";
+const KEYS_MARKER = "Marker on · left-drag on the sheet to draw · hold V and say “make it real” · F puts it away";
+// Sketch pad (phone): ink limits in pad pixels.
+const SKETCH_MAX_POINTS = 4000;
+const SKETCH_MIN_STEP2 = 2.25; // 1.5 px between kept points
+const SKETCH_PAPER = "#f3f1ea";
+const SKETCH_OUTSIDE = "#0b0e0c";
 
 const ICON = {
   mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>',
@@ -20,6 +31,7 @@ const ICON = {
   headset: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5A2.5 2.5 0 0 1 5.5 7h13A2.5 2.5 0 0 1 21 9.5v5a2.5 2.5 0 0 1-2.5 2.5h-3.2l-1.8-2.4h-3l-1.8 2.4H5.5A2.5 2.5 0 0 1 3 14.5Z"/></svg>',
   desktop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M5 6h14v9H5zM2.5 18.5h19"/></svg>',
   phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18h2"/></svg>',
+  marker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="m14.5 4.5 5 5L9 20H4v-5Z"/><path d="m12 7 5 5"/></svg>',
 };
 
 function loadJSON(key, fallback) {
@@ -72,6 +84,9 @@ const CMD = (extra) => `
     ${extra.after || ""}
   </form>`;
 
+const SWATCHES = (attr) =>
+  `<div class="tr-swatches" role="group" aria-label="Marker color">${MARKER_COLORS.map(([hex, name]) => `<button type="button" class="tr-swatch" data-${attr}="${hex}" aria-label="${name}" aria-pressed="${hex === MARKER_DEFAULT}" title="${name}" style="--sw: ${hex}"></button>`).join("")}</div>`;
+
 const CONN = `<button type="button" class="tr-chip tr-conn" data-ref="conn" data-state="standalone"><span class="tr-dot" aria-hidden="true"></span><span data-ref="connText">Standalone · built-in parser</span></button>`;
 
 const DESKTOP = `
@@ -79,8 +94,16 @@ const DESKTOP = `
     ${CONN}
     <div class="tr-top-actions">
       ${SEG("mode", [["push", "PUSH-TO-TALK"], ["wake", "WAKE “AI…”"], ["off", "MUTE"]], "Microphone mode")}
+      <button type="button" class="tr-btn tr-marker" data-ref="marker" aria-pressed="false" aria-keyshortcuts="F" title="Magic marker (F)"><span class="tr-ink" aria-hidden="true"></span>Marker</button>
       <button type="button" class="tr-btn" data-ref="share" aria-pressed="false">Share screen</button>
       <button type="button" class="tr-btn" data-ref="menu" aria-expanded="false" aria-controls="tr-drawer">Menu</button>
+    </div>
+    <div class="tr-markerbar" data-ref="markerBar" role="group" aria-label="Magic marker" hidden>
+      ${SWATCHES("color")}
+      <button type="button" class="tr-btn" data-mk="undo-stroke">Undo stroke</button>
+      <button type="button" class="tr-btn" data-mk="guess" disabled>What is it?</button>
+      <button type="button" class="tr-btn" data-mk="erase" disabled>Erase</button>
+      <button type="button" class="tr-btn tr-primary" data-mk="realize" disabled>Make it real</button>
     </div>
   </div>
   <div class="tr-crosshair" aria-hidden="true"></div>
@@ -91,7 +114,7 @@ const DESKTOP = `
       before: `<button type="button" class="tr-talk" data-ref="talk" aria-label="Hold to talk (or hold V)"><span class="tr-talk-icon" data-ref="talkIcon">${ICON.mic}</span><span class="tr-talk-label" data-ref="talkLabel">Hold to talk</span></button>`,
       after: '<button type="button" class="tr-btn" data-ref="undo">Undo</button>',
     })}
-    <p class="tr-keys">Click the field to look · WASD move · hold V talk · M mute · E grab · Z undo · Esc frees the mouse</p>
+    <p class="tr-keys" data-ref="keys">${KEYS_TEXT}</p>
   </div>`;
 
 const PHONE = `
@@ -109,12 +132,32 @@ const PHONE = `
       <button type="button" class="tr-switch" role="switch" aria-checked="true" data-ref="mute" aria-label="Microphone"><span class="tr-switch-track" aria-hidden="true"><span class="tr-switch-knob"></span></span><span class="tr-switch-label" data-ref="muteLabel">Mic on</span></button>
       <button type="button" class="tr-talk tr-talk-big" data-ref="talk"><span class="tr-talk-icon" data-ref="talkIcon">${ICON.mic}</span><span class="tr-talk-label" data-ref="talkLabel">Hold to talk</span></button>
     </div>
-    <div class="tr-row3">
+    <div class="tr-row4">
+      <button type="button" class="tr-btn tr-draw" data-ref="draw" aria-haspopup="dialog">${ICON.marker}Draw</button>
       <button type="button" class="tr-btn" data-ref="undo">Undo</button>
       <button type="button" class="tr-btn" data-ref="share" aria-pressed="false">Share camera</button>
       <button type="button" class="tr-btn" data-ref="menu" aria-expanded="false" aria-controls="tr-drawer">Menu</button>
     </div>
-  </section>`;
+  </section>
+  <div class="tr-sketch" data-ref="sketch" role="dialog" aria-modal="true" aria-labelledby="tr-sketch-title" aria-describedby="tr-sketch-hint" tabindex="-1" hidden>
+    <div class="tr-sketch-top">
+      <button type="button" class="tr-btn" data-sk="cancel">Cancel</button>
+      <h2 class="tr-sketch-title" id="tr-sketch-title">Sketch pad</h2>
+      <button type="button" class="tr-btn" data-sk="undo" disabled>Undo stroke</button>
+      <button type="button" class="tr-btn" data-sk="clear" disabled>Clear</button>
+    </div>
+    <div class="tr-sketch-paper" data-ref="paper">
+      <canvas data-ref="pad" role="img" aria-label="Drawing area: draw with one finger"></canvas>
+      <p class="tr-sketch-hint" id="tr-sketch-hint">Draw anything. Make it real and the AI will guess what it is.</p>
+    </div>
+    <div class="tr-sketch-bottom">
+      ${SWATCHES("pcolor")}
+      <div class="tr-sketch-actions">
+        <button type="button" class="tr-btn" data-sk="send" disabled>Send to field</button>
+        <button type="button" class="tr-btn tr-primary" data-sk="real" disabled>Make it real</button>
+      </div>
+    </div>
+  </div>`;
 
 const DRAWER = `
   <aside class="tr-drawer" id="tr-drawer" data-ref="drawer" aria-label="Menu" inert>
@@ -192,6 +235,10 @@ export class UI extends Emitter {
     this._talkByKey = false;
     this._time = "day";
     this._quietTimer = 0;
+    this._marker = { on: false, color: MARKER_DEFAULT };
+    this._drawingAvailable = false;
+    // Sketch pad: strokes in frame pixels ({ c, pts: [x, y, ...] }), frame = paper size when started.
+    this._sk = { open: false, strokes: [], cleared: null, cur: null, points: 0, frame: null, view: { s: 1, ox: 0, oy: 0 }, dpr: 1, rect: null, lineW: 6, raf: 0, base: null };
 
     const body = document.body;
     body.classList.add(`tr-${this.layout}`);
@@ -280,6 +327,7 @@ export class UI extends Emitter {
     document.body.classList.toggle("tr-playing", !visible);
     if (visible) {
       this._closeDrawer(false);
+      this.closeSketch(false);
       this._talkEnd();
       if (document.pointerLockElement) document.exitPointerLock?.();
     }
@@ -332,6 +380,24 @@ export class UI extends Emitter {
         new ResizeObserver(() => this._measurePanel()).observe(r.panel);
       }
       window.addEventListener("resize", () => this._measurePanel());
+      this._wireSketch();
+    }
+    if (r.marker) {
+      r.marker.addEventListener("click", () => {
+        const on = !this._marker.on;
+        this.setMarker({ on });
+        this.emit("marker", on);
+      });
+      r.markerBar.addEventListener("click", (event) => {
+        const b = event.target.closest("button");
+        if (!b || b.disabled) return;
+        if (b.dataset.color) {
+          this.setMarker({ color: b.dataset.color });
+          this.emit("marker-color", b.dataset.color);
+        } else if (b.dataset.mk) {
+          this.emit(b.dataset.mk);
+        }
+      });
     }
 
     // Drawer: tabs (arrow keys move between them), parts, objects, settings.
@@ -441,6 +507,17 @@ export class UI extends Emitter {
 
   _onKey(event) {
     if (this._launchVisible) return;
+    if (this._sk.open) {
+      // The pad is modal: Escape cancels, Ctrl/Cmd+Z takes back a stroke, nothing reaches the game.
+      if (event.key === "Escape") {
+        event.preventDefault();
+        this.closeSketch();
+      } else if ((event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === "z") {
+        event.preventDefault();
+        this._skUndo();
+      }
+      return;
+    }
     const active = document.activeElement;
     if (event.key === "Escape") {
       if (isTyping(active) && this.app.contains(active)) {
@@ -715,6 +792,29 @@ export class UI extends Emitter {
     for (const button of this.app.querySelectorAll("[data-time]")) button.setAttribute("aria-pressed", String(button.dataset.time === this._time));
   }
 
+  // Magic marker state: on = desktop marker mode (toolbar shown), color = ink (also the phone pad's).
+  // Clicks render right away; main.js calling setMarker() afterwards is the truth.
+  setMarker({ on = this._marker.on, color = this._marker.color } = {}) {
+    const hex = /^#[0-9a-f]{6}$/i.test(color || "") ? color.toLowerCase() : this._marker.color;
+    this._marker = { on: !!on, color: hex };
+    const r = this.refs;
+    const marking = this._marker.on && this.layout === "desktop";
+    document.body.classList.toggle("tr-marking", marking);
+    if (r.marker) {
+      r.marker.setAttribute("aria-pressed", String(marking));
+      r.marker.style.setProperty("--ink", hex);
+      r.markerBar.hidden = !marking;
+      r.keys.textContent = marking ? KEYS_MARKER : KEYS_TEXT;
+    }
+    for (const b of this.app.querySelectorAll("[data-color], [data-pcolor]")) b.setAttribute("aria-pressed", String((b.dataset.color || b.dataset.pcolor) === hex));
+  }
+
+  // A drawing is near enough to make real, guess or erase.
+  setDrawingAvailable(available) {
+    this._drawingAvailable = !!available;
+    for (const b of this.app.querySelectorAll('[data-mk="realize"], [data-mk="guess"], [data-mk="erase"]')) b.disabled = !this._drawingAvailable;
+  }
+
   setSettings(settings) {
     Object.assign(this._settings, pick(settings || {}));
     if (this._mic.mode === "off") this._lastMode = this._settings.wake ? "wake" : "push";
@@ -724,6 +824,268 @@ export class UI extends Emitter {
 
   get settings() {
     return { ...this._settings };
+  }
+
+  // ---------- sketch pad (phone) ----------
+
+  _wireSketch() {
+    const r = this.refs;
+    this._skDrawCb = () => this._skDraw();
+    r.draw.addEventListener("click", () => this.openSketch());
+    r.sketch.addEventListener("click", (event) => {
+      const b = event.target.closest("button");
+      if (!b || b.disabled) return;
+      const act = b.dataset.sk;
+      if (b.dataset.pcolor) this.setMarker({ color: b.dataset.pcolor });
+      else if (act === "cancel") this.closeSketch();
+      else if (act === "undo") this._skUndo();
+      else if (act === "clear") this._skClear();
+      else if (act === "send" || act === "real") this._skSend(act === "real");
+    });
+    r.pad.addEventListener("pointerdown", (event) => this._skDown(event));
+    r.pad.addEventListener("pointermove", (event) => this._skMove(event));
+    for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) r.pad.addEventListener(type, (event) => this._skUp(event));
+    r.pad.addEventListener("contextmenu", (event) => event.preventDefault());
+    // touch-action: none stops panning; these also stop iOS pinch and rubber-band scrolling.
+    const block = (event) => event.cancelable && event.preventDefault();
+    r.sketch.addEventListener("touchmove", block, { passive: false });
+    r.sketch.addEventListener("gesturestart", block);
+    if (typeof ResizeObserver === "function") new ResizeObserver(() => this._skLayout()).observe(r.paper);
+    else window.addEventListener("resize", () => this._skLayout());
+  }
+
+  // Opens the phone sketch pad. Unsent strokes come back until they are sent or cleared.
+  openSketch() {
+    const r = this.refs;
+    const sk = this._sk;
+    if (!r.sketch || sk.open || this._launchVisible) return false;
+    this._closeDrawer(false);
+    this._talkEnd();
+    sk.open = true;
+    r.sketch.hidden = false;
+    r.panel.inert = true;
+    this.app.querySelector(".tr-top").inert = true;
+    document.body.classList.add("tr-sketching");
+    this._skLayout();
+    this._skSync();
+    r.sketch.focus({ preventScroll: true });
+    return true;
+  }
+
+  closeSketch(restoreFocus = true) {
+    const r = this.refs;
+    const sk = this._sk;
+    if (!sk.open) return;
+    sk.open = false;
+    sk.cur = null;
+    cancelAnimationFrame(sk.raf);
+    sk.raf = 0;
+    r.sketch.hidden = true;
+    r.panel.inert = false;
+    this.app.querySelector(".tr-top").inert = false;
+    document.body.classList.remove("tr-sketching");
+    // Give the canvas memory back while playing; the strokes stay as data.
+    r.pad.width = r.pad.height = 1;
+    if (sk.base) sk.base.width = sk.base.height = 1;
+    if (restoreFocus) r.draw.focus({ preventScroll: true });
+  }
+
+  // Sizes the canvas to its box at device resolution. The frame keeps the size the drawing started
+  // at, so turning the phone letterboxes the strokes instead of stretching them.
+  _skLayout() {
+    const sk = this._sk;
+    if (!sk.open) return;
+    const rect = this.refs.paper.getBoundingClientRect();
+    const w = Math.round(rect.width);
+    const h = Math.round(rect.height);
+    if (w < 2 || h < 2) return;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const pad = this.refs.pad;
+    sk.dpr = dpr;
+    sk.rect = rect;
+    sk.base ||= document.createElement("canvas");
+    for (const c of [pad, sk.base]) {
+      if (c.width !== Math.round(w * dpr)) c.width = Math.round(w * dpr);
+      if (c.height !== Math.round(h * dpr)) c.height = Math.round(h * dpr);
+    }
+    if (!sk.frame || (!sk.strokes.length && !sk.cur && !sk.cleared)) {
+      sk.frame = { w, h };
+      sk.lineW = clamp(Math.min(w, h) * 0.016, 4, 9);
+    }
+    const s = Math.min(w / sk.frame.w, h / sk.frame.h);
+    sk.view = { s, ox: (w - sk.frame.w * s) / 2, oy: (h - sk.frame.h * s) / 2 };
+    this._skRebuild();
+    this._skDraw();
+  }
+
+  // Frame pixels → canvas pixels.
+  _skTransform(ctx) {
+    const { dpr, view } = this._sk;
+    ctx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.ox, dpr * view.oy);
+  }
+
+  // Base layer: paper and finished strokes. The live stroke is drawn over a copy of it each frame.
+  _skRebuild() {
+    const sk = this._sk;
+    const ctx = sk.base.getContext("2d");
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = SKETCH_OUTSIDE;
+    ctx.fillRect(0, 0, sk.base.width, sk.base.height);
+    this._skTransform(ctx);
+    const { w, h } = sk.frame;
+    ctx.fillStyle = SKETCH_PAPER;
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "rgba(16, 20, 18, 0.14)";
+    for (let y = 12; y < h; y += 24) for (let x = 12; x < w; x += 24) ctx.fillRect(x - 1, y - 1, 2, 2);
+    for (const stroke of sk.strokes) inkStroke(ctx, stroke, sk.lineW);
+  }
+
+  _skQueue() {
+    if (!this._sk.raf) this._sk.raf = requestAnimationFrame(this._skDrawCb);
+  }
+
+  _skDraw() {
+    const sk = this._sk;
+    sk.raf = 0;
+    if (!sk.open || !sk.base) return;
+    const ctx = this.refs.pad.getContext("2d");
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(sk.base, 0, 0);
+    if (sk.cur) {
+      this._skTransform(ctx);
+      inkStroke(ctx, sk.cur, sk.lineW);
+    }
+  }
+
+  _skDown(event) {
+    const sk = this._sk;
+    if (!sk.open || sk.cur || !event.isPrimary || event.button > 0) return;
+    event.preventDefault();
+    if (sk.points >= SKETCH_MAX_POINTS) {
+      this.toast("That’s a lot of ink. Send it, or undo a stroke.", "warn");
+      return;
+    }
+    try {
+      this.refs.pad.setPointerCapture(event.pointerId);
+    } catch {
+      // Capture is optional.
+    }
+    sk.rect = this.refs.pad.getBoundingClientRect();
+    const c = this._marker.color;
+    sk.cur = { c, light: isLight(c), pts: [], id: event.pointerId };
+    this._skAdd(event);
+    this.refs.sketch.classList.add("tr-has-ink");
+    this._skQueue();
+  }
+
+  _skMove(event) {
+    const cur = this._sk.cur;
+    if (!cur || event.pointerId !== cur.id) return;
+    const list = event.getCoalescedEvents?.();
+    if (list?.length) for (const e of list) this._skAdd(e);
+    else this._skAdd(event);
+    this._skQueue();
+  }
+
+  _skUp(event) {
+    const sk = this._sk;
+    const cur = sk.cur;
+    if (!cur || event.pointerId !== cur.id) return;
+    if (event.type === "pointerup") this._skAdd(event);
+    sk.cur = null;
+    const p = cur.pts;
+    if (p.length === 2) {
+      p.push(p[0] + 0.5, p[1]); // a tap leaves a dot
+      sk.points += 1;
+    }
+    sk.strokes.push({ c: cur.c, light: cur.light, pts: p });
+    sk.cleared = null;
+    const ctx = sk.base.getContext("2d");
+    this._skTransform(ctx);
+    inkStroke(ctx, sk.strokes[sk.strokes.length - 1], sk.lineW);
+    this._skQueue();
+    this._skSync();
+  }
+
+  // Adds a pointer position (frame pixels) to the live stroke, skipping jitter under 1.5 px.
+  _skAdd(event) {
+    const sk = this._sk;
+    const { rect, view, frame } = sk;
+    const x = clamp((event.clientX - rect.left - view.ox) / view.s, 0, frame.w);
+    const y = clamp((event.clientY - rect.top - view.oy) / view.s, 0, frame.h);
+    const p = sk.cur.pts;
+    const n = p.length;
+    if (n) {
+      const dx = x - p[n - 2];
+      const dy = y - p[n - 1];
+      if (dx * dx + dy * dy < SKETCH_MIN_STEP2) return;
+    }
+    if (sk.points >= SKETCH_MAX_POINTS) return;
+    p.push(x, y);
+    sk.points += 1;
+  }
+
+  _skUndo() {
+    const sk = this._sk;
+    if (sk.cur) return;
+    if (sk.strokes.length) {
+      sk.points -= sk.strokes.pop().pts.length / 2;
+    } else if (sk.cleared) {
+      // Undo right after Clear brings the whole drawing back.
+      sk.strokes = sk.cleared;
+      sk.cleared = null;
+      sk.points = sk.strokes.reduce((n, st) => n + st.pts.length / 2, 0);
+    } else {
+      return;
+    }
+    this._skRefresh();
+  }
+
+  _skClear() {
+    const sk = this._sk;
+    if (!sk.strokes.length || sk.cur) return;
+    sk.cleared = sk.strokes;
+    sk.strokes = [];
+    sk.points = 0;
+    this._skRefresh();
+  }
+
+  _skRefresh() {
+    if (this._sk.open) {
+      this._skRebuild();
+      this._skQueue();
+    }
+    this._skSync();
+  }
+
+  _skSync() {
+    const sk = this._sk;
+    const has = sk.strokes.length > 0;
+    this.refs.sketch.classList.toggle("tr-has-ink", has || !!sk.cur);
+    for (const b of this.refs.sketch.querySelectorAll("[data-sk]")) {
+      const act = b.dataset.sk;
+      if (act === "undo") b.disabled = !has && !sk.cleared;
+      else if (act !== "cancel") b.disabled = !has;
+    }
+  }
+
+  // Normalized lines (0..1 of the frame, y down) with the frame aspect, then close the pad.
+  _skSend(realize) {
+    const sk = this._sk;
+    if (!sk.strokes.length || sk.cur) return;
+    const { w, h } = sk.frame;
+    const lines = sk.strokes.map((st) => {
+      const line = [];
+      for (let i = 0; i < st.pts.length; i += 2) line.push([r4(clamp(st.pts[i] / w, 0, 1)), r4(clamp(st.pts[i + 1] / h, 0, 1))]);
+      return line;
+    });
+    const colors = sk.strokes.map((st) => st.c);
+    const sketch = { lines, aspect: Math.round((w / h) * 1000) / 1000, color: colors[0], colors, realize: !!realize };
+    sk.strokes = [];
+    sk.cleared = null;
+    sk.points = 0;
+    this.closeSketch();
+    this.emit("sketch", sketch);
   }
 
   // ---------- rendering ----------
@@ -822,6 +1184,40 @@ function pick(s) {
   if (s.quality === "low" || s.quality === "high") out.quality = s.quality;
   if (typeof s.speak === "boolean") out.speak = s.speak;
   return out;
+}
+
+const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
+const r4 = (n) => Math.round(n * 1e4) / 1e4;
+
+function isLight(hex) {
+  const v = parseInt(String(hex).slice(1), 16);
+  return 0.2126 * ((v >> 16) & 255) + 0.7152 * ((v >> 8) & 255) + 0.0722 * (v & 255) > 200;
+}
+
+// Smooth ink through the points (quadratic curves between midpoints); light inks get a dark rim so
+// they show on the paper.
+function inkStroke(ctx, stroke, width) {
+  const p = stroke.pts;
+  const n = p.length >> 1;
+  if (!n) return;
+  ctx.beginPath();
+  ctx.moveTo(p[0], p[1]);
+  for (let i = 1; i < n - 1; i++) {
+    const x = p[i * 2];
+    const y = p[i * 2 + 1];
+    ctx.quadraticCurveTo(x, y, (x + p[i * 2 + 2]) / 2, (y + p[i * 2 + 3]) / 2);
+  }
+  ctx.lineTo(p[n * 2 - 2], p[n * 2 - 1]);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  if (stroke.light) {
+    ctx.strokeStyle = "rgba(16, 20, 18, 0.55)";
+    ctx.lineWidth = width + 3;
+    ctx.stroke();
+  }
+  ctx.strokeStyle = stroke.c;
+  ctx.lineWidth = width;
+  ctx.stroke();
 }
 
 function button(cls, attrs = {}, text = "") {

@@ -605,4 +605,19 @@ export const builders = {
     }
     return finish(group(parts), "rug");
   },
+
+  // Fat crayon-like magic marker, upright: wrapped barrel, lime cap ring, glowing nib on top (y = 0.16).
+  "marker": (opts) => {
+    const color = opts.color || "#9b6bff";
+    const barrel = mat(color, "plastic");
+    const wrap = mat("#2a1d4a", "matte");
+    return finish(group([
+      lathe([[0, 0], [0.011, 0], [0.0145, 0.005], [0.0145, 0.112], [0, 0.112]], barrel, { seg: 16, tint: true }),
+      cyl([0.0153, 0.0153, 0.005], wrap, { p: [0, 0.03, 0], seg: 16 }),
+      cyl([0.0153, 0.0153, 0.005], wrap, { p: [0, 0.084, 0], seg: 16 }),
+      cyl([0.0156, 0.0156, 0.009], lime(), { p: [0, 0.1075, 0], seg: 16 }),
+      lathe([[0.0145, 0.112], [0.0142, 0.12], [0.0075, 0.146], [0.0045, 0.153], [0, 0.155]], barrel, { seg: 16, tint: true }),
+      sphere(0.0048, mat(color, "glow"), { p: [0, 0.1552, 0], seg: 10, tint: true }),
+    ]), "marker");
+  },
 };

@@ -251,7 +251,8 @@ export class SceneObjects extends Emitter {
     }
     const entry = this._create(record);
     if (!entry) return;
-    if (phase && this.phaser?.phaseIn) {
+    // Marker drawings appear stroke by stroke as they are drawn; no summoning effect.
+    if (phase && this.phaser?.phaseIn && record.part !== "drawing") {
       entry.phasing = true;
       entry.appear = 0;
       this.phaser.phaseIn(entry.wrapper).then(() => this._afterPhase(entry));
@@ -912,7 +913,7 @@ export class SceneObjects extends Emitter {
     const t = this._t;
     let n = 0;
     const write = (entry) => {
-      if (entry.attach || entry.fade <= 0) {
+      if (entry.attach || entry.fade <= 0 || entry.part === "drawing") {
         if (entry.cleared) this._unclear(entry);
         return;
       }

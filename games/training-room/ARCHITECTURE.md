@@ -187,14 +187,17 @@ API calls may instead send header `x-room-key` or query `k`. `GET api/hello` is 
 
 | Method & path | Body → response |
 | --- | --- |
-| `GET api/hello` | → `{ bridge: true, auth, version, model: { available, name, provider }, stt: { available, kind }, parts: { count }, lan: [urls] }` |
+| `GET api/hello` | → `{ bridge: true, auth, version, model: { available, name, provider, vision /* vision model name or null */ }, stt: { available, kind }, tts: { available, kind }, parts: { count }, lan: [urls] }` |
 | `POST api/join` | `{ name, device, color? }` → `{ user, users, state, seq }` |
-| `GET api/events?user=ID` | SSE: `op` `{ seq, op }`, `users` `[...]`, `poses` `{ id: pose }`, `fx` `{ user, fx }`, `share` `{ stream, user, active, n }`, `say` `{ user, text }` |
+| `GET api/events?user=ID` | SSE: `op` `{ seq, op }`, `state` `{ seq, state }` (full snapshot when missed ops cannot be replayed), `users` `[...]`, `poses` `{ id: pose }`, `fx` `{ user, fx }`, `share` `{ stream, user, active, n }`, `say` `{ user, text }`, `parts` `{ count }` (laptop parts bin changed) |
 | `POST api/op` | `{ user, op }` → `{ seq }` (410 if user unknown → re-join) |
 | `POST api/pose` | `{ user, pose }` → 204 (bridge rebroadcasts all poses at 15 Hz) |
 | `POST api/fx` | `{ user, fx }` → 204 |
+| `POST api/say` | `{ user, text }` → 204, broadcasts `say` |
 | `POST api/command` | `{ user, text, ctx: { player, scene, parts } }` → `{ intents, say, source: "model", model, ms }`; 503 `{ error: "no-model" }` |
+| `POST api/interpret` | `{ user?, image?, ascii, stats, size, hint?, parts? }` (≤ 600 KB) → `{ guess, confidence, part, blueprint?, behavior, say, source: "model", model, vision, ms }`; 503 `no-model`, 502 `bad-output`, 504 `timeout`, 400 `no-sketch`/`bad-image` (see "Magic marker") |
 | `POST api/transcribe` | `audio/wav` body → `{ text, ms }`; 503 `{ error: "no-stt" }` |
+| `POST api/tts` | `{ text }` (≤ 400 chars) → audio bytes (`audio/wav`, or the voice server's audio type); 503 `{ error: "no-tts" }` (off or unreachable), 504 `tts-timeout`, 502 `tts-failed` |
 | `GET api/parts` | → `{ parts: [ { name, aliases, category, desc, size, holdable, grip?, kind: "blueprint"\|"gltf"\|"module", url?, blueprint? } ] }` |
 | `GET api/parts/file/<path>` | parts-bin file (glb, gltf, bin, png, jpg, js, mjs, json) |
 | `POST api/parts/save` | `{ blueprint }` → `{ name }` (saved to `<parts>/generated/`) |

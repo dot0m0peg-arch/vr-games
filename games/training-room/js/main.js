@@ -13,8 +13,9 @@ import { loadRemoteParts } from "./parts/remote.js";
 import { XR } from "./xr/xr.js";
 import { Interact } from "./play/interact.js";
 import { DesktopControls, TouchControls } from "./play/desktop.js";
+import { Draw } from "./play/draw.js";
 import { Voice } from "./voice/voice.js";
-import { speak, cancelSpeech, canSpeak } from "./voice/speak.js";
+import { speak, cancelSpeech, canSpeak, setSpeechSource } from "./voice/speak.js";
 import { Net } from "./net/net.js";
 import { Avatars } from "./net/avatars.js";
 import { Share } from "./net/share.js";
@@ -129,12 +130,16 @@ function send(op) {
   op.by = me.id;
   if (op.fly) thrownByMe.add(op.id);
   room.apply(op, { local: true });
-  if (net?.connected) {
-    net.sendOp(op).catch((err) => {
-      console.warn("[net] op failed", err);
-      ui.toast("The laptop did not accept that change.", "warn");
-    });
-  }
+  if (net?.connected) sendToBridge(op, 1);
+}
+
+// Ops are idempotent (same id and uid), so a timed-out send is retried once before warning.
+function sendToBridge(op, retries) {
+  net.sendOp(op).catch((err) => {
+    if (err.code === "timeout" && retries > 0) return sendToBridge(op, retries - 1);
+    console.warn("[net] op failed", err);
+    ui.toast(err.code === "timeout" ? "The laptop is slow to answer; that change may not have reached it." : "The laptop did not accept that change.", "warn");
+  });
 }
 
 objects.on("landed", ({ id, p, ry }) => {
@@ -145,6 +150,7 @@ objects.on("landed", ({ id, p, ry }) => {
 let saveTimer = 0;
 room.on("change", (op) => {
   ui.setObjects(room.records());
+  if (!op?.transient) updateDrawingAvailable();
   if (!net?.connected && !op?.transient) {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => saveJSON(STATE_KEY, room.snapshot()), 600);
@@ -166,8 +172,53 @@ const interact = new Interact({
 });
 interact.on("haptic", ({ hand, intensity }) => xr.haptic(hand, intensity, 50));
 
+// ---------- magic marker ----------
+// Strokes go through the runner's history so "undo" takes back the last stroke.
+const draw = new Draw({ scene, room, send: (op) => runner.sendTracked([op], "stroke"), getUser: () => me.id, newId: makeId });
+const penDown = { left: false, right: false };
+const tipWorld = new THREE.Vector3();
+let markerInHand = false;
+
+function markerHeld(hand) {
+  const id = interact.held(hand);
+  const record = id && room.get(id);
+  return record && build.metaOfRecord(record).marker ? record : null;
+}
+
+function markerTip(hand, out) {
+  const record = markerHeld(hand);
+  const object = record && objects.get(record.id);
+  const tip = record && build.metaOfRecord(record).tip;
+  if (!object || !tip) return null;
+  object.updateMatrixWorld(true);
+  return (object.userData.inner || object).localToWorld(out.fromArray(tip));
+}
+
+// Drawings face the person drawing them.
+function faceYawFrom(point) {
+  camera.getWorldPosition(tmpPos);
+  return Math.atan2(tmpPos.x - point.x, tmpPos.z - point.z);
+}
+
+function setMarkerMode(on) {
+  draw.setPlaneMode(on, { camera, dom: renderer.domElement });
+  desktop.mouseLook = !on;
+  if (on) desktop.unlock();
+  ui.setMarker({ on, color: draw.color });
+}
+
+function giveMarker() {
+  runner.exec([{ do: "spawn", what: { part: "marker" }, place: { rel: "hand", hand: settings().hand || "right" } }], { label: "marker" });
+}
+
+function updateDrawingAvailable() {
+  const available = !!draw.latestDrawing(me.id, playerPose());
+  ui.setDrawingAvailable(available);
+  hud.setDrawingAvailable?.(available);
+}
+
 // ---------- commands, replies ----------
-const runner = new Runner({ room, send, getNet: () => net, getPlayer: actingPose, getUser: () => me.id, settings });
+const runner = new Runner({ room, send, getNet: () => net, getPlayer: actingPose, getUser: () => me.id, settings, getDraw: () => draw });
 let summonHandle = null;
 runner.on("thinking", () => {
   const pose = playerPose();
@@ -277,9 +328,22 @@ xr.on("button", ({ hand, name, pressed }) => {
     }
     return;
   }
-  if (name === "trigger" && pressed) {
-    if (xr.rayFrom(hand, raycaster) && hud.click(raycaster)) return;
-    if (xr.rayFrom(hand, raycaster)) flipPointed(raycaster);
+  if (name === "trigger") {
+    if (pressed && xr.rayFrom(hand, raycaster) && hud.click(raycaster)) return;
+    if (markerHeld(hand)) {
+      if (pressed) {
+        const tip = markerTip(hand, tipWorld);
+        if (tip) {
+          draw.begin(hand, tip, faceYawFrom(tip));
+          penDown[hand] = true;
+        }
+      } else if (penDown[hand]) {
+        penDown[hand] = false;
+        draw.end(hand);
+      }
+      return;
+    }
+    if (pressed && xr.rayFrom(hand, raycaster)) flipPointed(raycaster);
   }
 });
 
@@ -298,6 +362,9 @@ hud.on("action", ({ name, value }) => {
   else if (name === "time") runner.exec([{ do: "time", value }], { label: "time" });
   else if (name === "spawn") runner.exec([{ do: "spawn", what: { part: value }, place: { rel: "front" } }], { label: value });
   else if (name === "exit-vr") xr.exit();
+  else if (name === "marker") giveMarker();
+  else if (name === "realize" || name === "guess") runner.markerFlow({ do: name });
+  else if (name === "erase") runner.exec([{ do: "erase" }], { label: "erase" });
 });
 
 // ---------- desktop & phone input ----------
@@ -306,6 +373,8 @@ desktop.on("key", ({ key, down, repeat }) => {
   if (key === "v") return down ? talkDown() : talkUp();
   if (!down) return;
   if (key === "m") toggleMute();
+  else if (key === "f") setMarkerMode(!draw.planeMode);
+  else if (key === "escape" && draw.planeMode) setMarkerMode(false);
   else if (key === "z") runner.undo();
   else if (key === "e") desktopGrab();
   else if (key === "q") desktopThrow();
@@ -385,6 +454,22 @@ ui.on("share", async (kind) => {
   }
 });
 ui.on("room-key", (key) => connectBridge(String(key || "").trim().toUpperCase()));
+ui.on("marker", (on) => setMarkerMode(!!on));
+ui.on("marker-color", (hex) => {
+  draw.setColor(hex);
+  ui.setMarker({ color: draw.color });
+});
+ui.on("realize", () => runner.markerFlow({ do: "realize" }));
+ui.on("guess", () => runner.markerFlow({ do: "guess" }));
+ui.on("erase", () => runner.exec([{ do: "erase" }], { label: "erase" }));
+ui.on("undo-stroke", () => runner.undo());
+// Phone sketch pad: the sketch appears in front of whoever the phone acts for.
+ui.on("sketch", ({ lines, aspect, color, realize }) => {
+  if (color) draw.setColor(color);
+  const id = draw.importSketch({ lines, aspect, color }, { pose: actingPose() });
+  if (id && realize) runner.markerFlow({ do: "realize", target: { id } });
+  else if (id) ui.toast("Sketch sent. Say \"make it real\" when you're ready.");
+});
 ui.on("settings", (next) => {
   field.setQuality(next.quality || "high");
   if (next.wake && voice.mode === "push") setMicMode("wake");
@@ -435,6 +520,8 @@ async function connectBridge(key = null) {
     if (info?.local) ui.setShare({ active: false });
   });
   runner.modelAvailable = !!bridgeInfo.model?.available;
+  // The headset browser may have no speech voices; the laptop can speak for it.
+  setSpeechSource(bridgeInfo.tts?.available ? (text) => net.tts(text) : null);
   if (bridgeInfo.stt?.available) voice.setTranscriber((blob) => net.transcribe(blob));
   ui.setConnection({ state: "online", model: bridgeInfo.model, stt: bridgeInfo.stt, url: joinUrl(), users: lastUsers });
   hud.setConnection?.({ state: "online", model: bridgeInfo.model });
@@ -575,6 +662,21 @@ renderer.setAnimationLoop(() => {
   avatars.update(dt);
   phaser.update(dt);
   hud.update(dt);
+  for (const hand of ["left", "right"]) {
+    if (!penDown[hand]) continue;
+    const tip = markerTip(hand, tipWorld);
+    if (tip) draw.move(hand, tip);
+    else {
+      penDown[hand] = false;
+      draw.end(hand);
+    }
+  }
+  draw.update(dt);
+  const holdingMarker = xr.presenting && !!(markerHeld("left") || markerHeld("right"));
+  if (holdingMarker !== markerInHand) {
+    markerInHand = holdingMarker;
+    hud.setMarkerHeld(holdingMarker, { color: draw.color });
+  }
 
   if (xr.presenting && xr.rayFrom("right", raycaster)) {
     if (!hud.hover(raycaster)) objects.setHighlight(interact.held("right") ? null : objects.pick(raycaster)?.id || null);
@@ -598,4 +700,4 @@ window.addEventListener("pagehide", () => net?.leave());
 start();
 
 // Debug handle for tests and the browser console.
-window.trainingRoom = { THREE, scene, camera, rig, renderer, room, runner, objects, voice, ui, hud, xr, field, interact, get net() { return net; }, get me() { return me; }, playerPose };
+window.trainingRoom = { THREE, scene, camera, rig, renderer, room, runner, objects, voice, ui, hud, xr, field, interact, draw, get net() { return net; }, get me() { return me; }, playerPose };

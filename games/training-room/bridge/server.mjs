@@ -2,8 +2,9 @@
 // Training Room laptop bridge (Node.js 20+, no npm packages).
 //
 // Serves the game to your headset, phone and laptop, keeps them in one shared room, sends voice
-// commands to a local model (Ollama or any OpenAI-compatible server such as LM Studio), forwards
-// push-to-talk audio to a local Whisper server and serves your laptop parts bin.
+// commands and magic-marker drawings to a local model (Ollama or any OpenAI-compatible server such
+// as LM Studio), forwards push-to-talk audio to a local Whisper server, speaks the AI's replies
+// with a local voice server and serves your laptop parts bin.
 //
 // Start:
 //   node server.mjs                      (from this folder; on Windows double-click start-bridge.cmd)
@@ -35,6 +36,11 @@
 //           "provider": "openai" and "openaiUrl": "http://127.0.0.1:1234/v1" in config.json.
 //   Voice:  run whisper.cpp's server, e.g. `whisper-server -m ggml-base.en.bin --port 8080`
 //           (or set "sttKind": "openai" and "sttUrl" to an /v1/audio/transcriptions endpoint).
+//   Drawings: a vision model looks at magic-marker sketches, e.g. `ollama pull qwen2.5vl:7b`
+//           (picked automatically; or set "visionModel"). Without one the text model reads ASCII art.
+//   AI voice: set "ttsKind": "piper" and run piper1-gpl's server (python3 -m piper.http_server
+//           -m en_US-lessac-medium, port 5000), or "ttsKind": "openai" for Kokoro-FastAPI on port
+//           8880 ("ttsVoice": "af_heart"). Otherwise each device uses its own browser voice.
 //
 // Data folder contents: config.json (settings and room key), key.pem/cert.pem (HTTPS certificate,
 // regenerated when your network address changes), room.json (the saved room), parts/ (your parts
@@ -56,12 +62,13 @@ import { RoomStore, BridgeError } from "./store.mjs";
 import { PartsBin } from "./parts-bin.mjs";
 import { LocalModel, catalogText, createMatcher } from "./llm.mjs";
 import { SpeechToText, isWav } from "./stt.mjs";
+import { TextToSpeech, cleanSpeech } from "./tts.mjs";
 import { loadConfig, defaultDataDir, isInside } from "./config.mjs";
 
 export const VERSION = "1.0.0";
 export const GAME_PATH = "/vr-games/games/training-room/";
 const API_PREFIXES = [`${GAME_PATH}api/`, "/api/"];
-const LIMITS = { json: 256 * 1024, frame: 4 * 1024 * 1024, audio: 8 * 1024 * 1024 };
+const LIMITS = { json: 256 * 1024, interpret: 600 * 1024, frame: 4 * 1024 * 1024, audio: 8 * 1024 * 1024 };
 const COOKIE_DAYS = 30;
 // Calls that would flood the console; logged only with --verbose.
 const QUIET = /^(pose|share\/[^/]+|parts\/file\/.*)$/;
@@ -178,7 +185,8 @@ function openBrowser(url) {
 
 // ---------- the bridge ----------
 // options: { dataDir, port, httpPort, https, partsDir, model, ollamaUrl, verbose, quiet, log,
-//            root, host, store: { RoomStore options }, scanMs, modelTimeoutMs, fetchImpl, configOverrides }
+//            root, host, store: { RoomStore options }, scanMs, modelTimeoutMs, visionTimeoutMs,
+//            ttsTimeoutMs, fetchImpl, configOverrides }
 export async function createBridge(options = {}) {
   const log = options.log || console;
   const dataDir = path.resolve(options.dataDir || defaultDataDir());
@@ -204,8 +212,9 @@ export async function createBridge(options = {}) {
   const loaded = store.load();
   const bin = new PartsBin({ dirs: [partsPrimary, ...extraDirs], roomKey: config.roomKey, log, scanMs: options.scanMs || 10000 });
   bin.ensurePrimary();
-  const model = new LocalModel(config, { log, fetchImpl: options.fetchImpl, timeoutMs: options.modelTimeoutMs || 25000 });
+  const model = new LocalModel(config, { log, fetchImpl: options.fetchImpl, timeoutMs: options.modelTimeoutMs || 25000, visionTimeoutMs: options.visionTimeoutMs || 45000 });
   const stt = new SpeechToText(config, { log, fetchImpl: options.fetchImpl });
+  const tts = new TextToSpeech(config, { log, fetchImpl: options.fetchImpl, timeoutMs: options.ttsTimeoutMs || 20000 });
   const statics = createStatic({ root: options.root || REPO_ROOT });
   const servers = [];
   const failures = new Map(); // ip -> { count, until } for wrong room keys
@@ -218,7 +227,7 @@ export async function createBridge(options = {}) {
     const byName = new Map(allMeta().map((m) => [m.name, m]));
     for (const meta of bin.metas()) byName.set(meta.name, meta);
     const metas = [...byName.values()];
-    catalog = { metas, text: catalogText(metas), match: createMatcher(metas) };
+    catalog = { metas, text: catalogText(metas), compact: catalogText(metas, { compact: true }), match: createMatcher(metas) };
     return catalog;
   };
   bin.on("change", () => {
@@ -272,13 +281,15 @@ export async function createBridge(options = {}) {
       const authed = isAuthed(req, url);
       model.refresh().catch(() => {});
       const stt0 = stt.status();
+      const tts0 = tts.status();
       const body = {
         bridge: true,
         auth: authed,
         version: VERSION,
         name: config.roomName,
-        model: authed ? model.status() : { available: model.available, name: model.name, provider: model.provider },
+        model: { ...(authed ? model.status() : { available: model.available, name: model.name, provider: model.provider }), vision: model.vision },
         stt: authed ? stt0 : { available: stt0.available, kind: stt0.kind },
+        tts: authed ? tts0 : { available: tts0.available, kind: tts0.kind },
         parts: { count: bin.count },
         lan: lanUrls(),
       };
@@ -362,8 +373,12 @@ export async function createBridge(options = {}) {
       }
       case "POST command":
         return command(req, res, ctx);
+      case "POST interpret":
+        return interpret(req, res, ctx);
       case "POST transcribe":
         return transcribe(req, res, ctx);
+      case "POST tts":
+        return speech(req, res, ctx);
       case "GET parts":
         return sendJSON(res, 200, bin.manifest(apiBaseOf(req)));
       case "POST parts/save": {
@@ -434,6 +449,57 @@ export async function createBridge(options = {}) {
     const result = await model.command({ text, ctx: context, held, scene, metas, catalog: catalogString, sceneNames, match, signal: abort.signal });
     ctx.note += ` → ${result.intents.map((i) => i.do + (i.what?.part ? ` ${i.what.part}` : i.what?.custom ? ` ${i.what.custom.name}` : "")).join(", ") || "no intents"} (${result.model}, ${result.ms} ms)`;
     return sendJSON(res, 200, result);
+  }
+
+  // Aborts the upstream call when the client goes away.
+  const abortOnClose = (res) => {
+    const abort = new AbortController();
+    res.on("close", () => {
+      if (!res.writableEnded) abort.abort();
+    });
+    return abort.signal;
+  };
+
+  // Magic marker: { image?, ascii, stats, size, hint?, parts? } → the model's guess (ARCHITECTURE "Magic marker").
+  async function interpret(req, res, ctx) {
+    const body = await readJSON(req, LIMITS.interpret);
+    let image = null;
+    if (body.image !== undefined && body.image !== null && body.image !== "") {
+      const ok = typeof body.image === "string" && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(body.image);
+      if (!ok) return sendJSON(res, 400, { error: "bad-image", detail: "image must be a base64 PNG, JPEG or WebP data URL" });
+      image = body.image;
+    }
+    const ascii = typeof body.ascii === "string" ? body.ascii.replace(/\r/g, "").replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, " ").slice(0, 4000) : "";
+    if (!image && !/\S/.test(ascii)) return sendJSON(res, 400, { error: "no-sketch", detail: "send image and/or ascii" });
+    const stats = {};
+    if (body.stats && typeof body.stats === "object") {
+      for (const key of ["strokes", "points", "aspect", "width", "height"]) if (Number.isFinite(body.stats[key])) stats[key] = body.stats[key];
+      if (typeof body.stats.closed === "boolean" || Number.isFinite(body.stats.closed)) stats.closed = body.stats.closed;
+    }
+    const size = Array.isArray(body.size) && body.size.length >= 2 && body.size.slice(0, 2).every((n) => Number.isFinite(n) && n > 0)
+      ? body.size.slice(0, 2).map((n) => Math.min(60, Math.max(0.01, n)))
+      : null;
+    const hint = typeof body.hint === "string" ? body.hint.trim().slice(0, 200) : "";
+    const parts = Array.isArray(body.parts) ? body.parts.filter((n) => typeof n === "string" && n.length <= 80).slice(0, 200) : [];
+    const caller = typeof body.user === "string" ? store.users.get(body.user) : null;
+    if (caller) caller.lastSeen = Date.now();
+    const { metas, compact, match } = getCatalog();
+    ctx.note = `${image ? "image" : "ascii"}${hint ? ` ${JSON.stringify(hint.slice(0, 40))}` : ""}`;
+    const result = await model.interpret({ image, ascii, stats, size, hint, parts, metas, catalog: compact, match, signal: abortOnClose(res) });
+    ctx.note += ` → ${result.guess} (${result.part || (result.blueprint ? "blueprint" : "doodle")}, ${result.behavior}, ${result.confidence}) ${result.vision ? "seen by" : "read by"} ${result.model}, ${result.ms} ms`;
+    return sendJSON(res, 200, result);
+  }
+
+  // { text } → audio from the laptop voice server (audio/wav).
+  async function speech(req, res, ctx) {
+    const body = await readJSON(req);
+    const text = cleanSpeech(body.text);
+    if (!text) return sendJSON(res, 400, { error: "no-text" });
+    const out = await tts.synthesize(text, { signal: abortOnClose(res) });
+    ctx.note = `${JSON.stringify(text.slice(0, 60))} → ${Math.ceil(out.audio.length / 1024)} KB ${out.type} (${out.ms} ms)`;
+    if (res.destroyed) return;
+    res.writeHead(200, { "content-type": out.type, "content-length": out.audio.length, "cache-control": "no-store" });
+    return res.end(out.audio);
   }
 
   async function transcribe(req, res, ctx) {
@@ -560,7 +626,7 @@ export async function createBridge(options = {}) {
   async function start() {
     await bin.start();
     store.start();
-    const probes = Promise.all([model.refresh(true), stt.start()]);
+    const probes = Promise.all([model.refresh(true), stt.start(), tts.start()]);
     const problems = [];
     if (useHttps) {
       cert = ensureCert(dataDir);
@@ -601,6 +667,7 @@ export async function createBridge(options = {}) {
     store.stop();
     bin.stop();
     stt.stop();
+    tts.stop();
     await Promise.all(servers.map((server) => new Promise((resolve) => {
       server.close(() => resolve());
       server.closeAllConnections?.();
@@ -635,6 +702,10 @@ export async function createBridge(options = {}) {
     const s = stt.status();
     if (s.available) out.push(`  Voice:  ${s.kind} at ${s.url}`);
     else out.push(`  Voice:  ${s.detail || "not available"}. Headset voice needs a Whisper server; typing and browser speech still work.`);
+    if (m.available) out.push(`  Drawings:  ${model.vision ? `${model.vision} looks at them` : `${m.name} reads them as ASCII art (install a vision model, e.g. ollama pull qwen2.5vl:7b, to let it see)`}`);
+    const t = tts.status();
+    if (t.available) out.push(`  AI voice:  ${t.kind} at ${t.url}`);
+    else out.push(`  AI voice:  ${t.detail || "not available"}. Each device uses its own browser voice.`);
     out.push(`  Parts:  ${bin.count} in ${partsPrimary}${extraDirs.length ? ` (+${extraDirs.length} more folder${extraDirs.length > 1 ? "s" : ""})` : ""}`);
     out.push(`  Data:   ${dataDir} (settings: ${path.basename(configFile)})`);
     for (const problem of problems) out.push(`  Problem: ${problem}`);
@@ -655,6 +726,7 @@ export async function createBridge(options = {}) {
     bin,
     model,
     stt,
+    tts,
     get ports() {
       return { ...ports };
     },

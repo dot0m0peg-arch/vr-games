@@ -301,7 +301,14 @@ export class RoomStore extends Emitter {
     if (!check.ok) throw new BridgeError(400, { error: "bad-op", detail: check.error });
     const safe = { ...check.op, by: userId };
     if (!safe.uid) safe.uid = makeId("p");
-    return { seq: this.commit(safe) };
+    // A client retrying after a timeout resends the same uid; apply it only once.
+    this.recentUids ??= new Map();
+    const seen = this.recentUids.get(safe.uid);
+    if (seen !== undefined) return { seq: seen, duplicate: true };
+    const seq = this.commit(safe);
+    this.recentUids.set(safe.uid, seq);
+    if (this.recentUids.size > 4000) this.recentUids.delete(this.recentUids.keys().next().value);
+    return { seq };
   }
 
   commit(op) {
