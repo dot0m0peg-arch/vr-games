@@ -4,9 +4,11 @@ A public, independent home for browser VR games. This repository is separate fro
 
 - **Site:** https://dot0m0peg-arch.github.io/vr-games/
 - **Miner:** https://dot0m0peg-arch.github.io/vr-games/games/miner/
+- **The Neighborhood:** https://dot0m0peg-arch.github.io/vr-games/games/neighborhood/
+- **Training Room:** https://dot0m0peg-arch.github.io/vr-games/games/training-room/
 - **Repository:** https://github.com/dot0m0peg-arch/vr-games
 
-The shell is live; **Miner is not playable yet**. No original Miner code or artwork was imported. The geometric decorations belong to the portal, not the game. There are no trackers, external runtime dependencies, accounts, or backend services.
+The shell is live with three early-access games: **Miner**, **The Neighborhood** and **Training Room**. All play in a desktop browser; VR mode is not yet verified on a headset for any of them. The geometric decorations on the portal belong to the portal, not the games. The portal has no trackers, external runtime dependencies, accounts, or backend services; Training Room's optional laptop bridge runs on the owner's own laptop (see Hosting boundary).
 
 ## Layout
 
@@ -15,9 +17,9 @@ index.html                 Games landing page; add new listings here
 how-to-play.html           Player instructions and VR capability check
 assets/                    Shared styles, favicon, VR check
  games/
-  miner/index.html         Miner (browser + experimental VR mode)
-  miner/assets/            Miner's own assets
+  miner/                   Miner: single-file Three.js game, font, icons, manifest, service worker
   neighborhood/            The Neighborhood: built output of the owner's Neighborhood project (see its README.md)
+  training-room/           Training Room: voice-summoning sandbox; optional laptop bridge in bridge/ (see its README.md)
   _template/               Copy for each additional game
  docs/
   ADDING-GAMES.md           Claude's game integration guide
@@ -36,7 +38,7 @@ To check links and required site files, run `python tools/check_site.py`. Follow
 
 ## Hosting boundary
 
-GitHub Pages serves static HTML, CSS, JavaScript, WebAssembly and assets. Games must be browser/WebXR builds, not APKs or desktop executables. The site needs no VR store developer account to distribute a browser game. A game needing a server needs a separately configured service; do not put API keys or secrets in this public repository.
+GitHub Pages serves static HTML, CSS, JavaScript, WebAssembly and assets. Games must be browser/WebXR builds, not APKs or desktop executables. The site needs no VR store developer account to distribute a browser game. A game needing a server needs a separately configured service; do not put API keys or secrets in this public repository. Training Room's optional bridge is such a service: the owner runs it on their own laptop, and it stores its keys and room data outside the repository.
 
 GitHub Pages does not offer arbitrary HTTP response headers. Builds requiring cross-origin isolation, special compression headers or a backend may need a different host or export settings. See the integration guide before uploading Unity/WebGL or threaded WASM output.
 

@@ -12,7 +12,7 @@ checkButton.addEventListener("click", async () => {
     } else {
       const supported = await navigator.xr.isSessionSupported("immersive-vr");
       statusMessage.textContent = supported
-        ? "Immersive VR is available. When a game is released, open it and use its Enter VR button."
+        ? "Immersive VR is available. Open a game and use its Enter VR button."
         : "This browser cannot currently start immersive VR. Check your headset connection or try your headset's browser.";
     }
   } catch {
