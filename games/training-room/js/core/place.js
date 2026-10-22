@@ -6,12 +6,13 @@ const STEP = 0.5;
 const MAX_STEPS = 40;
 const DEFAULT_HEAD = [0, 1.6, 0];
 
+// "+ 0" turns -0 into 0 so results compare cleanly.
 export function forwardOf(yaw = 0) {
-  return [-Math.sin(yaw), 0, -Math.cos(yaw)];
+  return [-Math.sin(yaw) + 0, 0, -Math.cos(yaw) + 0];
 }
 
 export function rightOf(yaw = 0) {
-  return [Math.cos(yaw), 0, -Math.sin(yaw)];
+  return [Math.cos(yaw) + 0, 0, -Math.sin(yaw) + 0];
 }
 
 // Yaw that turns an object at `from` (front = local +Z) toward `to`.
@@ -253,7 +254,8 @@ export function resolvePlacement(place, ctx = {}) {
       const off = extentAlong(ref, refSize, u) + GAP + radius;
       const raised = (ref.p[1] || 0) > 0.05 && ref.onto;
       const p = [ref.p[0] + u[0] * off, raised ? ref.p[1] : 0, ref.p[2] + u[2] * off];
-      if (!raised) avoid(p, u, radius, obstacles({ ...ctx, exclude }, sizeOf));
+      // The reference itself is cleared by its box extent above; its footprint circle would over-push.
+      if (!raised) avoid(p, u, radius, obstacles({ ...ctx, exclude: new Set([...exclude, ref.id]) }, sizeOf));
       const out = { p: round3(p), ry: r4(faceYaw(p, head)) };
       if (raised) out.onto = ref.onto;
       return out;

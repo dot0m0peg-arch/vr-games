@@ -1,7 +1,7 @@
 // Local model brain: turns a spoken command into intents (ARCHITECTURE "Intents") through Ollama
 // (/api/chat with a JSON schema) or any OpenAI-compatible server (LM Studio, llama.cpp, Ollama /v1).
 // Model output is data only: it is parsed, filtered to known intents and clamped, never executed.
-import { matchPart } from "../js/core/lexicon.js";
+import { matchPart, singularize, normalizeText } from "../js/core/lexicon.js";
 import { normalizeBp } from "./parts-bin.mjs";
 
 export const DOS = ["spawn", "remove", "move", "scale", "color", "hold", "drop", "write", "deal", "shuffle", "flip", "undo", "clear", "time", "say", "list"];
@@ -115,24 +115,37 @@ RULES
 const r2 = (n) => Math.round(n * 100) / 100;
 const fmtSize = (size) => (Array.isArray(size) && size.length === 3 ? size.map((n) => (n >= 10 ? Math.round(n) : n >= 1 ? Math.round(n * 10) / 10 : r2(n))).join("x") : "");
 
-export function catalogText(metas) {
+const shorten = (text, max) => (text.length <= max ? text : `${text.slice(0, text.lastIndexOf(" ", max - 1) > max / 2 ? text.lastIndexOf(" ", max - 1) : max - 1)}…`);
+
+const CATEGORY_ORDER = ["structures", "nature", "office", "leisure", "combat", "custom"];
+const rank = (category) => (CATEGORY_ORDER.includes(category) ? CATEGORY_ORDER.indexOf(category) : CATEGORY_ORDER.length);
+
+// compact: laptop/custom parts as bare names, at most maxCustom of them (big parts bins must
+// still fit the context window; the bridge maps any exact part name the model uses anyway).
+export function catalogText(metas, { compact = false, maxCustom = 120 } = {}) {
   const groups = new Map();
+  let skipped = 0;
+  let listed = 0;
   for (const meta of metas) {
     const category = meta.category || "custom";
     if (!groups.has(category)) groups.set(category, []);
-    const aliases = (meta.aliases || []).slice(0, 2);
+    if (compact && (category === "custom" || meta.source === "laptop")) {
+      if (listed++ < maxCustom) groups.get(category).push(`- ${meta.name}`);
+      else skipped++;
+      continue;
+    }
+    const aliases = (meta.aliases || []).slice(0, 1);
     const size = fmtSize(meta.size);
     const flags = [meta.holdable ? "holdable" : "", meta.surface !== undefined ? "surface" : "", meta.writable ? "writable" : "", meta.deck ? "cards" : ""].filter(Boolean);
     let line = `- ${meta.name}`;
     if (aliases.length) line += ` (${aliases.join(", ")})`;
     if (size) line += ` ${size}`;
-    if (meta.desc) line += `: ${String(meta.desc).slice(0, 90)}`;
+    if (meta.desc) line += `: ${shorten(String(meta.desc), 64)}`;
     if (flags.length) line += ` [${flags.join(", ")}]`;
     groups.get(category).push(line);
   }
-  const order = ["structures", "nature", "office", "leisure", "combat", "custom"];
-  const names = [...groups.keys()].sort((a, b) => (order.indexOf(a) + 99 * (order.indexOf(a) < 0)) - (order.indexOf(b) + 99 * (order.indexOf(b) < 0)));
-  return names.map((name) => `${name}:\n${groups.get(name).join("\n")}`).join("\n");
+  const text = [...groups.keys()].sort((a, b) => rank(a) - rank(b)).filter((name) => groups.get(name).length).map((name) => `${name}:\n${groups.get(name).join("\n")}`).join("\n");
+  return skipped ? `${text}\n(and ${skipped} more saved parts: use the name the player says)` : text;
 }
 
 const DRAGON = {
@@ -156,7 +169,7 @@ const DRAGON = {
   ],
 };
 
-const EMPTY = "Player: at (0, 0) facing yaw 0; right hand: empty; left hand: empty.\nScene: nothing nearby.";
+const EMPTY = "Player: at (0, 0) facing yaw 0; hands empty.\nScene: nothing nearby.";
 // Few-shot pairs (user text, assistant JSON). Part names here must exist in the built-in catalog.
 export const EXAMPLES = [
   [`${EMPTY}\nCommand: "spawn a villa to my left"`, { intents: [{ do: "spawn", what: { part: "villa" }, place: { rel: "left" } }], say: "A villa, on your left." }],
@@ -171,10 +184,10 @@ export const EXAMPLES = [
   [`${EMPTY}\nCommand: "spawn three training dummies in front of me"`, { intents: [{ do: "spawn", what: { part: "training dummy" }, count: 3, place: { rel: "front", dist: 4 } }], say: "Three training dummies." }],
   [`${EMPTY}\nCommand: "make it night"`, { intents: [{ do: "time", value: "night" }], say: "Night falls." }],
   [`${EMPTY}\nCommand: "summon a dragon statue over there"`, { intents: [{ do: "spawn", what: { custom: DRAGON, label: "dragon statue" }, place: { rel: "front", dist: 6 } }], say: "A stone dragon statue." }],
-  [`Player: at (2, -3) facing yaw 0.5; right hand: empty; left hand: empty.\nScene: villa id o1a 14 m left; tree id o2b 8 m front.\nCommand: "remove the villa"`, { intents: [{ do: "remove", target: { part: "villa" } }], say: "The villa is gone." }],
-  [`Player: at (0, 0) facing yaw 0; right hand: empty; left hand: empty.\nScene: whiteboard id o3c 3 m front.\nCommand: "write Q3 goals on the whiteboard"`, { intents: [{ do: "write", target: { part: "whiteboard" }, text: "Q3 goals" }], say: "Written on the whiteboard." }],
+  [`Player: at (2, -3) facing yaw 0.5; hands empty.\nScene: villa id o1a 14 m left; tree id o2b 8 m front.\nCommand: "remove the villa"`, { intents: [{ do: "remove", target: { part: "villa" } }], say: "The villa is gone." }],
+  [`Player: at (0, 0) facing yaw 0; hands empty.\nScene: whiteboard id o3c 3 m front.\nCommand: "write Q3 goals on the whiteboard"`, { intents: [{ do: "write", target: { part: "whiteboard" }, text: "Q3 goals" }], say: "Written on the whiteboard." }],
   [`${EMPTY}\nCommand: "give me a red sword in my left hand"`, { intents: [{ do: "spawn", what: { part: "sword" }, place: { rel: "hand", hand: "left" }, color: "red" }], say: "A red sword, left hand." }],
-  [`Player: at (0, 0) facing yaw 0; right hand: empty; left hand: empty.\nScene: crate id o4d 2 m front.\nCommand: "make it twice as big and paint it blue"`, {
+  [`Player: at (0, 0) facing yaw 0; hands empty.\nScene: crate id o4d 2 m front.\nCommand: "make it twice as big and paint it blue"`, {
     intents: [{ do: "scale", target: { ref: "it" }, factor: 2 }, { do: "color", target: { ref: "it" }, color: "blue" }],
     say: "Bigger and blue.",
   }],
@@ -185,7 +198,8 @@ function describePlayer(player, held = []) {
   const p = Array.isArray(player?.p) ? player.p : [0, 0, 0];
   const yaw = typeof player?.yaw === "number" && Number.isFinite(player.yaw) ? player.yaw : 0;
   const hand = (side) => held.filter((h) => h.hand === side).map((h) => h.label).join(", ") || "empty";
-  return `Player: at (${r2(p[0])}, ${r2(p[2])}) facing yaw ${r2(yaw)}; right hand: ${hand("right")}; left hand: ${hand("left")}.`;
+  const hands = held.length ? `right hand: ${hand("right")}; left hand: ${hand("left")}` : "hands empty";
+  return `Player: at (${r2(p[0])}, ${r2(p[2])}) facing yaw ${r2(yaw)}; ${hands}.`;
 }
 
 // summarize() items → "villa id o1a 14 m left; deck of cards id o2b 2 m front on o3c".
@@ -206,28 +220,51 @@ export function formatScene(items) {
   }).filter(Boolean).join("; ");
 }
 
-function sceneText(scene) {
+function sceneText(scene, max = 3000) {
   if (Array.isArray(scene)) scene = formatScene(scene);
   if (scene === undefined || scene === null || scene === "") return "nothing nearby.";
   const text = typeof scene === "string" ? scene : JSON.stringify(scene);
-  return text.length > 4000 ? `${text.slice(0, 4000)} …` : text;
+  return text.length > max ? `${text.slice(0, max)} …` : text;
 }
 
+// Rough token estimate (JSON-heavy English averages a bit over 3 characters per token).
+const tokens = (messages) => Math.ceil(messages.reduce((n, m) => n + m.content.length + 8, 0) / 3.2);
+// Few-shot examples dropped first when the prompt would not fit (the first three are kept).
+const DROP_ORDER = [10, 9, 8, 7, 6, 3, 4, 5];
+
 // messages: static system prompt (cache friendly), few-shot pairs, then the live request.
-export function buildPrompt({ text, player, scene, held = [], metas = [], extraParts = [], catalog } = {}) {
-  const system = `${JOB}\n\nCATALOG (name (aliases) size WxHxD meters: description)\n${catalog || catalogText(metas)}`;
-  const messages = [{ role: "system", content: system }];
-  for (const [user, assistant] of EXAMPLES) {
-    messages.push({ role: "user", content: user });
-    messages.push({ role: "assistant", content: JSON.stringify(assistant) });
-  }
+// numCtx: the model context; about 2200 tokens stay free for the answer.
+export function buildPrompt({ text, player, scene, held = [], metas = [], extraParts = [], catalog, numCtx = 8192 } = {}) {
   const known = new Set(metas.map((m) => m.name));
   const extra = (extraParts || []).filter((n) => typeof n === "string" && n && !known.has(n.toLowerCase())).slice(0, 60);
-  let live = `${describePlayer(player, held)}\nScene: ${sceneText(scene)}`;
-  if (extra.length) live += `\nAlso available parts: ${extra.join(", ")}.`;
-  live += `\nCommand: ${JSON.stringify(String(text || "").slice(0, 500))}`;
-  messages.push({ role: "user", content: live });
-  return messages;
+  const command = `\nCommand: ${JSON.stringify(String(text || "").slice(0, 500))}`;
+  const liveText = (sceneMax) => {
+    let live = `${describePlayer(player, held)}\nScene: ${sceneText(scene, sceneMax)}`;
+    if (extra.length) live += `\nAlso available parts: ${extra.join(", ")}.`;
+    return live + command;
+  };
+  const build = (catalogString, examples, sceneMax) => {
+    const messages = [{ role: "system", content: `${JOB}\n\nCATALOG (name (alias) size WxHxD meters: description)\n${catalogString}` }];
+    for (const [user, assistant] of examples) {
+      messages.push({ role: "user", content: user });
+      messages.push({ role: "assistant", content: JSON.stringify(assistant) });
+    }
+    messages.push({ role: "user", content: liveText(sceneMax) });
+    return messages;
+  };
+  const budget = Math.max(2048, numCtx - 2200);
+  let catalogString = catalog || catalogText(metas);
+  let examples = EXAMPLES;
+  let messages = build(catalogString, examples, 3000);
+  if (tokens(messages) <= budget) return messages;
+  catalogString = catalogText(metas, { compact: true });
+  messages = build(catalogString, examples, 3000);
+  for (const index of DROP_ORDER) {
+    if (tokens(messages) <= budget) return messages;
+    examples = examples.filter((pair) => pair !== EXAMPLES[index]);
+    messages = build(catalogString, examples, 3000);
+  }
+  return tokens(messages) <= budget ? messages : build(catalogString, examples, 800);
 }
 
 // ---------- parsing model output ----------
@@ -295,7 +332,8 @@ export function createMatcher(metas, extraNames = []) {
     const text = word(raw);
     if (!text) return null;
     if (exact.has(text)) return { name: exact.get(text), exact: true };
-    const singular = text.replace(/ies$/, "y").replace(/(ch|sh|x|ss)es$/, "$1").replace(/([^s])s$/, "$1");
+    const words = text.split(" ");
+    const singular = [...words.slice(0, -1), singularize(words[words.length - 1])].join(" ");
     if (exact.has(singular)) return { name: exact.get(singular), exact: true };
     let hit = null;
     try {
@@ -304,7 +342,16 @@ export function createMatcher(metas, extraNames = []) {
       hit = null;
     }
     const name = typeof hit === "string" ? hit : hit?.name || hit?.meta?.name || null;
-    return name ? { name, exact: false } : null;
+    if (!name) return null;
+    // A match that covers every spoken word is as good as exact ("battle axes", "pine trees").
+    let total = words.length;
+    try {
+      total = normalizeText(text).split(" ").filter(Boolean).length;
+    } catch {
+      // keep the plain word count
+    }
+    const whole = typeof hit === "object" && hit.start === 0 && hit.end === total && hit.score >= 0.95;
+    return { name, exact: whole };
   };
 }
 
@@ -340,8 +387,9 @@ function normPlace(raw, match, sceneNames, batchMap, index) {
   let pl = raw;
   if (typeof pl === "string") pl = { rel: pl };
   if (!pl || typeof pl !== "object" || Array.isArray(pl)) return undefined;
-  let rel = word(pl.rel || "").replace(/^(to the|to my|my|the)\s+/, "");
-  rel = RELS.includes(rel) ? rel : REL_ALIASES[rel];
+  const phrase = word(pl.rel || "").replace(/^(to the|to my|my|the)\s+/, "");
+  // "left side", "behind the player": fall back to the first placement word in the phrase.
+  const rel = RELS.includes(phrase) ? phrase : REL_ALIASES[phrase] || phrase.split(" ").map((w) => (RELS.includes(w) ? w : REL_ALIASES[w])).find(Boolean);
   if (!rel) return undefined;
   const out = { rel };
   const hand = word(pl.hand || "");
@@ -351,7 +399,7 @@ function normPlace(raw, match, sceneNames, batchMap, index) {
   const side = word(pl.side || "");
   if (["left", "right", "front", "behind"].includes(side)) out.side = side;
   if (pl.ref !== undefined && pl.ref !== null) {
-    const batch = toNumber(pl.ref?.batch);
+    const batch = toNumber(typeof pl.ref === "number" ? pl.ref : pl.ref?.batch);
     if (batch !== undefined) {
       const mapped = batchMap.get(Math.round(batch));
       if (mapped !== undefined && mapped < index) out.ref = { batch: mapped };
@@ -673,7 +721,7 @@ export class LocalModel {
     if (!this.available && Date.now() - this.checkedAt > 3000) await this.refresh(true);
     if (!this.available) throw upstreamError(503, { error: "no-model", detail: this.detail });
     const extraParts = Array.isArray(ctx.parts) ? ctx.parts.filter((n) => typeof n === "string") : [];
-    const messages = buildPrompt({ text, player: ctx.player, scene: scene ?? ctx.scene, held, metas, extraParts, catalog });
+    const messages = buildPrompt({ text, player: ctx.player, scene: scene ?? ctx.scene, held, metas, extraParts, catalog, numCtx: this.numCtx });
     const timeout = AbortSignal.timeout(this.timeoutMs);
     const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
     let out;
@@ -702,7 +750,8 @@ export class LocalModel {
     }
     const usable = parsed && typeof parsed === "object" && (Array.isArray(parsed) || Array.isArray(parsed.intents) || typeof parsed.say === "string" || typeof parsed.do === "string" || (parsed.intents && typeof parsed.intents === "object"));
     if (!usable) throw upstreamError(502, { error: "bad-output", raw: String(out.content).slice(0, 500) });
-    const { intents, say } = normalizeOutput(parsed, { metas, extraNames: extraParts, sceneNames, match });
+    const matcher = extraParts.length || !match ? createMatcher(metas, extraParts) : match;
+    const { intents, say } = normalizeOutput(parsed, { metas, sceneNames, match: matcher });
     return { intents, say, source: "model", model: out.model, ms: Date.now() - started };
   }
 }

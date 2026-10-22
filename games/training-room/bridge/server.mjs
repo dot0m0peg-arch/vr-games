@@ -258,6 +258,12 @@ export async function createBridge(options = {}) {
   const withKey = (url) => `${url}?k=${encodeURIComponent(config.roomKey)}`;
 
   // ---------- API ----------
+  // Absolute API URL as this client reached us (Host header), else a root-relative path.
+  const apiBaseOf = (req) => {
+    const host = String(req.headers.host || "");
+    const path0 = `${GAME_PATH}api/`;
+    return /^[A-Za-z0-9.-]+(:\d{1,5})?$|^\[[0-9a-fA-F:.]+\](:\d{1,5})?$/.test(host) ? `${req.socket.encrypted ? "https" : "http"}://${host}${path0}` : path0;
+  };
   const userOf = (req, url, body) => body?.user || url.searchParams.get("user") || req.headers["x-user-id"] || null;
 
   async function api(req, res, route, url, ctx) {
@@ -285,15 +291,15 @@ export async function createBridge(options = {}) {
 
     const parts = route.split("/");
     const isFile = parts[0] === "parts" && parts[1] === "file" && method === "GET";
-    let fileHit = null;
-    if (isFile) fileHit = await bin.resolveFile(route.slice("parts/file/".length));
-    if (!(fileHit?.capOk) && !isAuthed(req, url)) {
+    const fileRest = isFile ? route.slice("parts/file/".length) : "";
+    if (!(isFile && bin.hasCap(fileRest)) && !isAuthed(req, url)) {
       if (throttled(ctx.ip)) return sendJSON(res, 429, { error: "slow-down" });
       noteFailure(ctx.ip);
       return sendJSON(res, 401, { error: "auth" });
     }
 
     if (isFile) {
+      const fileHit = await bin.resolveFile(fileRest);
       if (!fileHit) return sendJSON(res, 404, { error: "not-found" });
       const etag = `W/"${fileHit.stat.size.toString(16)}-${Math.floor(fileHit.stat.mtimeMs).toString(16)}"`;
       const headers = { "content-type": fileHit.type, "cache-control": "no-cache", etag };
@@ -325,7 +331,8 @@ export async function createBridge(options = {}) {
         return sendJSON(res, 200, result);
       }
       case "GET events": {
-        const lastId = Number(req.headers["last-event-id"] ?? url.searchParams.get("since"));
+        const rawId = req.headers["last-event-id"] ?? url.searchParams.get("since");
+        const lastId = rawId === undefined || rawId === null || rawId === "" ? NaN : Number(rawId);
         store.openEvents(url.searchParams.get("user"), req, res, Number.isInteger(lastId) ? lastId : null);
         return;
       }
@@ -358,7 +365,7 @@ export async function createBridge(options = {}) {
       case "POST transcribe":
         return transcribe(req, res, ctx);
       case "GET parts":
-        return sendJSON(res, 200, bin.manifest());
+        return sendJSON(res, 200, bin.manifest(apiBaseOf(req)));
       case "POST parts/save": {
         const body = await readJSON(req);
         const saved = await bin.save(body.blueprint ?? body);
@@ -696,7 +703,9 @@ export async function main(argv = process.argv.slice(2)) {
   }
   if (args.help) {
     const source = fs.readFileSync(fileURLToPath(import.meta.url), "utf8");
-    console.log(source.split("\n").slice(1).filter((l) => l.startsWith("//")).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
+    const lines = source.split("\n").slice(1);
+    const header = lines.slice(0, lines.findIndex((l) => !l.startsWith("//")));
+    console.log(header.map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
     return null;
   }
   const num = (v, name) => {

@@ -93,7 +93,7 @@ export function sanitizeConfig(raw = {}) {
   take("sttPrompt", str(raw.sttPrompt, 400));
   take("partsDirs", Array.isArray(raw.partsDirs) ? raw.partsDirs.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim()) : null);
   take("allowOrigins", Array.isArray(raw.allowOrigins)
-    ? raw.allowOrigins.filter((o) => typeof o === "string" && /^https?:\/\/[^/\s]+$/.test(o.trim())).map((o) => o.trim().replace(/\/+$/, ""))
+    ? raw.allowOrigins.map((o) => (typeof o === "string" ? o.trim().replace(/\/+$/, "") : "")).filter((o) => /^https?:\/\/[^/\s]+$/.test(o))
     : null);
   return { config: c, problems };
 }

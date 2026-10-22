@@ -227,11 +227,19 @@ export function editDistance(a, b, max = 2) {
 }
 
 const indexCache = new WeakMap();
+let lastIndex = { key: "", entries: [] };
 
+// Phrase index per catalog. allMeta() returns a fresh array each call, so a content key
+// lets repeated parses reuse the last index.
 function phraseIndex(metas) {
   const list = Array.isArray(metas) ? metas : [];
   const cached = indexCache.get(list);
   if (cached && cached.length === list.length) return cached.entries;
+  const key = list.map((m) => (m ? `${m.name}|${(m.aliases || []).join(",")}` : "")).join(";");
+  if (key === lastIndex.key) {
+    indexCache.set(list, { length: list.length, entries: lastIndex.entries });
+    return lastIndex.entries;
+  }
   const entries = [];
   for (const meta of list) {
     if (!meta || !meta.name) continue;
@@ -243,6 +251,7 @@ function phraseIndex(metas) {
     }
   }
   indexCache.set(list, { length: list.length, entries });
+  lastIndex = { key, entries };
   return entries;
 }
 

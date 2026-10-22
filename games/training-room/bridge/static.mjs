@@ -117,7 +117,13 @@ export function createStatic({ root = REPO_ROOT } = {}) {
     try {
       real = await fsp.realpath(target);
     } catch {
-      return null;
+      // GitHub Pages also serves /page as /page.html.
+      if (!segments.length || endsWithSlash || path.extname(target)) return null;
+      try {
+        real = await fsp.realpath(`${target}.html`);
+      } catch {
+        return null;
+      }
     }
     const base = await getRealRoot();
     if (!isInside(base, real) || isBlocked(path.relative(base, real))) return null;

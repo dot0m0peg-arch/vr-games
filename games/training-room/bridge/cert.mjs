@@ -107,17 +107,23 @@ function ipScore(address, ifname) {
   return score;
 }
 
-// Every non-internal IPv4 address, best LAN candidate (Wi-Fi/Ethernet, private range) first.
-export function lanIPs(interfaces = os.networkInterfaces()) {
+// Every non-internal IPv4 address as { address, ifname, virtual }, best LAN candidate
+// (Wi-Fi/Ethernet, private range) first. virtual: VM/WSL/VPN adapters and link-local addresses.
+export function lanAddresses(interfaces = os.networkInterfaces()) {
   const found = [];
   for (const [ifname, list] of Object.entries(interfaces || {})) {
     for (const entry of list || []) {
       const v4 = entry.family === "IPv4" || entry.family === 4;
-      if (!v4 || entry.internal || !entry.address) continue;
-      if (!found.some((f) => f.address === entry.address)) found.push({ address: entry.address, score: ipScore(entry.address, ifname) });
+      if (!v4 || entry.internal || !entry.address || found.some((f) => f.address === entry.address)) continue;
+      const virtual = VIRTUAL_IF.test(ifname) || entry.address.startsWith("169.254.");
+      found.push({ address: entry.address, ifname, virtual, score: ipScore(entry.address, ifname) });
     }
   }
-  return found.sort((a, b) => b.score - a.score).map((f) => f.address);
+  return found.sort((a, b) => b.score - a.score).map(({ address, ifname, virtual }) => ({ address, ifname, virtual }));
+}
+
+export function lanIPs(interfaces) {
+  return lanAddresses(interfaces).map((a) => a.address);
 }
 
 function hostNames() {
@@ -195,8 +201,17 @@ export function certIPs(x509) {
 }
 
 // Loads <dataDir>/key.pem + cert.pem, regenerating when missing, unreadable, mismatched, expiring
-// within a day, or when a current LAN IP is not in the SAN. Returns { key, cert, generated, ips }.
-export function ensureCert(dataDir, { ips = ["127.0.0.1", ...lanIPs()], names } = {}) {
+// within a day, or when a required IP is not in the SAN. Required: loopback plus real LAN adapters;
+// VM/WSL adapters (new address every boot) are included when generating but do not force a new
+// certificate, so the headset does not have to accept a new one after every reboot.
+// Returns { key, cert, generated, ips }.
+export function ensureCert(dataDir, { ips, required, names } = {}) {
+  if (!ips) {
+    const all = lanAddresses();
+    ips = ["127.0.0.1", ...all.map((a) => a.address)];
+    required = required || ["127.0.0.1", ...all.filter((a) => !a.virtual).map((a) => a.address)];
+  }
+  required = required || ips;
   const keyPath = path.join(dataDir, "key.pem");
   const certPath = path.join(dataDir, "cert.pem");
   try {
@@ -205,7 +220,7 @@ export function ensureCert(dataDir, { ips = ["127.0.0.1", ...lanIPs()], names } 
     const x509 = new crypto.X509Certificate(cert);
     const valid = Date.parse(x509.validTo) > Date.now() + 24 * 3600 * 1000 && Date.parse(x509.validFrom) <= Date.now();
     const covered = certIPs(x509);
-    if (valid && ips.every((ip) => covered.includes(ip)) && x509.checkPrivateKey(crypto.createPrivateKey(key))) {
+    if (valid && required.every((ip) => covered.includes(ip)) && x509.checkPrivateKey(crypto.createPrivateKey(key))) {
       return { key, cert, generated: false, ips: covered };
     }
   } catch {

@@ -1,7 +1,7 @@
 // Built-in rule parser: spoken/typed command → intents (ARCHITECTURE.md "Intents").
 // The local model produces the same intents; this parser handles common commands instantly
 // and reports low confidence when the runner should ask the model instead.
-import { normalizeText, singularize, matchPart, matchColor, parseNumber } from "./lexicon.js";
+import { normalizeText, singularize, matchPart, matchColor } from "./lexicon.js";
 import { stripWake } from "./wake.js";
 
 // ---------- vocabulary ----------
@@ -31,6 +31,12 @@ const BOUNDARY = new Set([
   "bigger", "smaller", "larger", "taller", "shorter", "wider", "disappear", "vanish", "go", "say", "says", "using",
 ]);
 const ARTICLES = new Set(["a", "an", "some", "another", "any"]);
+// Words that end an unknown noun phrase (pronouns and generic nouns are references, not names).
+const NOUN_STOP = new Set([
+  "it", "them", "its", "they", "thing", "things", "stuff", "object", "objects", "item", "items", "everything",
+  "something", "anything", "all", "both", "each", "every", "last", "latest", "newest", "previous", "me", "you",
+  "us", "myself", "yourself", "everyone", "everybody", "what", "whatever", "i'm", "i", "one", "where", "size", "what's",
+]);
 const DEFINITE = new Set(["the", "my", "that", "this", "those", "these", "your", "our", "its"]);
 const ORDINALS = { first: 1, "1st": 1, second: 2, "2nd": 2, third: 3, "3rd": 3, fourth: 4, "4th": 4, fifth: 5, "5th": 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10 };
 const UNITS = {
@@ -52,7 +58,7 @@ const TIME_RE = new RegExp(
   + ")(?: time| mode| please| now| again)?$",
 );
 const LIST_RE = /^(?:help|help me|commands|options|what can (?:you|i) (?:do|say|spawn|summon|make|build|create)|what do you have|what have you got|what (?:parts|things|objects|items|stuff) (?:do you have|are there|can (?:you|i) (?:spawn|summon|make|build|create))|(?:list|show)(?: me)?(?: all)?(?: of)?(?: the| your)?(?: available)?(?: parts| things| objects| items| commands| stuff)?(?: bin)?(?: you have| available)?|parts(?: list| bin)?|what(?:'s| is) in the parts bin|what can you summon)$/;
-const CLEAR_RE = /^(?:(?:clear|reset|wipe|empty|clean)(?: up| out)?(?: (?:everything|all|it all|it|everything out|(?:the )?(?:whole )?(?:field|room|area|world|scene|space|map|place|thing|board)))?|start (?:over|fresh|again)|reset everything|remove all objects|delete all objects)$/;
+const CLEAR_RE = /^(?:(?:clear|reset|wipe|empty|clean)(?: up| out)?(?: (?:everything|all|it all|everything out|(?:the )?(?:whole )?(?:field|room|area|world|scene|space|map|place|thing|board)))?|start (?:over|fresh|again)|reset everything|remove all objects|delete all objects)$/;
 const UNDO_RE = /^(?:undo|undo that|undo it|undo the last (?:thing|command|step|action|1)|undo last|take that back|take it back|revert|revert that|go back|oops)(?: (\d+)(?: times| steps| things| commands| actions)?)?$/;
 const UNDO_N_RE = /^undo (?:the )?(?:last )?(\d+)(?: times| steps| things| commands| actions)?$/;
 
@@ -93,7 +99,8 @@ const LEAD_FILLERS = [
   "please", "can you", "could you", "would you", "will you", "can u", "i want you to", "i'd like you to",
   "i would like you to", "i need you to", "go ahead and", "now", "and", "then", "also", "just", "quickly", "okay", "ok",
   "oh", "um", "uh", "hey", "so", "kindly", "try to", "try and", "let's", "lets", "let us", "i want to", "i'd like to",
-  "i would like to", "you can", "you should", "yo", "alright", "actually", "hmm", "ai", "after that",
+  "i would like to", "you can", "you should", "yo", "alright", "actually", "hmm", "ai", "after that", "no", "nope",
+  "nah", "wrong", "oops no",
 ].map((p) => p.split(" ")).sort((a, b) => b.length - a.length);
 const TRAIL_FILLERS = [
   "please", "for me", "now", "thanks", "thank you", "right now", "real quick", "quickly", "as well", "too",
@@ -149,7 +156,7 @@ function stripFillers(words) {
   while (changed && w.length) {
     changed = false;
     for (const f of LEAD_FILLERS) {
-      if (w.length > f.length && startsWithAt(w, 0, f)) {
+      if (w.length >= f.length && startsWithAt(w, 0, f)) {
         w = w.slice(f.length);
         changed = true;
         break;
@@ -160,7 +167,7 @@ function stripFillers(words) {
   while (changed && w.length) {
     changed = false;
     for (const f of TRAIL_FILLERS) {
-      if (w.length > f.length && startsWithAt(w, w.length - f.length, f)) {
+      if (w.length >= f.length && startsWithAt(w, w.length - f.length, f)) {
         w = w.slice(0, w.length - f.length);
         changed = true;
         break;
@@ -212,10 +219,11 @@ function metaByName(st, name) {
 
 // Scans for a catalog phrase starting at k, allowing color/size/filler words before it.
 // → { known, part?, label, phrase?, end, color, scale, descriptors, plural, score } | null
-function findNoun(w, k, st) {
+function findNoun(w, k, st, { guess = false } = {}) {
   const descriptors = [];
   let color = null;
   let scale = null;
+  let lastModifier = null;
   let p = k;
   while (p < w.length) {
     const m = matchPart(w, st.metas, { start: p, anchored: true });
@@ -228,14 +236,16 @@ function findNoun(w, k, st) {
       const label = descriptors.length ? `${descriptors.join(" ")} ${m.phrase}` : null;
       return { known: true, part: m.name, phrase: m.phrase, label, start: p, end: m.end, color, scale, descriptors, plural, score: m.score };
     }
-    if (BOUNDARY.has(word) || isNum(word)) break;
+    if (BOUNDARY.has(word) || NOUN_STOP.has(word) || isNum(word)) break;
     const c = colorAt(w, p);
     if (c) {
+      lastModifier = { words: w.slice(p, c.end), color, scale };
       color = c.color;
       p = c.end;
       continue;
     }
     if (word in SIZE_WORDS) {
+      lastModifier = { words: [word], color, scale };
       if (SIZE_WORDS[word] !== 1) scale = SIZE_WORDS[word];
       p++;
       continue;
@@ -247,12 +257,39 @@ function findNoun(w, k, st) {
     descriptors.push(word);
     p++;
   }
+  // "an orange", "a giant": the last modifier was the noun after all.
+  if (!descriptors.length && lastModifier) {
+    descriptors.push(...lastModifier.words);
+    color = lastModifier.color;
+    scale = lastModifier.scale;
+  }
   if (!descriptors.length) return null;
   const words = [...descriptors];
   const last = words[words.length - 1];
   const plural = last !== singularize(last);
   words[words.length - 1] = singularize(last);
-  return { known: false, label: words.join(" "), end: p, color, scale, descriptors, plural, score: 0 };
+  const label = words.join(" ");
+  if (guess && words.length <= 3) {
+    const meta = headNounPart(words[words.length - 1], st);
+    if (meta) return { known: true, part: meta.name, phrase: label, label, start: k, end: p, color, scale, descriptors, plural, score: 0.5, guessed: true };
+  }
+  return { known: false, label, end: p, color, scale, descriptors, plural, score: 0 };
+}
+
+// "a table" → the smallest catalog part whose name ends in "table" (card table, coffee table, ...).
+function headNounPart(head, st) {
+  let best = null;
+  let bestSize = Infinity;
+  for (const meta of st.metas) {
+    const phrases = [meta.name, ...(meta.aliases || [])].map((x) => normalizeText(x).split(" "));
+    if (!phrases.some((ws) => ws.length > 1 && singularize(ws[ws.length - 1]) === head)) continue;
+    const size = Array.isArray(meta.size) ? Math.max(meta.size[0], meta.size[2]) : 1;
+    if (size < bestSize) {
+      best = meta;
+      bestSize = size;
+    }
+  }
+  return best;
 }
 
 const HELD = [
@@ -264,7 +301,7 @@ const ALL_REFS = [
   "everything", "every thing", "all of it", "all of them", "it all", "them all", "all of that", "all the things|objects|stuff",
   "all things|objects|stuff", "the whole lot", "all", "everything here", "every object",
 ];
-const LAST_REFS = ["the last|latest|newest|previous|most recent 1|thing|object|item|one", "last 1|thing", "the last"];
+const LAST_REFS = ["the last|latest|newest|previous 1|thing|object|item|one", "the most recent 1|thing|object|item|one", "last 1|thing", "the last"];
 const IT_REFS = ["that|this|the 1|thing|object|item", "it", "that", "this", "them", "those", "these", "there", "the 1"];
 
 function pronounTarget(ref, st) {
@@ -282,6 +319,7 @@ function parseTarget(w, i, st) {
     if (n) return { target: { part: n.known ? n.part : n.label, which: "all" }, end: n.end, article: "all", known: n.known, noun: n };
   }
   for (const pat of ALL_REFS) if ((e = seq(w, i, pat)) >= 0) return { target: { ref: "all" }, end: e, pronoun: true };
+  for (const pat of LAST_REFS.slice(0, 3)) if ((e = seq(w, i, pat)) >= 0) return { target: { ref: "last" }, end: e, pronoun: true };
   let k = i;
   let article = null;
   let which = null;
@@ -302,7 +340,8 @@ function parseTarget(w, i, st) {
   const n = findNoun(w, k, st);
   if (n && !(n.known === false && ["that", "this", "those", "these", "it", "them", "there"].includes(article) && n.descriptors.length === 1 && n.descriptors[0] === "1")) {
     let end = n.end;
-    if (which === null && isNum(w[end]) && !(w[end + 1] in UNITS) && Number.isInteger(Number(w[end]))) {
+    if (which === null && isNum(w[end]) && !(w[end + 1] in UNITS) && !["times", "x", "percent", "more"].includes(w[end + 1])
+      && Number.isInteger(Number(w[end]))) {
       which = Number(w[end]);
       end++;
     } else if (which === null && (w[end] === "number" || w[end] === "no") && isNum(w[end + 1])) {
@@ -486,7 +525,8 @@ function sizePhraseAt(w, p) {
   if ((e = seq(w, p, "triple size|sized")) >= 0 || (e = seq(w, p, "triple the size")) >= 0) return { factor: 3, end: e };
   if ((e = seq(w, p, "half as big|large|tall")) >= 0 || (e = seq(w, p, "half the? size|sized|height")) >= 0) return { factor: 0.5, end: e };
   if ((e = seq(w, p, "# times smaller")) >= 0) return { factor: r3(1 / Math.max(1, Number(w[p]))), end: e };
-  if ((e = seq(w, p, "# times as? big|bigger|large|larger|taller|the size|size")) >= 0 || (e = seq(w, p, "# x|times")) >= 0) {
+  if ((e = seq(w, p, "# times as? big|bigger|large|larger|taller")) >= 0 || (e = seq(w, p, "# times the? size")) >= 0
+    || (e = seq(w, p, "# x|times")) >= 0) {
     return { factor: Number(w[p]), end: e };
   }
   if ((e = seq(w, p, "# percent bigger|larger")) >= 0) return { factor: r3(1 + Number(w[p]) / 100), end: e };
@@ -499,8 +539,8 @@ function factorPhraseAt(w, p) {
   let e;
   const fixed = sizePhraseAt(w, p);
   if (fixed) return fixed;
-  if ((e = seq(w, p, "much|way|far|lots|a? lot bigger|larger|taller")) >= 0) return { factor: 2, end: e };
-  if ((e = seq(w, p, "much|way|far|lots|a? lot smaller|shorter|tinier")) >= 0) return { factor: 0.5, end: e };
+  if ((e = seq(w, p, "much|way|far bigger|larger|taller")) >= 0 || (e = seq(w, p, "a? lot|lots bigger|larger|taller")) >= 0) return { factor: 2, end: e };
+  if ((e = seq(w, p, "much|way|far smaller|shorter|tinier")) >= 0 || (e = seq(w, p, "a? lot|lots smaller|shorter|tinier")) >= 0) return { factor: 0.5, end: e };
   if ((e = seq(w, p, "a? bit|little|tad|touch|slightly bigger|larger|taller")) >= 0 || (e = seq(w, p, "slightly bigger|larger|taller")) >= 0) return { factor: 1.2, end: e };
   if ((e = seq(w, p, "a? bit|little|tad|touch smaller|shorter")) >= 0 || (e = seq(w, p, "slightly smaller|shorter")) >= 0) return { factor: 0.8, end: e };
   if ((e = seq(w, p, "really|very|super|extra? huge|giant|gigantic|enormous|massive|humongous|colossal|jumbo")) >= 0) return { factor: 3, end: e };
@@ -559,4 +599,624 @@ function readTail(w, p, st, { scale = null, color = null } = {}) {
     p++;
   }
   return { place: finishPlace(place), scale, color, leftovers };
+}
+
+// ---------- clause handlers ----------
+// Each returns { intents, conf, unknown? } or null when the words do not fit.
+
+const CONF_OK = 0.9;
+const CONF_PARTIAL = 0.6;
+const CONF_GUESS = 0.7;
+const CONF_UNKNOWN = 0.35;
+
+function isIndefinite(w, k) {
+  return ARTICLES.has(w[k]) || (isNum(w[k]) && !(w[k + 1] in UNITS));
+}
+
+function spawnClause(w, k, st, { autoHand = false, text } = {}) {
+  let p = k;
+  let count = 1;
+  let explicit = false;
+  let some = false;
+  if (w[p] === "the" || w[p] === "me") p++;
+  if (ARTICLES.has(w[p])) {
+    some = w[p] === "some";
+    p++;
+  }
+  if (isNum(w[p]) && !(w[p + 1] in UNITS)) {
+    count = Number(w[p]);
+    explicit = true;
+    p++;
+  }
+  if (w[p] === "more") p++;
+  if (w[p] === "pair" && w[p + 1] === "of" && !matchPart(w, st.metas, { start: p, anchored: true })) {
+    count = 2;
+    explicit = true;
+    p += 2;
+  }
+  const noun = findNoun(w, p, st, { guess: true });
+  if (!noun) return null;
+  if (some && !explicit && noun.plural) count = 3;
+  const tail = readTail(w, noun.end, st, { scale: noun.scale, color: noun.color });
+  const intent = { do: "spawn", what: noun.known ? { part: noun.part } : { label: noun.label } };
+  if (noun.known && noun.label) intent.what.label = noun.label;
+  const n = Math.min(30, Math.max(1, Math.round(count)));
+  if (n > 1) intent.count = n;
+  let place = tail.place;
+  if (place?.rel === "hand") place = { rel: "hand", hand: pickHand(st, place.hand === st.hand && !w.includes(st.hand) ? null : place.hand) };
+  if (!place && autoHand && noun.known && metaByName(st, noun.part)?.holdable) place = { rel: "hand", hand: pickHand(st) };
+  if (place) intent.place = place;
+  if (tail.color) intent.color = tail.color;
+  if (tail.scale && tail.scale !== 1) intent.scale = tail.scale;
+  if (text) intent.text = text;
+  if (!noun.known) return { intents: [intent], conf: CONF_UNKNOWN, unknown: [noun.label] };
+  const clean = !noun.label && !tail.leftovers.length;
+  return { intents: [intent], conf: clean ? CONF_OK : CONF_PARTIAL };
+}
+
+function withSpawnIfMissing(target) {
+  return target.part ? { ...target, spawnIfMissing: true } : target;
+}
+
+function targetOrIt(w, k, st) {
+  const t = parseTarget(w, k, st);
+  if (t) return t;
+  return { target: pronounTarget("it", st), end: k, implicit: true };
+}
+
+function holdClause(w, k, st, { text } = {}) {
+  if (isIndefinite(w, k)) return spawnClause(w, k, st, { autoHand: true, text });
+  const t = parseTarget(w, k, st);
+  if (!t) return null;
+  let p = t.end;
+  if (w[p] === "up") p++;
+  const tail = readTail(w, p, st);
+  const wanted = tail.place?.rel === "hand" && w.slice(p).some((x) => x === "left" || x === "right") ? tail.place.hand : null;
+  const intent = { do: "hold", target: withSpawnIfMissing(t.target), hand: pickHand(st, wanted) };
+  const clean = !tail.leftovers.length && (!tail.place || tail.place.rel === "hand");
+  return { intents: [intent], conf: clean ? CONF_OK : CONF_PARTIAL };
+}
+
+function dropClause(w, k, st) {
+  if (isIndefinite(w, k)) return spawnClause(w, k, st);
+  const intent = { do: "drop" };
+  let p = k;
+  let leftovers = 0;
+  while (p < w.length) {
+    let e;
+    if ((e = seq(w, p, "everything|all|both|it|that|this|them|whatever|those|these")) >= 0 || (e = seq(w, p, "what|whatever i'm holding")) >= 0
+      || (e = seq(w, p, "what|whatever i am holding")) >= 0 || (e = seq(w, p, "what's in my left|right? hand")) >= 0
+      || (e = seq(w, p, "what is in my left|right? hand")) >= 0) {
+      const side = w.slice(p, e).find((x) => x === "left" || x === "right");
+      if (side) intent.hand = side;
+      p = e;
+      continue;
+    }
+    if ((e = seq(w, p, "from|in|out of? my|the? left|right hand?")) >= 0 || (e = seq(w, p, "my|the left|right 1|hand")) >= 0
+      || (e = seq(w, p, "left|right hand?")) >= 0) {
+      intent.hand = w.slice(p, e).includes("left") ? "left" : "right";
+      p = e;
+      continue;
+    }
+    if ((e = seq(w, p, "of|from my? hand|hands")) >= 0 || (e = seq(w, p, "go|down|of|on the? ground|floor?")) >= 0) {
+      p = e;
+      continue;
+    }
+    const t = parseTarget(w, p, st);
+    if (t && t.target.part) {
+      intent.target = t.target;
+      p = t.end;
+      continue;
+    }
+    if (!SKIP_TAIL.has(w[p])) leftovers++;
+    p++;
+  }
+  return { intents: [intent], conf: leftovers ? CONF_PARTIAL : CONF_OK };
+}
+
+function removeClause(w, k, st) {
+  if (k >= w.length) return { intents: [{ do: "remove", target: pronounTarget("it", st) }], conf: CONF_GUESS };
+  const t = parseTarget(w, k, st);
+  if (!t) return null;
+  const tail = readTail(w, t.end, st);
+  return { intents: [{ do: "remove", target: t.target }], conf: tail.leftovers.length || t.known === false ? CONF_PARTIAL : CONF_OK };
+}
+
+function moveClause(w, k, st, { defaultPlace = null, spawnIfMissing = false } = {}) {
+  const t = targetOrIt(w, k, st);
+  let p = t.end;
+  if (w[p] === "over" && p + 1 < w.length) p++;
+  const tail = readTail(w, p, st);
+  const place = tail.place || defaultPlace;
+  if (place?.rel === "hand") {
+    return { intents: [{ do: "hold", target: withSpawnIfMissing(t.target), hand: pickHand(st, place.hand) }], conf: CONF_OK };
+  }
+  const target = spawnIfMissing ? withSpawnIfMissing(t.target) : t.target;
+  const intent = { do: "move", target, place: place || { rel: "front" } };
+  const clean = !!place && !tail.leftovers.length && t.known !== false;
+  return { intents: [intent], conf: clean ? CONF_OK : CONF_PARTIAL };
+}
+
+function scaleClause(w, k, st, verb) {
+  const BASE = { grow: 1.5, enlarge: 1.5, embiggen: 1.5, expand: 1.5, shrink: 0.67, double: 2, triple: 3, quadruple: 4, halve: 0.5 };
+  let factor = BASE[verb] ?? null;
+  let p = k;
+  let e;
+  if ((e = seq(w, p, "the? size|height of")) >= 0) p = e;
+  if (w[p] === "up") {
+    factor = 1.5;
+    p++;
+  } else if (w[p] === "down") {
+    factor = 0.67;
+    p++;
+  }
+  const t = targetOrIt(w, p, st);
+  p = t.end;
+  const leftovers = [];
+  while (p < w.length) {
+    if (w[p] === "up") {
+      factor = 1.5;
+      p++;
+    } else if (w[p] === "down") {
+      factor = 0.67;
+      p++;
+    } else if ((e = seq(w, p, "by|to a? half")) >= 0) {
+      factor = verb === "grow" || verb === "enlarge" || verb === "expand" ? 1.5 : 0.5;
+      p = e;
+    } else if ((e = seq(w, p, "by|to|x # times|x?")) >= 0 && isNum(w[p + 1])) {
+      const n = Number(w[p + 1]);
+      factor = verb === "shrink" && n > 1 ? r3(1 / n) : n;
+      p = e;
+    } else if ((e = seq(w, p, "by # percent")) >= 0) {
+      const n = Number(w[p + 1]) / 100;
+      factor = r3(verb === "shrink" ? Math.max(0.05, 1 - n) : 1 + n);
+      p = e;
+    } else {
+      const f = factorPhraseAt(w, p);
+      if (f) {
+        factor = f.factor;
+        p = f.end;
+      } else {
+        if (!SKIP_TAIL.has(w[p])) leftovers.push(w[p]);
+        p++;
+      }
+    }
+  }
+  if (!factor || !(factor > 0)) return null;
+  return { intents: [{ do: "scale", target: t.target, factor: r3(factor) }], conf: leftovers.length ? CONF_PARTIAL : CONF_OK };
+}
+
+function colorClause(w, k, st) {
+  let p = k;
+  let e;
+  if ((e = seq(w, p, "the color|colour of")) >= 0) p = e;
+  const t = targetOrIt(w, p, st);
+  const tail = readTail(w, t.end, st);
+  const color = tail.color || (t.noun && t.noun.color) || null;
+  if (!color) return null;
+  return { intents: [{ do: "color", target: t.target, color }], conf: tail.leftovers.length ? CONF_PARTIAL : CONF_OK };
+}
+
+// "make the crate red" / "make it bigger" / "make it disappear" / "make a crate".
+function makeClause(w, k, st, opts) {
+  if (isIndefinite(w, k) || w[k] === "me") return spawnClause(w, k, st, opts);
+  const t = parseTarget(w, k, st);
+  if (t) {
+    const p = t.end;
+    let e;
+    if ((e = seq(w, p, "disappear|vanish|go|leave|poof away?")) >= 0) return { intents: [{ do: "remove", target: t.target }], conf: CONF_OK };
+    const f = factorPhraseAt(w, p);
+    if (f) return { intents: [{ do: "scale", target: t.target, factor: r3(f.factor) }], conf: f.end === w.length ? CONF_OK : CONF_PARTIAL };
+    const c = colorPhraseAt(w, p);
+    if (c) return { intents: [{ do: "color", target: t.target, color: c.color }], conf: c.end === w.length ? CONF_OK : CONF_PARTIAL };
+    if (p === w.length && t.noun && !t.noun.known && t.noun.color) return { intents: [{ do: "color", target: t.target, color: t.noun.color }], conf: CONF_PARTIAL };
+    if (p === w.length && t.noun?.known && !t.pronoun && t.article !== "the") return spawnClause(w, k, st, opts);
+    return null;
+  }
+  return spawnClause(w, k, st, opts);
+}
+
+function flipClause(w, k, st) {
+  let p = k;
+  let e;
+  if (p >= w.length || (w[p] === "over" && p === w.length - 1)) return { intents: [{ do: "flip" }], conf: CONF_OK };
+  if ((e = seq(w, p, "all|both? the|my|those|these|our? playing? cards")) >= 0) {
+    return { intents: [{ do: "flip", target: { part: "playing card", which: "all" } }], conf: seq(w, e, "over|up|down") >= 0 || e === w.length ? CONF_OK : CONF_PARTIAL };
+  }
+  if ((e = seq(w, p, "the|my|that|this|a? playing? card")) >= 0) {
+    return { intents: [{ do: "flip", target: { part: "playing card", which: "nearest" } }], conf: CONF_OK };
+  }
+  const t = parseTarget(w, p, st);
+  if (!t) return null;
+  return { intents: [{ do: "flip", target: t.target }], conf: CONF_OK };
+}
+
+function shuffleClause(w, k, st) {
+  if (k >= w.length) return { intents: [{ do: "shuffle" }], conf: CONF_OK };
+  if (seq(w, k, "the|my|that|this? cards|deck|pack|it up?") === w.length) return { intents: [{ do: "shuffle" }], conf: CONF_OK };
+  const t = parseTarget(w, k, st);
+  if (!t) return { intents: [{ do: "shuffle" }], conf: CONF_PARTIAL };
+  return { intents: [{ do: "shuffle", target: t.target }], conf: CONF_OK };
+}
+
+function dealClause(w, k, st) {
+  let p = k;
+  let count = null;
+  let e;
+  if (["me", "us", "out", "everyone", "everybody"].includes(w[p])) p++;
+  if (isNum(w[p])) {
+    count = Number(w[p]);
+    p++;
+  } else if ((e = seq(w, p, "a|an|1 hand")) >= 0) {
+    count = 5;
+    p = e;
+  } else if ((e = seq(w, p, "a|an|1 single? playing? card")) >= 0) {
+    count = 1;
+    p = e;
+  } else if (w[p] === "some") {
+    count = 5;
+    p++;
+  }
+  if (w[p] === "more") p++;
+  if (w[p] === "playing") p++;
+  if (w[p] === "cards" || w[p] === "card") p++;
+  const intent = { do: "deal", count: Math.min(52, Math.max(1, Math.round(count ?? 5))) };
+  let leftovers = 0;
+  while (p < w.length) {
+    if ((e = seq(w, p, "from|off|out of? the|my|that? deck|pack|cards")) >= 0) {
+      p = e;
+      continue;
+    }
+    if ((e = seq(w, p, "from|off|out of?")) >= 0) {
+      const t = parseTarget(w, e, st);
+      if (t) {
+        intent.target = t.target;
+        p = t.end;
+        continue;
+      }
+    }
+    if ((e = seq(w, p, "to|for me|us|everyone|everybody|each|all|players")) >= 0) {
+      p = e;
+      continue;
+    }
+    const pl = parsePlacement(w, p, st);
+    if (pl) {
+      if (pl.place) intent.place = finishPlace(pl.place);
+      p = pl.end;
+      continue;
+    }
+    if (!SKIP_TAIL.has(w[p])) leftovers++;
+    p++;
+  }
+  return { intents: [intent], conf: leftovers ? CONF_PARTIAL : CONF_OK };
+}
+
+// "turn the crate green" / "turn the cards over".
+function turnClause(w, k, st) {
+  const t = parseTarget(w, k, st);
+  if (t && w[t.end] === "over") return flipClause(w.slice(0, t.end), k, st);
+  return colorClause(w, k, st);
+}
+
+// "change the color of the crate to red" / "change it to blue".
+function changeClause(w, k, st) {
+  return colorClause(w, k, st);
+}
+
+// "set the crate on the desk" / "set the color of the crate to red" / "set it down".
+function setClause(w, k, st) {
+  if (seq(w, k, "the color|colour of") >= 0) return colorClause(w, k, st);
+  const t = parseTarget(w, k, st);
+  if (t && w[t.end] === "down") return dropClause(w, k, st);
+  return moveClause(w, k, st, { spawnIfMissing: true });
+}
+
+function putClause(w, k, st, opts) {
+  if (isIndefinite(w, k)) return spawnClause(w, k, st, opts);
+  const t = parseTarget(w, k, st);
+  if (!t) return spawnClause(w, k, st, opts);
+  if (w[t.end] === "down") return dropClause(w, k, st);
+  if (w[t.end] === "away" && t.end === w.length - 1) return { intents: [{ do: "remove", target: t.target }], conf: CONF_OK };
+  return moveClause(w, k, st, { spawnIfMissing: true });
+}
+
+function bringClause(w, k, st, opts) {
+  if (isIndefinite(w, k)) return spawnClause(w, k, st, opts);
+  const t = parseTarget(w, k, st);
+  if (!t) return spawnClause(w, k, st, opts);
+  return moveClause(w, k, st, { defaultPlace: { rel: "here" }, spawnIfMissing: true });
+}
+
+// "give me an axe" spawns into a hand; "give me the sword" holds an existing one.
+function giveClause(w, k, st, opts) {
+  const t = isIndefinite(w, k) ? null : parseTarget(w, k, st);
+  if (!t || (t.noun && !DEFINITE.has(w[k]))) return spawnClause(w, k, st, { ...opts, autoHand: true });
+  return holdClause(w, k, st, opts);
+}
+
+function dispatch(cls, w, k, st, opts) {
+  switch (cls) {
+    case "spawn": return spawnClause(w, k, st, opts);
+    case "give": return giveClause(w, k, st, opts);
+    case "hold": return holdClause(w, k, st, opts);
+    case "drop": return dropClause(w, k, st);
+    case "remove": return removeClause(w, k, st);
+    case "move": return moveClause(w, k, st);
+    case "bring": return bringClause(w, k, st, opts);
+    case "put": return putClause(w, k, st, opts);
+    case "scale": return scaleClause(w, k, st, w[k - 1]);
+    case "color": return colorClause(w, k, st);
+    case "turn": return turnClause(w, k, st);
+    case "change": return changeClause(w, k, st);
+    case "set": return setClause(w, k, st);
+    case "make": return makeClause(w, k, st, opts);
+    case "flip": return flipClause(w, k, st);
+    case "shuffle": return shuffleClause(w, k, st);
+    case "deal": return dealClause(w, k, st);
+    default: return null;
+  }
+}
+
+function parseWords(w, st, opts) {
+  const joined = w.join(" ");
+  let m;
+  if ((m = joined.match(UNDO_RE)) || (m = joined.match(UNDO_N_RE))) {
+    const count = Math.min(20, Math.max(1, Number(m[1] || 1)));
+    return { intents: [count > 1 ? { do: "undo", count } : { do: "undo" }], conf: CONF_OK, cls: null };
+  }
+  if (CLEAR_RE.test(joined)) return { intents: [{ do: "clear" }], conf: CONF_OK, cls: null };
+  if (LIST_RE.test(joined)) return { intents: [{ do: "list" }], conf: CONF_OK, cls: null };
+  if ((m = joined.match(TIME_RE))) return { intents: [{ do: "time", value: TIME_WORDS[m[1]] }], conf: CONF_OK, cls: null };
+  const marker = markerClause(w, st);
+  if (marker) return { ...marker, cls: null };
+
+  for (const verb of VERB_LIST) {
+    if (!startsWithAt(w, 0, verb.words)) continue;
+    const k = verb.words.length;
+    const res = dispatch(verb.cls, w, k, st, opts);
+    if (res) {
+      const spawned = res.intents.some((i) => i.do === "spawn");
+      res.cls = spawned && verb.cls !== "give" ? "spawn" : verb.cls === "give" ? "give" : verb.cls;
+      return res;
+    }
+    if (verb.cls === "say") return null;
+  }
+  // No verb: continue the previous clause's verb ("spawn a desk and a chair"), or treat a bare
+  // object as a spawn. A clause that spawned continues as "spawn" whatever its verb was.
+  if (st.lastCls) {
+    const res = dispatch(st.lastCls, w, 0, st, opts);
+    if (res) {
+      res.cls = st.lastCls;
+      return res;
+    }
+  }
+  const res = spawnClause(w, 0, st, opts);
+  if (res && res.intents[0].what.part) {
+    res.conf = Math.min(res.conf, CONF_GUESS);
+    res.cls = "spawn";
+    return res;
+  }
+  return null;
+}
+
+// ---------- raw-text commands (writing keeps the original case) ----------
+
+function noteIntent(text, st) {
+  const meta = metaByName(st, "sticky note") || st.metas.find((x) => x?.writable && x?.holdable) || st.metas.find((x) => x?.writable);
+  if (!meta) return { do: "write", text };
+  const intent = { do: "spawn", what: { part: meta.name } };
+  if (text) intent.text = text;
+  return intent;
+}
+
+function writeIntent(rest, st) {
+  let payload = rest;
+  let target = null;
+  const pron = ["it", "that", "there", "this", "them"];
+  const pre = rest.match(/^(?:on|onto|in|into)\s+(?:(?:the|a|an|my|this|that)\s+)?([\s\S]+)$/i);
+  if (pre) {
+    const words = normalizeText(pre[1]).split(" ").filter(Boolean);
+    if (pron.includes(words[0])) {
+      target = pronounTarget("it", st);
+      payload = rawAfterWords(pre[1], 1);
+    } else {
+      const pm = matchPart(words, st.metas, { start: 0, anchored: true });
+      if (pm) {
+        target = { part: pm.name, which: "nearest" };
+        payload = rawAfterWords(pre[1], pm.end);
+      }
+    }
+  }
+  if (!target) {
+    const hits = [...rest.matchAll(/\s(?:on|onto|in|into|to)\s/gi)];
+    for (let h = hits.length - 1; h >= 0; h--) {
+      const tail = rest.slice(hits[h].index + hits[h][0].length);
+      let words = normalizeText(tail).split(" ").filter(Boolean);
+      if (words.length > 1 && (DEFINITE.has(words[0]) || ARTICLES.has(words[0]))) words = words.slice(1);
+      if (words.length === 1 && pron.includes(words[0])) {
+        target = pronounTarget("it", st);
+      } else {
+        const pm = words.length ? matchPart(words, st.metas, { start: 0, anchored: true }) : null;
+        if (pm && pm.end === words.length) target = { part: pm.name, which: "nearest" };
+      }
+      if (target) {
+        payload = rest.slice(0, hits[h].index);
+        break;
+      }
+    }
+  }
+  const intent = { do: "write", text: cleanPayload(payload) };
+  if (target) intent.target = target;
+  return intent;
+}
+
+function rawClause(raw, st) {
+  const s = raw.replace(WRITE_LEAD_RE, "").trim();
+  let m;
+  if ((m = s.match(SAY_TEXT_RE))) {
+    const words = normalizeText(m[1]).split(" ").filter(Boolean);
+    const pm = words.length ? matchPart(words, st.metas, { start: 0, anchored: true }) : null;
+    const target = pm ? { part: pm.name, which: "nearest" } : pronounTarget("it", st);
+    if (pm || !words.length) return { intents: [{ do: "write", target, text: cleanPayload(m[2]) }], conf: CONF_OK };
+  }
+  if ((m = s.match(/^(?:say|speak|announce)\s+([\s\S]+)$/i))) {
+    return { intents: [{ do: "say", text: cleanPayload(m[1]).slice(0, 500) }], conf: 0.85 };
+  }
+  if ((m = s.match(NOTE_RE))) {
+    const text = cleanPayload(m[1]);
+    return { intents: [noteIntent(text, st)], conf: text ? CONF_OK : CONF_PARTIAL };
+  }
+  if ((m = s.match(WRITE_RE))) {
+    const intent = writeIntent(m[1], st);
+    return { intents: [intent], conf: intent.text ? CONF_OK : CONF_PARTIAL };
+  }
+  return null;
+}
+
+// ---------- clause splitting ----------
+
+function splitClauses(body, st) {
+  const andPhrases = [];
+  for (const meta of st.metas) {
+    for (const phrase of [meta?.name, ...(meta?.aliases || [])]) {
+      const norm = normalizeText(phrase || "");
+      if (norm.includes(" and ")) andPhrases.push(norm);
+    }
+  }
+  const pieces = [];
+  let last = 0;
+  const greedy = (piece) => {
+    const stripped = stripWake(piece, st.wakeWords);
+    const text = stripped.matched ? stripped.rest : piece;
+    return GREEDY_RE.test(text.trim()) || TEXT_INTRO_RE.test(` ${text}`) || SAY_TEXT_RE.test(text.replace(WRITE_LEAD_RE, "").trim());
+  };
+  for (const m of body.matchAll(SEP_RE)) {
+    if (/\band\b/i.test(m[0]) && andPhrases.length) {
+      const around = normalizeText(body.slice(Math.max(0, m.index - 40), m.index + m[0].length + 40));
+      if (andPhrases.some((phrase) => around.includes(phrase))) continue;
+    }
+    const piece = body.slice(last, m.index);
+    if (greedy(piece)) {
+      pieces.push(body.slice(last));
+      return pieces.map((x) => x.trim()).filter(Boolean);
+    }
+    pieces.push(piece);
+    last = m.index + m[0].length;
+  }
+  pieces.push(body.slice(last));
+  return pieces.map((x) => x.trim()).filter(Boolean);
+}
+
+function addResult(res, st) {
+  for (const intent of res.intents) {
+    st.intents.push(intent);
+    if (intent.do === "spawn") st.lastSpawn = st.intents.length - 1;
+  }
+  st.confs.push(res.conf);
+  if (res.unknown) st.unknown.push(...res.unknown);
+  if (res.cls !== undefined) st.lastCls = res.cls;
+}
+
+function parsePiece(piece, st) {
+  let raw = piece.trim();
+  const wake = stripWake(raw, st.wakeWords);
+  if (wake.matched) raw = wake.rest;
+  if (!raw) return;
+  const direct = rawClause(raw, st);
+  if (direct) {
+    addResult(direct, st);
+    return;
+  }
+  let text;
+  const intro = TEXT_INTRO_RE.exec(` ${raw}`);
+  if (intro) {
+    text = cleanPayload(` ${raw}`.slice(intro.index + intro[0].length)) || undefined;
+    raw = ` ${raw}`.slice(0, intro.index);
+  }
+  const words = stripFillers(normalizeText(raw).split(" ").filter(Boolean).map((x) => (x === "note:" ? "note" : x)));
+  if (!words.length) return;
+  const res = parseWords(words, st, { text });
+  if (res) addResult(res, st);
+  else st.confs.push(0.2);
+}
+
+// ---------- magic marker (ARCHITECTURE.md "Magic marker") ----------
+
+const DRAWING_RE = "(?:(?:the|my|that|this) )?(?:drawing|sketch|doodle|scribble|picture|lines)";
+const SELF_DRAWING = `(?:it|this|that|${DRAWING_RE})`;
+const BEHAVIORS = {
+  fly: "fly", flying: "fly", soar: "fly", swim: "swim", swimming: "swim", walk: "walk", walking: "walk", run: "walk",
+  running: "walk", hop: "hop", hopping: "hop", jump: "hop", jumping: "hop", roll: "roll", rolling: "roll", spin: "spin",
+  spinning: "spin", rotate: "spin", float: "float", floating: "float", hover: "float", levitate: "float", bounce: "bounce",
+  bouncing: "bounce", sway: "sway", swaying: "sway", dance: "sway", dancing: "sway", wiggle: "sway", wobble: "sway",
+};
+const SPEEDS = { fast: 2, faster: 2, quickly: 2, quick: 2, slow: 0.5, slowly: 0.5, slower: 0.5 };
+const GUESS_RE = /^(?:what(?:'s| is) (?:this|that|it|my drawing)|what do you think (?:this|that|it) is|what did i draw|what am i drawing|guess what (?:this|that|it) is|guess|can you guess)$/;
+const CORRECT_RE = /^(?:it's|it is|that's|that is|this is|it should be|it's supposed to be|that's supposed to be|i drew|i meant|make it be) (?:a |an )?(.+)$/;
+const REALIZE_RE = new RegExp(`^(?:(?:make|bring|turn) ${SELF_DRAWING} (?:real|alive|to life|come alive|come to life)|${SELF_DRAWING} come (?:alive|to life)|come (?:alive|to life)|realize(?: ${SELF_DRAWING})?)$`);
+const HINT_RE = new RegExp(`^(?:make|turn) ${SELF_DRAWING} (?:into )?(?:a|an) (.+)$`);
+const ERASE_RE = new RegExp(`^(?:(?:erase|wipe|clear|delete|remove|rub out|scrub) ${DRAWING_RE}s?|wipe(?: it| that| this)?)$`);
+const STOP_RE = /^(?:stop moving|stop it|make it stop|freeze|stay still|stand still|hold still|stop)$/;
+
+// → { intents, conf } for marker phrases, or null.
+function markerClause(w, st) {
+  const j = w.join(" ");
+  let m;
+  if (GUESS_RE.test(j)) return { intents: [{ do: "guess" }], conf: CONF_OK };
+  if (REALIZE_RE.test(j)) return { intents: [{ do: "realize" }], conf: CONF_OK };
+  if ((m = j.match(HINT_RE))) {
+    const rest = m[1].split(" ");
+    if (!factorPhraseAt(rest, 0) && !colorPhraseAt(rest, 0)) return { intents: [{ do: "realize", hint: m[1] }], conf: CONF_OK };
+  }
+  if (ERASE_RE.test(j)) return { intents: [{ do: "erase" }], conf: CONF_OK };
+  if (STOP_RE.test(j)) return { intents: [{ do: "animate", target: pronounTarget("it", st), behavior: "none" }], conf: CONF_OK };
+  if ((m = j.match(CORRECT_RE)) && !m[1].startsWith("not ")) return { intents: [{ do: "correct", label: m[1] }], conf: CONF_OK };
+  if (["make", "let", "have"].includes(w[0])) {
+    const t = parseTarget(w, 1, st);
+    if (t) {
+      let p = t.end;
+      if (w[p] === "stop" && (p + 1 === w.length || w[p + 1] === "moving")) {
+        return { intents: [{ do: "animate", target: t.target, behavior: "none" }], conf: CONF_OK };
+      }
+      const kind = BEHAVIORS[w[p]];
+      if (kind) {
+        p++;
+        if (w[p] === "around") p++;
+        const speed = SPEEDS[w[p]];
+        if (speed) p++;
+        if (p === w.length) return { intents: [{ do: "animate", target: t.target, behavior: speed ? { kind, speed } : kind }], conf: CONF_OK };
+      }
+    }
+  }
+  return null;
+}
+
+// ---------- entry point ----------
+
+export function parseCommand(text, { metas = [], wakeRequired = false, wakeWords, hand = "right" } = {}) {
+  const raw = String(text ?? "").trim();
+  const wake = stripWake(raw, wakeWords);
+  const out = { intents: [], say: "", confidence: 0, unknown: [], wake: wake.matched, text: "" };
+  if (wakeRequired && !wake.matched) {
+    out.text = normalizeText(raw);
+    return out;
+  }
+  const body = wake.matched ? wake.rest : raw;
+  out.text = normalizeText(body);
+  const st = {
+    metas: Array.isArray(metas) ? metas.filter(Boolean) : [],
+    hand: hand === "left" ? "left" : "right",
+    wakeWords,
+    intents: [],
+    confs: [],
+    unknown: [],
+    lastCls: null,
+    lastSpawn: -1,
+    handsUsed: new Set(),
+  };
+  for (const piece of splitClauses(body, st)) parsePiece(piece, st);
+  out.intents = st.intents;
+  out.unknown = [...new Set(st.unknown)];
+  out.confidence = st.intents.length ? Math.min(...st.confs) : 0;
+  return out;
 }

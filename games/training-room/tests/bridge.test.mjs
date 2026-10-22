@@ -10,14 +10,15 @@ import http from "node:http";
 import https from "node:https";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { createBridge, renderQR, GAME_PATH } from "../bridge/server.mjs";
-import { generateCert, ensureCert, certIPs, lanIPs } from "../bridge/cert.mjs";
-import { extractJSON, normalizeOutput, buildPrompt, EXAMPLES, intentSchema, pickModel, createMatcher, catalogText } from "../bridge/llm.mjs";
-import { cleanTranscript } from "../bridge/stt.mjs";
+import { generateCert, ensureCert, certIPs, lanIPs, lanAddresses } from "../bridge/cert.mjs";
+import { extractJSON, normalizeOutput, buildPrompt, EXAMPLES, intentSchema, pickModel, createMatcher, catalogText, LocalModel } from "../bridge/llm.mjs";
+import { cleanTranscript, SpeechToText } from "../bridge/stt.mjs";
 import { sanitizeConfig, generateRoomKey, defaultDataDir } from "../bridge/config.mjs";
 import { allMeta, getMeta } from "../js/parts/meta/index.js";
 import { qrcode } from "../vendor/qrcode.mjs";
-import { startFakeOllama, startFakeWhisper, makeWav, closeServer } from "./fixtures/bridge-fakes.mjs";
+import { startFakeOllama, startFakeWhisper, startFakeOpenAI, makeWav, closeServer } from "./fixtures/bridge-fakes.mjs";
 
 const quietLog = { lines: [], log(...a) { this.lines.push(a.join(" ")); }, warn(...a) { this.lines.push(a.join(" ")); }, error(...a) { this.lines.push(a.join(" ")); } };
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tr-bridge-test-"));
@@ -167,6 +168,14 @@ describe("bridge units", () => {
     assert.equal(ensureCert(dir, { ips: ["127.0.0.1"] }).generated, true);
   });
 
+  it("ensureCert does not regenerate for a changed VM/WSL adapter address", () => {
+    const dir = fs.mkdtempSync(path.join(tmpRoot, "cert-vm-"));
+    const first = ensureCert(dir, { ips: ["127.0.0.1", "192.168.1.30", "172.20.16.1"], required: ["127.0.0.1", "192.168.1.30"] });
+    const reboot = ensureCert(dir, { ips: ["127.0.0.1", "192.168.1.30", "172.29.0.1"], required: ["127.0.0.1", "192.168.1.30"] });
+    assert.equal(reboot.generated, false);
+    assert.equal(reboot.cert, first.cert);
+  });
+
   it("lanIPs lists non-internal IPv4, real adapters first", () => {
     const list = lanIPs({
       "vEthernet (WSL)": [{ family: "IPv4", address: "172.20.16.1", internal: false }],
@@ -174,6 +183,7 @@ describe("bridge units", () => {
       "Wi-Fi": [{ family: "IPv4", address: "192.168.1.44", internal: false }, { family: "IPv6", address: "fe80::1", internal: false }],
     });
     assert.deepEqual(list, ["192.168.1.44", "172.20.16.1"]);
+    assert.deepEqual(lanAddresses({ "vEthernet (WSL)": [{ family: "IPv4", address: "172.20.16.1", internal: false }], eth0: [{ family: "IPv4", address: "169.254.3.4", internal: false }] }).map((a) => a.virtual), [true, true]);
   });
 
   it("terminal QR matches the QR matrix module for module", () => {
@@ -225,7 +235,7 @@ describe("bridge units", () => {
       intents: [
         { do: "dance" },
         { do: "spawn", what: { part: "poker table" }, count: 400, place: { rel: "in front", dist: 9999 } },
-        { do: "spawn", what: { part: "playing cards" }, place: { rel: "on", ref: { batch: 2 } } },
+        { do: "spawn", what: { part: "playing cards" }, place: { rel: "on", ref: { batch: 1 } } },
         { do: "summon", part: "axes", place: { rel: "hand", hand: "LEFT" } },
         { do: "spawn", what: { part: "flux capacitor" } },
         { do: "spawn", what: { custom: { name: "Snow Man", parts: [{ shape: "sphere", p: [0, 2, 0], s: [1, 1, 1], color: "white" }, { shape: "ball", p: [0, 2.8, 0], s: [0.6, 0.6, 0.6] }] } } },
@@ -234,11 +244,15 @@ describe("bridge units", () => {
         { do: "remove", target: { part: "dragon statue" } },
         { do: "write", target: { part: "white board" }, text: "Q3 goals" },
         { do: "move", target: { id: "o1" } },
+        { do: "move", target: { ref: "that" }, place: { rel: "left side", dist: "3" } },
+        { do: "spawn", what: "crate", place: { rel: "on", ref: 1 } },
       ],
       say: "Okay.",
     }, { metas, sceneNames: new Set(["dragon statue"]) });
-    const [table, deck, axe, unknown, snow, scale, time, remove, write] = out.intents;
-    assert.equal(out.intents.length, 9);
+    const [table, deck, axe, unknown, snow, scale, time, remove, write, move, crate] = out.intents;
+    assert.equal(out.intents.length, 11);
+    assert.deepEqual(move, { do: "move", target: { ref: "it" }, place: { rel: "left", dist: 3 } });
+    assert.deepEqual(crate, { do: "spawn", what: { part: "crate" }, place: { rel: "on", ref: { batch: 0 } } });
     assert.deepEqual(table, { do: "spawn", what: { part: "card table" }, count: 20, place: { rel: "front", dist: 300 } });
     assert.deepEqual(deck.place, { rel: "on", ref: { batch: 0 } }, "batch index remapped after the dropped intent");
     assert.deepEqual(axe, { do: "spawn", what: { part: "axe" }, place: { rel: "hand", hand: "left" } });
@@ -267,7 +281,7 @@ describe("bridge units", () => {
     const messages = buildPrompt({ text: "spawn a villa to my left", player: { p: [1, 1.6, 2], yaw: 0.5 }, scene: [{ id: "o1", part: "crate", label: "crate", dist: 2, dir: "front" }], held: [{ hand: "right", label: "axe" }], metas, extraParts: ["dragon statue"] });
     assert.equal(messages[0].role, "system");
     assert.match(messages[0].content, /You turn a spoken command from a VR player into JSON intents/);
-    assert.match(messages[0].content, /- villa \(mansion, mediterranean villa\) 14x9x12:/);
+    assert.match(messages[0].content, /- villa \(mansion\) 14x9x12:/);
     assert.match(messages[0].content, /- deck of cards .*\[holdable, cards\]/);
     assert.ok(messages.length >= 1 + 2 * 8);
     const last = messages.at(-1);
@@ -279,6 +293,15 @@ describe("bridge units", () => {
     const again = buildPrompt({ text: "other", metas });
     assert.equal(again[0].content, messages[0].content, "system prompt is identical across calls (KV cache)");
     assert.ok(catalogText(metas).length < 12000, "catalog stays compact");
+    // A huge laptop parts bin still fits: custom parts collapse to names, examples are dropped.
+    const big = [...metas, ...Array.from({ length: 400 }, (_, i) => ({ name: `custom thing ${i}`, aliases: [], category: "custom", desc: "a fairly long description of a generated design number " + i, size: [1, 1, 1], source: "laptop" }))];
+    const fitted = buildPrompt({ text: "spawn a villa", metas: big, numCtx: 8192 });
+    const chars = fitted.reduce((n, m) => n + m.content.length, 0);
+    assert.ok(chars / 3.2 <= 8192 - 2200 + 50, `prompt too big: ${chars} chars`);
+    assert.match(fitted[0].content, /- custom thing 119$/m);
+    assert.match(fitted[0].content, /and 280 more saved parts/);
+    assert.ok(fitted.length >= 7, "the core examples are kept");
+    assert.match(fitted.at(-1).content, /Command: "spawn a villa"/);
     const schema = intentSchema();
     assert.deepEqual(schema.required, ["intents", "say"]);
     assert.equal(schema.properties.intents.items.properties.do.enum.length, 16);
@@ -298,6 +321,35 @@ describe("bridge units", () => {
     assert.equal(match("mansion").name, "villa");
     assert.equal(match("training dummies").name, "training dummy");
     assert.equal(match("the battle axe").name, "battle axe");
+  });
+
+  it("OpenAI-compatible provider (LM Studio): model list, json_schema chat, transcriptions", async () => {
+    const fake = await startFakeOpenAI();
+    try {
+      const model = new LocalModel({ provider: "openai", openaiUrl: `${fake.url}/v1`, think: false }, { log: quietLog });
+      const status = await model.refresh(true);
+      assert.deepEqual(status, { available: true, name: "qwen2.5-7b-instruct", provider: "openai" });
+      const result = await model.command({ text: "katana in my right hand", metas: allMeta() });
+      assert.deepEqual(result.intents, [{ do: "spawn", what: { part: "katana" }, place: { rel: "hand", hand: "right" } }]);
+      assert.equal(result.source, "model");
+      const sent = fake.requests.find((r) => r.path === "/v1/chat/completions").body;
+      assert.equal(sent.response_format.type, "json_schema");
+      assert.equal(sent.response_format.json_schema.name, "intents");
+      assert.equal(sent.response_format.json_schema.strict, false);
+      assert.equal(sent.response_format.json_schema.schema.type, "object");
+      assert.equal(sent.reasoning_effort, "none");
+      assert.equal(sent.temperature, 0.1);
+      const stt = new SpeechToText({ sttKind: "openai", sttUrl: `${fake.url}/v1/audio/transcriptions`, sttModel: "whisper-1" }, { log: quietLog });
+      await stt.probe();
+      assert.equal(stt.status().available, true);
+      const heard = await stt.transcribe(makeWav(0.2));
+      assert.equal(heard.text, "spawn a katana");
+      const form = fake.requests.find((r) => r.path === "/v1/audio/transcriptions").form;
+      assert.match(form, /name="model"\r\n\r\nwhisper-1/);
+      assert.match(form, /name="file"; filename="speech.wav"/);
+    } finally {
+      await closeServer(fake.server);
+    }
   });
 
   it("cleanTranscript strips Whisper tags and silence hallucinations", () => {
@@ -584,6 +636,18 @@ describe("bridge server", () => {
       assert.deepEqual(say.json, { user: b.user.id, text: "hello there" });
     });
 
+    it("a new stream gets only ops made after its join (no replay of old history)", async () => {
+      const d = (await post("join", { name: "Late", device: "laptop" })).json;
+      await post("op", { user: b.user.id, op: { t: "env", time: "sunset", uid: "opafterjoin" } });
+      const sseD = openSSE(hp, `/api/events?user=${d.user.id}&k=${key}`);
+      await sseD.waitFor((e) => e.event === "users");
+      await wait(50);
+      const ops = sseD.events.filter((e) => e.event === "op").map((e) => e.json.op.uid);
+      assert.deepEqual(ops, ["opafterjoin"], "only the op between join and connect is replayed");
+      sseD.close();
+      await post("leave", { user: d.user.id });
+    });
+
     it("replays missed ops on reconnect with Last-Event-ID", async () => {
       const before0 = bridge.store.seq;
       await post("op", { user: b.user.id, op: { t: "env", time: "dawn", uid: "op2" } });
@@ -767,25 +831,27 @@ describe("bridge server", () => {
       assert.equal(byName["my sword"].holdable, true);
       assert.deepEqual(byName["my sword"].grip, { p: [0, 0.2, 0], r: [-90, 0, 0] });
       assert.equal(byName["my sword"].category, "combat");
-      assert.match(byName["my sword"].url, /^parts\/file\/[0-9a-f]{16}\/0\/My_Sword\.glb$/);
+      assert.match(byName["my sword"].url, new RegExp(`^http://127\\.0\\.0\\.1:${hp}/vr-games/games/training-room/api/parts/file/[0-9a-f]{16}/0/My_Sword\\.glb$`));
       assert.equal(byName.lantern.kind, "module");
       assert.ok(quietLog.lines.some((l) => /broken\.json/.test(l)), "invalid blueprint skipped with a warning");
     });
 
     it("serves parts files by capability URL, refuses traversal", async () => {
       const sword = manifest.parts.find((p) => p.name === "my sword");
-      const file = await raw(hp, `/api/${sword.url}`);
+      const rel = sword.url.slice(sword.url.indexOf("parts/file/"));
+      const file = await raw(hp, new URL(sword.url).pathname);
       assert.equal(file.status, 200);
       assert.equal(file.headers["content-type"], "model/gltf-binary");
       assert.equal(file.text, "glTF fake binary");
-      const viaGame = await raw(hp, `${GAME_PATH}api/${sword.url}`);
-      assert.equal(viaGame.status, 200);
+      const viaAlias = await raw(hp, `/api/${rel}`);
+      assert.equal(viaAlias.status, 200);
       assert.equal((await raw(hp, "/api/parts/file/0/My_Sword.glb")).status, 401);
+      assert.equal((await raw(hp, "/api/parts/file/0123456789abcdef/0/My_Sword.glb")).status, 401, "wrong capability");
       assert.equal((await raw(hp, "/api/parts/file/0/My_Sword.glb", { headers: { "x-room-key": key } })).status, 200);
-      const cap = sword.url.split("/")[2];
+      const cap = rel.split("/")[2];
       for (const bad of [`${cap}/0/../../data/config.json`, `${cap}/0/%2e%2e/%2e%2e/etc/passwd`, `${cap}/0/notes.txt`, `${cap}/7/My_Sword.glb`, `${cap}/0/.hidden.json`, `${cap}/0/..%2fdata%2fconfig.json`]) {
-        const res = await raw(hp, `/api/parts/file/${bad}`);
-        assert.equal(res.status, 404, bad);
+        assert.equal((await raw(hp, `/api/parts/file/${bad}`)).status, 404, bad);
+        assert.equal((await raw(hp, `/api/parts/file/${bad.slice(cap.length + 1)}`, { headers: { "x-room-key": key } })).status, 404, `${bad} with key`);
       }
     });
 
@@ -846,10 +912,12 @@ describe("bridge server", () => {
     const user = res.json.user.id;
     const seq = (await post("op", { user, op: { t: "add", uid: "op9", obj: { id: "obench1", part: "bench", p: [5, 0, 5] } } })).json.seq;
     await post("op", { user, op: { t: "set", id: "obench1", patch: { p: [6, 0, 6] }, transient: true, uid: "op10" } });
+    await post("op", { user, op: { t: "add", uid: "op11", obj: { id: "osword9", part: "sword", p: [1, 1.2, 1], attach: { user, hand: "left", grip: "snap" } } } });
     await bridge.stop();
     const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "room.json"), "utf8"));
     assert.deepEqual(saved.state.objects.obench1.p, [6, 0, 6], "transient change flushed on shutdown");
-    assert.equal(saved.seq, seq + 1);
+    assert.equal(saved.seq, seq + 2);
+    assert.equal(saved.state.objects.osword9.attach.user, user);
     bridge = await createBridge({
       dataDir, partsDir, port: 0, httpPort: 0, https: false, quiet: true, log: quietLog,
       configOverrides: { ollamaUrl: ollama.url, sttUrl: `${whisper.url}/inference` },
@@ -861,12 +929,16 @@ describe("bridge server", () => {
     assert.equal(joined.status, 200);
     assert.deepEqual(joined.json.state.objects.obench1.p, [6, 0, 6]);
     assert.ok(joined.json.state.objects.ocrate1);
-    assert.equal(joined.json.seq, seq + 1);
+    assert.equal(joined.json.seq, seq + 2);
+    assert.equal(joined.json.state.objects.osword9.attach, undefined, "held things are released after a restart");
+    assert.deepEqual(joined.json.state.objects.osword9.p, [1, 0, 1]);
     const hello = await raw(hp, "/api/hello", { headers: { "x-room-key": key } });
     assert.deepEqual(hello.json.lan, []);
   });
 
   it("refuses a data folder inside the repository", async () => {
-    await assert.rejects(createBridge({ dataDir: path.resolve("games/training-room/bridge/data"), log: quietLog }), /inside the game repository/);
+    const inside = fileURLToPath(new URL("../bridge/data", import.meta.url));
+    await assert.rejects(createBridge({ dataDir: inside, log: quietLog }), /inside the game repository/);
+    assert.equal(fs.existsSync(inside), false);
   });
 });

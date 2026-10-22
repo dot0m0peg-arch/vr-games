@@ -105,6 +105,12 @@ export class RoomStore extends Emitter {
       const json = JSON.parse(fs.readFileSync(this.file, "utf8"));
       this.state = loadState(json.state ?? json);
       this.seq = Number.isInteger(json.seq) && json.seq >= 0 ? json.seq : this.state.seq || 0;
+      // Nobody is connected after a restart: things that were held lie on the ground.
+      for (const record of Object.values(this.state.objects || {})) {
+        if (!record.attach) continue;
+        delete record.attach;
+        if (Array.isArray(record.p)) record.p[1] = 0;
+      }
       return true;
     } catch (err) {
       const aside = `${this.file}.corrupt-${Date.now()}`;
@@ -226,7 +232,6 @@ export class RoomStore extends Emitter {
       color: wanted || PALETTE.find((c) => !used.has(c)) || PALETTE[this.users.size % PALETTE.length],
       lastSeen: Date.now(),
       joinedAt: Date.now(),
-      joinSeq: this.seq,
       sentSeq: this.seq,
       connections: 0,
     };
@@ -417,9 +422,12 @@ export class RoomStore extends Emitter {
     return client;
   }
 
-  send(client, event, data, id) {
-    let text = id !== undefined && id !== null ? `id: ${id}\n` : "";
-    text += `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  static format(event, data, id) {
+    const head = id !== undefined && id !== null ? `id: ${id}\n` : "";
+    return `${head}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  }
+
+  send(client, event, data, id, text = RoomStore.format(event, data, id)) {
     this.write(client, text, event);
     if (event === "op" && id) {
       const user = this.users.get(client.user);
@@ -464,6 +472,8 @@ export class RoomStore extends Emitter {
   }
 
   broadcast(event, data, id) {
-    for (const client of this.clients) this.send(client, event, data, id);
+    if (!this.clients.size) return;
+    const text = RoomStore.format(event, data, id); // serialized once for every client
+    for (const client of this.clients) this.send(client, event, data, id, text);
   }
 }

@@ -1,0 +1,23 @@
+{
+  "_help": "Training Room bridge settings. Restart the bridge after editing. port: HTTPS port for the headset/phone on your network; httpPort: plain HTTP on this laptop only (also for adb reverse); roomKey: code other devices need (delete it to get a new one); provider: \"ollama\" or \"openai\" (LM Studio or any OpenAI-compatible server at openaiUrl); model: \"\" picks an installed model automatically (names with \"coder\", then \"qwen\"); think: false turns hidden reasoning off for faster answers, true on, null leaves the model default; sttKind: \"whisper.cpp\" (whisper-server at sttUrl), \"openai\" (an /v1/audio/transcriptions URL) or \"none\"; sttPrompt: optional words that help Whisper spell part names; partsDirs: extra folders with parts (blueprint .json, .glb/.gltf, .js); allowOrigins: web pages allowed to call this bridge from another site. This file is an example: the bridge creates config.json in its data folder on first run (Windows: %APPDATA%\\dot-training-room, elsewhere ~/.config/dot-training-room).",
+  "roomName": "Training Room",
+  "port": 8787,
+  "httpPort": 8788,
+  "roomKey": "",
+  "provider": "ollama",
+  "ollamaUrl": "http://127.0.0.1:11434",
+  "openaiUrl": "http://127.0.0.1:1234/v1",
+  "openaiKey": "",
+  "model": "",
+  "think": false,
+  "numCtx": 8192,
+  "sttKind": "whisper.cpp",
+  "sttUrl": "http://127.0.0.1:8080/inference",
+  "sttModel": "whisper-1",
+  "sttLanguage": "en",
+  "sttPrompt": "",
+  "partsDirs": [],
+  "allowOrigins": [
+    "https://dot0m0peg-arch.github.io"
+  ]
+}

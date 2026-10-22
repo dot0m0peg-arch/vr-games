@@ -38,6 +38,7 @@ every few seconds; reload the game to pick up new parts. Spoken names are the fi
    export default { name, aliases, size, holdable, desc, build(THREE, opts) { return object3D; } }
    These run as code in the game's browser tab, so only put your own trusted code here.
    The bridge reads metadata from an optional <name>.part.json sidecar.
+   Files whose names start with "_" (shared helpers, textures) are served but not listed as parts.
 `;
 
 function nameFromFile(file) {
@@ -84,7 +85,7 @@ export class PartsBin extends Emitter {
     this.scanMs = scanMs;
     this.log = log;
     this.entries = [];
-    this.cache = new Map(); // file path -> { mtimeMs, size, result }
+    this.cache = new Map(); // file path -> { stamp, result }
     this.warned = new Set();
     this.signature = "";
     this.timer = null;
@@ -159,7 +160,8 @@ export class PartsBin extends Emitter {
         const set = new Set(names.map((n) => n.toLowerCase()));
         for (const name of names) {
           const lower = name.toLowerCase();
-          if (lower.startsWith(".") || lower.endsWith(".part.json")) continue;
+          // Dot files, sidecars and "_helper.js"-style support files are not parts.
+          if (lower.startsWith(".") || lower.startsWith("_") || lower.endsWith(".part.json")) continue;
           const ext = path.extname(lower).slice(1);
           if (!["json", "glb", "gltf", "js", "mjs"].includes(ext)) continue;
           const file = path.join(folder, name);
@@ -176,7 +178,7 @@ export class PartsBin extends Emitter {
       }
     }
     for (const key of this.cache.keys()) if (!live.has(key)) this.cache.delete(key);
-    const signature = JSON.stringify(entries.map((e) => [e.name, e.kind, e.mtime]));
+    const signature = JSON.stringify(entries.map((e) => [e.name, e.kind, e.stamp]));
     const changed = signature !== this.signature;
     this.signature = signature;
     this.entries = entries;
@@ -244,7 +246,7 @@ export class PartsBin extends Emitter {
       };
       if (!result.name) result = null;
     }
-    if (result) result.mtime = Math.floor(stat.mtimeMs);
+    if (result) result.stamp = stamp;
     this.cache.set(file, { stamp, result });
     return result;
   }
@@ -286,18 +288,20 @@ export class PartsBin extends Emitter {
     };
   }
 
-  // URL relative to the API base; segments stay "/"-separated so glTF relative URIs resolve.
+  // Path below the API base; segments stay "/"-separated so glTF relative URIs resolve.
   fileUrl(index, rel) {
     return `parts/file/${this.cap}/${index}/${rel.split("/").map(encodeURIComponent).join("/")}`;
   }
 
-  manifest() {
+  // apiBase: absolute API URL (e.g. "https://192.168.1.5:8787/vr-games/games/training-room/api/"),
+  // so file URLs work whichever base the client resolves them against.
+  manifest(apiBase = "") {
     return {
       parts: this.entries.map(({ name, aliases, category, desc, size, holdable, grip, kind, url, blueprint, color }) => {
         const part = { name, aliases: aliases || [], category: category || "custom", desc: desc || "", size: size || null, holdable: !!holdable, kind };
         if (grip) part.grip = grip;
         if (color) part.color = color;
-        if (url) part.url = url;
+        if (url) part.url = apiBase + url;
         if (blueprint) part.blueprint = blueprint;
         return part;
       }),
@@ -315,16 +319,17 @@ export class PartsBin extends Emitter {
     return this.entries.length;
   }
 
+  // True when a parts/file path starts with this bin's capability segment (no room key needed).
+  hasCap(rawRest) {
+    return String(rawRest || "").split("/")[0] === this.cap;
+  }
+
   // "<cap>/<dir index>/<path>" (or "<dir index>/<path>" when the caller is authenticated).
-  // Returns { file, capOk } or null. Never resolves outside the parts folders.
+  // Returns { file, stat, type } or null. Never resolves outside the parts folders.
   async resolveFile(rawRest) {
     const segments = safeSegments(rawRest);
     if (!segments || segments.length < 2) return null;
-    let capOk = false;
-    if (segments[0] === this.cap) {
-      capOk = true;
-      segments.shift();
-    }
+    if (segments[0] === this.cap) segments.shift();
     if (!/^\d{1,3}$/.test(segments[0])) return null;
     const dir = this.dirs[Number(segments[0])];
     const rest = segments.slice(1);
@@ -342,7 +347,7 @@ export class PartsBin extends Emitter {
       if (!inside(realDir, real)) return null;
       const stat = await fsp.stat(real);
       if (!stat.isFile()) return null;
-      return { file: real, stat, capOk, type: mimeOf(real) };
+      return { file: real, stat, type: mimeOf(real) };
     } catch {
       return null;
     }
@@ -359,9 +364,13 @@ export class PartsBin extends Emitter {
       return { name, file: null, existing: true };
     }
     if (existing) {
+      // "robot 2" taken while "robot" exists → "robot 3", not "robot 2 2".
+      const taken = (n) => this.entries.some((e) => e.name === n);
+      const numbered = name.match(/^(.*) (\d+)$/);
+      const base = numbered && taken(numbered[1]) ? numbered[1] : name;
       let n = 2;
-      while (this.entries.some((e) => e.name === `${name} ${n}`)) n++;
-      name = `${name} ${n}`;
+      while (taken(`${base} ${n}`)) n++;
+      name = `${base} ${n}`;
     }
     bp.name = name;
     const folder = path.join(this.primary, "generated");
