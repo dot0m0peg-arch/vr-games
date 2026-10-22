@@ -174,9 +174,30 @@ and adds `size: [w, h, d]`.
 | `js/net/net.js`, `avatars.js`, `share.js` | `Net` (bridge client), `Avatars`, `Share` (screen/camera frames) |
 | `js/ui/ui.js`, `js/ui/hud.js` | DOM UI (launch, desktop, phone companion), VR HUD |
 | `js/room.js`, `js/runner.js`, `js/main.js` | room wrapper, command runner, bootstrap |
+| `js/core/kingdom.js` | `ADVISORS`, `ADVISOR_WORDS`, `addressAdvisor(text)` → `{ advisor, rest }`, `kingdomQuery(text)` → topic, `kingdomStats(records)`, `kingdomReport(stats, topic)`, `kingdomAdvice(stats)`, `advisorAck`, `WORTH` (pure) |
+| `js/world/kingdom.js` | `KingdomScene` (advisors, wandering villagers, village square, aim ring; local only) |
 | `js/selftest.js` | `runSelfTest({ phase, report, … })`, `summarize(report)`, `postReport(net, report)`: the one-tap headset check (report saved by the bridge via `api/report`) |
 | `bridge/doctor.mjs`, `bridge/eval-model.mjs`, `bridge/check-headset-report.mjs` | laptop acceptance CLIs used by the owner's check-only pipeline (exit 0 = pass) |
 | `bridge/*.mjs` | laptop bridge |
+
+## Kingdom mode
+
+A per-device setting (`settings.kingdom`, URL `?mode=kingdom` / `?mode=training`). Nothing new is
+synced: buildings are ordinary catalog parts (category `kingdom`), and the advisors, villagers,
+square and aim ring are drawn locally by `KingdomScene`.
+
+- **Advisors.** The runner strips the wake word, then an advisor title (`addressAdvisor`). The rest
+  runs as a normal command; the reply is signed `"<Title>: <ack> <say>"` and the runner emits
+  `advisor` `{ id }` so that advisor nods. Titles join the voice wake words while the mode is on.
+- **Realm questions.** `kingdomQuery` recognizes questions about the realm before the parser runs;
+  the reply is `kingdomReport(kingdomStats(records), topic)`. Stats come from `WORTH` per part.
+- **Pointing.** In Kingdom mode the player pose carries `aim: [x, 0, z]`, the ground point under
+  the right-hand ray (VR) or the view center (flat), within 120 m. `resolvePlacement` puts
+  `rel: "here"` and `rel: "front"` with `point: true` (the parser's "over there") on the aim point,
+  pushed out to the object's radius from the player and clear of ground records. Without `aim`,
+  both keep their old meaning.
+- **Behavior defaults.** A meta may name `behavior` (one of the behavior kinds); new records of that
+  part get `data.behavior = { kind, speed: 1 }` (peasants walk).
 
 ## Bridge HTTP API
 

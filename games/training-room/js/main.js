@@ -24,6 +24,8 @@ import { Room } from "./room.js";
 import { Runner } from "./runner.js";
 import { makeId } from "./util/ids.js";
 import { runSelfTest, summarize } from "./selftest.js";
+import { KingdomScene } from "./world/kingdom.js";
+import { ADVISOR_WORDS } from "./core/kingdom.js";
 
 const STATE_KEY = "training-room:standalone-state";
 const KEY_KEY = "training-room:room-key";
@@ -31,6 +33,9 @@ const NAME_KEY = "training-room:name";
 
 const device = detectDevice();
 const ui = new UI({ device });
+// ?mode=kingdom opens Kingdom mode (and remembers it); ?mode=training turns it off.
+if (PARAMS.get("mode") === "kingdom") ui.setSettings({ kingdom: true });
+else if (PARAMS.get("mode") === "training") ui.setSettings({ kingdom: false });
 const settings = () => ({ hand: "right", quality: device === "desktop" ? "high" : "low", speak: true, wake: false, fast: false, ...ui.settings });
 
 // ---------- renderer, scene, player rig ----------
@@ -99,7 +104,37 @@ function playerPose() {
     const pose = localHand(hand);
     hands[hand] = pose ? { p: pose.p.toArray(), q: pose.q.toArray() } : null;
   }
-  return { user: me.id, ...head, hands };
+  const pose = { user: me.id, ...head, hands };
+  if (settings().kingdom) {
+    const aim = aimPoint();
+    if (aim) pose.aim = aim;
+  }
+  return pose;
+}
+
+// Kingdom mode: the ground spot under the right-hand laser (VR) or the view center (flat screen),
+// so "build a house right here" lands where the player points.
+const aimRay = new THREE.Raycaster();
+const AIM_RANGE = 120;
+function aimPoint() {
+  let origin;
+  let dir;
+  if (xr.presenting) {
+    if (!xr.rayFrom("right", aimRay)) return null;
+    origin = aimRay.ray.origin;
+    dir = aimRay.ray.direction;
+  } else {
+    camera.getWorldPosition(aimRay.ray.origin);
+    camera.getWorldDirection(aimRay.ray.direction);
+    origin = aimRay.ray.origin;
+    dir = aimRay.ray.direction;
+  }
+  if (dir.y > -0.02) return null;
+  const k = -origin.y / dir.y;
+  const x = origin.x + dir.x * k;
+  const z = origin.z + dir.z * k;
+  if (Math.hypot(x - origin.x, z - origin.z) > AIM_RANGE) return null;
+  return [Math.round(x * 1000) / 1000, 0, Math.round(z * 1000) / 1000];
 }
 
 // The phone (and a laptop in follow mode) acts for the headset player: "in my hand" means their hand.
@@ -124,6 +159,7 @@ function actingPose() {
 }
 
 // ---------- room → objects ----------
+const kingdom = new KingdomScene({ scene, room, sizeOf: (record) => build.sizeOfRecord(record) });
 const objects = new SceneObjects({ scene, room, build, phaser, getHand, share: { textureFor: (stream) => share?.textureFor(stream) || null, prune: (shown) => share?.prune(shown) } });
 const thrownByMe = new Set();
 
@@ -249,6 +285,7 @@ runner.on("reply", ({ text, source, speak: spoken }) => {
   }
 });
 runner.on("parts-changed", () => ui.setParts(allMeta()));
+runner.on("advisor", ({ id }) => kingdom.speak(id));
 
 // ---------- voice ----------
 // Phones release the mic right after each utterance: an open Bluetooth mic keeps the headset in
@@ -271,7 +308,8 @@ voice.on("interim", (text) => {
 voice.on("final", ({ text, rest, wakeMatched }) => {
   ui.setHeard(text);
   hud.setHeard(text);
-  runner.run(voice.mode === "wake" && wakeMatched ? rest : text, { source: "voice" });
+  // Kingdom mode keeps the advisor's title ("Builder, …") so the runner knows who was addressed.
+  runner.run(voice.mode === "wake" && wakeMatched && !settings().kingdom ? rest : text, { source: "voice" });
 });
 voice.on("error", (message) => {
   ui.toast(message, "warn");
@@ -282,6 +320,13 @@ voice.on("blocked", () => {
   ui.toast(hint, "warn");
   hud.toast(hint);
 });
+
+// Kingdom mode: advisors appear and their titles work as wake words.
+function applyKingdom(on) {
+  kingdom.setEnabled(on);
+  voice.wakeWords = on ? [...WAKE_WORDS, ...ADVISOR_WORDS] : WAKE_WORDS;
+  if (xr.presenting) xr.setLaser("right", true, on ? 40 : 6);
+}
 
 let lastMicMode = "push";
 function setMicMode(mode) {
@@ -308,7 +353,7 @@ xr.on("start", () => {
   touch.disable();
   hud.setVisible(true);
   hud.attachTo(xr.hands.left.grip);
-  xr.setLaser("right", true, 6);
+  xr.setLaser("right", true, settings().kingdom ? 40 : 6);
 });
 xr.on("end", () => {
   hud.setVisible(false);
@@ -483,6 +528,7 @@ ui.on("sketch", ({ lines, aspect, color, realize }) => {
 });
 ui.on("settings", (next) => {
   field.setQuality(next.quality || "high");
+  if (!!next.kingdom !== kingdom.enabled) applyKingdom(!!next.kingdom);
   if (next.wake && voice.mode === "push") setMicMode("wake");
   if (!next.wake && voice.mode === "wake") setMicMode("push");
 });
@@ -680,6 +726,13 @@ function defaultName() {
 
 function seedWelcome() {
   if (room.records().length) return;
+  if (settings().kingdom) {
+    runner.exec([
+      { do: "spawn", what: { part: "whiteboard" }, place: { rel: "at", p: [0, 0, -5] }, text: "Your Kingdom\n\nPoint at the ground and say:\n\"Builder, build a castle here\"\n\"Builder, build a house right here\"\n\"Steward, how is the kingdom?\"\n\"Marshal, how are our defenses?\"\n\nHold A/X (VR) or V (desktop) to talk." },
+    ], { label: "welcome" });
+    runner.history.length = 0;
+    return;
+  }
   runner.exec([
     { do: "spawn", what: { part: "whiteboard" }, place: { rel: "at", p: [0, 0, -5] }, text: "Training Room\n\nSay or type:\n\"AI, spawn a villa to my left\"\n\"AI, spawn an axe in my hand\"\n\"AI, spawn a deck of playing cards on a card table\"\n\nHold A/X (VR) or V (desktop) to talk. Y or M mutes the mic." },
   ], { label: "welcome" });
@@ -688,6 +741,7 @@ function seedWelcome() {
 
 async function start() {
   ui.setLoading("Growing the grass…");
+  applyKingdom(!!settings().kingdom);
   ui.setParts(allMeta());
   ui.setMic({ mode: voice.mode, listening: false, engine: voice.engine });
   phaser.precompile?.(renderer, camera);
@@ -740,6 +794,11 @@ renderer.setAnimationLoop(() => {
 
   camera.getWorldPosition(headWorld);
   field.update(dt, t, headWorld);
+  if (kingdom.enabled) {
+    const head = headPose();
+    kingdom.update(dt, t, head);
+    kingdom.setAim(aimPoint());
+  }
   interact.update(dt, { left: localHand("left"), right: localHand("right") });
   objects.update(dt, t);
   avatars.update(dt);
@@ -783,4 +842,4 @@ window.addEventListener("pagehide", () => net?.leave());
 start();
 
 // Debug handle for tests and the browser console.
-window.trainingRoom = { THREE, scene, camera, rig, renderer, room, runner, objects, voice, ui, hud, xr, field, interact, draw, get net() { return net; }, get selfTestReport() { return selfTestReport; }, get me() { return me; }, playerPose };
+window.trainingRoom = { THREE, kingdom, scene, camera, rig, renderer, room, runner, objects, voice, ui, hud, xr, field, interact, draw, get net() { return net; }, get selfTestReport() { return selfTestReport; }, get me() { return me; }, playerPose };

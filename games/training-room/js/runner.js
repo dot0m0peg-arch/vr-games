@@ -12,6 +12,7 @@ import { buildBlueprint } from "./parts/build/blueprint.js";
 import { matchPart, normalizeText } from "./core/lexicon.js";
 import { classifySketch, projectStrokes, sketchBounds } from "./core/sketch.js";
 import { WAKE_WORDS } from "./config.js";
+import { addressAdvisor, kingdomQuery, kingdomReport, kingdomStats, advisorAck, getAdvisor } from "./core/kingdom.js";
 
 // Intents that need the drawing and maybe the model, handled here instead of in planIntents.
 const MARKER_INTENTS = new Set(["realize", "guess", "correct"]);
@@ -71,7 +72,29 @@ export class Runner extends Emitter {
     const text = String(rawText || "").trim();
     if (!text) return null;
     const wake = stripWake(text, WAKE_WORDS);
-    const command = (wake.matched ? wake.rest : text).trim();
+    let command = (wake.matched ? wake.rest : text).trim();
+    // Kingdom mode: "Builder, build a house right here", "Steward, how is the kingdom?"
+    let advisor = null;
+    if (this.settings().kingdom) {
+      const addressed = addressAdvisor(command);
+      advisor = addressed.advisor;
+      if (advisor) {
+        this.emit("advisor", { id: advisor.id });
+        command = addressed.rest;
+        if (!command) {
+          this.reply(`${advisor.title}: Yes, my liege?`, "system");
+          return null;
+        }
+      }
+      const topic = kingdomQuery(command);
+      if (topic) {
+        const speaker = advisor || getAdvisor("steward");
+        if (!advisor) this.emit("advisor", { id: speaker.id });
+        const asked = topic === "all" && speaker.topic !== "all" ? speaker.topic : topic;
+        this.reply(`${speaker.title}: ${kingdomReport(kingdomStats(this.room.records()), asked)}`, "kingdom");
+        return { brain: "kingdom", ops: [], say: [], errors: [] };
+      }
+    }
     if (!command) {
       this.reply("Listening. Try: spawn a villa to my left.", "system", { speak: false });
       return null;
@@ -122,7 +145,11 @@ export class Runner extends Emitter {
     if (markerIntent) return this.markerFlow(markerIntent, command);
     const result = this.exec(intents, { label: command, source: brain });
     const replies = [...say, ...result.say].filter(Boolean);
-    if (replies.length) this.reply(replies.join(" "), brain);
+    if (advisor) {
+      const ack = result.ops.length ? advisorAck(advisor, this.history.length) : "";
+      const body = replies.join(" ");
+      this.reply(`${advisor.title}: ${[ack, body].filter(Boolean).join(" ")}`, brain);
+    } else if (replies.length) this.reply(replies.join(" "), brain);
     else if (result.ops.length) this.reply(describe(result.ops), brain, { speak: false });
     return { brain, ...result };
   }

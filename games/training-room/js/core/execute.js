@@ -387,6 +387,7 @@ export function planIntents(intents, ctx = {}) {
       let recordData = data ? JSON.parse(JSON.stringify(data)) : undefined;
       if (meta.deck) recordData = { ...(recordData || {}), cards: shuffle(newDeck(), rng), faceUp: false };
       else if (part === "playing card") recordData = { ...(recordData || {}), card: cardCode(), faceUp: true };
+      if (BEHAVIOR_KINDS.includes(meta.behavior)) recordData = { ...(recordData || {}), behavior: { kind: meta.behavior, speed: 1 } };
       if (recordData) record.data = recordData;
       if (pose.attach) record.attach = pose.attach;
       if (pose.onto) record.onto = pose.onto;

@@ -197,6 +197,10 @@ const DRAWER = `
         <label class="tr-check"><input type="checkbox" data-set="speak"><span>Speak replies out loud</span></label>
         <p class="tr-note" data-ref="engineNote"></p>
       </fieldset>
+      <fieldset>
+        <legend>Mode</legend>
+        <label class="tr-check"><input type="checkbox" data-set="kingdom"><span>Kingdom mode: advisors, villagers and a village square. Say “Builder, build a house right here” while pointing.</span></label>
+      </fieldset>
       <fieldset><legend>Main hand</legend>${SEG("hand", [["left", "Left"], ["right", "Right"]], "Main hand")}</fieldset>
       <fieldset><legend>Grass quality</legend>${SEG("quality", [["low", "Low"], ["high", "High"]], "Grass quality")}</fieldset>
       <fieldset><legend>Time of day</legend>${SEG("time", TIMES, "Time of day")}</fieldset>
@@ -264,9 +268,13 @@ export class UI extends Emitter {
     this.launch = {
       root: $("tr-launch"), msg: $("tr-launch-msg"), enter: $("tr-enter-vr"), play: $("tr-play"),
       loading: $("tr-loading"), xr: $("tr-st-xr"), bridge: $("tr-st-bridge"), voice: $("tr-st-voice"),
-      keyForm: $("tr-key-form"), keyInput: $("tr-key-input"),
+      keyForm: $("tr-key-form"), keyInput: $("tr-key-input"), kingdom: $("tr-kingdom"),
     };
     const l = this.launch;
+    if (l.kingdom) {
+      l.kingdom.checked = !!this._settings.kingdom;
+      l.kingdom.addEventListener("change", () => this._changeSetting("kingdom", l.kingdom.checked));
+    }
     l.play.textContent = this.layout === "phone" ? "Open phone companion" : "Play on this screen";
     if (this.layout === "phone") l.play.parentElement.prepend(l.play);
     l.enter.addEventListener("click", () => this.emit("enter-vr"));
@@ -1215,6 +1223,7 @@ export class UI extends Emitter {
   _renderSettings() {
     const pane = this.app.querySelector('[data-pane="settings"]');
     for (const input of pane.querySelectorAll("[data-set]")) input.checked = !!this._settings[input.dataset.set];
+    if (this.launch?.kingdom) this.launch.kingdom.checked = !!this._settings.kingdom;
     for (const button of pane.querySelectorAll("[data-hand]")) button.setAttribute("aria-pressed", String(button.dataset.hand === this._settings.hand));
     for (const button of pane.querySelectorAll("[data-quality]")) button.setAttribute("aria-pressed", String(button.dataset.quality === this._settings.quality));
     this.setTime(this._time);
@@ -1300,6 +1309,7 @@ function pick(s) {
   if (s.hand === "left" || s.hand === "right") out.hand = s.hand;
   if (s.quality === "low" || s.quality === "high") out.quality = s.quality;
   if (typeof s.speak === "boolean") out.speak = s.speak;
+  if (typeof s.kingdom === "boolean") out.kingdom = s.kingdom;
   return out;
 }
 
