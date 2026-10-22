@@ -1,0 +1,17 @@
+{
+  "name": "Neighborhood house kit v1",
+  "author": "Codex (Command)",
+  "model": "gpt-6.1-sol",
+  "created": "2026-10-19",
+  "origin": "Original procedural boxes, gables and deterministic canvas textures; no third-party downloads or generated raster assets",
+  "scope": "Siding and roof PBR materials, window and entry trim, roof edges, gutters, porch roof/posts and fence rails",
+  "owner_art": "Existing Mara and owner assets preserved",
+  "source_hashes": {
+    "src/house-exteriors.js": "321b134dac9c31424d2f4d98128013f246aeb17cff2ee720471b8c8ba658a3b5",
+    "src/world.js": "8abf57dc9f25495e1163a9933512f075b8a5d8ababdf6ddbdd9eb63ad58529b2",
+    "src/interaction-view.js": "5a23184e25e78be8dd5fdd71a948c826b115c4e22ebac52ce5e5004ea53fd195"
+  },
+  "acceptance": "neighborhood-command-exteriors-20261019/02-built-kit",
+  "execution_id": "3fc316e6c16a44dfbda34f50509596ab",
+  "limitations": "Component acceptance only. Gable front faces remain culled from exterior: retain on end-of-project cosmetic list."
+}

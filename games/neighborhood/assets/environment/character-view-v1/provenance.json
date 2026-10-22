@@ -1,0 +1,14 @@
+{
+  "author": "Codex (Command)",
+  "version": "character-view-v1",
+  "kind": "original display-only procedural motion, saved-path linen ribbon and patient-only inspection light",
+  "source": [
+    "src/character-view.js",
+    "src/characters.js",
+    "src/main.js"
+  ],
+  "authored_Mara_assets": "Unchanged; inherited assets/provenance.json remains authoritative",
+  "external_assets": [],
+  "license": "Owner project code; no downloaded or generated bitmap assets",
+  "scope": "Only presentation; no simulation/save schema/randomness changes"
+}

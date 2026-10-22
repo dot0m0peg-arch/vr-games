@@ -1,0 +1,9 @@
+{
+  "origin": "Original procedural estate-car geometry/materials; no imports, no owner Mara art changes",
+  "name": "vehicle-v1",
+  "runtime": "src/vehicle-view.js",
+  "author": "Codex (Command)",
+  "sha256": "35f14484762bfb029c64e2723fdcbd43f3fb5dc353c293ab252019274f818c73",
+  "created": "2026-10-20",
+  "compatibility": "Original mesh names, local transforms and material names retained for stable scenery IDs. Cabin vertices become roof slab; new parts receive individual material records. Presentation reads vehicle hp/fuel/occupied and signed displacement only."
+}

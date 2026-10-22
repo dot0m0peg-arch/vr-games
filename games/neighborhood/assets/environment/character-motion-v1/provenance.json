@@ -1,0 +1,12 @@
+{
+  "author": "Claude (Command)",
+  "version": "character-motion-v1",
+  "date": "2026-10-20",
+  "kind": "original display-only procedural body language and contact shadows for the authored Mara bodies",
+  "source": ["src/character-motion.js", "src/characters.js", "src/main.js"],
+  "authored_Mara_assets": "Unchanged; assets/provenance.json remains authoritative",
+  "external_assets": [],
+  "generated_textures": "64x64 radial contact-shadow gradient drawn at runtime",
+  "license": "Owner project code",
+  "scope": "Presentation only; no simulation, save schema, RNG or geometry changes. Supersedes the unloaded character-view-v1 candidate, which stays dormant."
+}

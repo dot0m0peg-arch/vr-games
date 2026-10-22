@@ -1,0 +1,78 @@
+{
+  "operation": "Read-only adaptation of owner-authored Black Lab Mara for the separate Neighborhood game.",
+  "geometryChanges": "Removed authoring/deformation arrays, merged by joint/material, rounded five decimal places; omitted close-up temporal groom layer; converted texture copies to max 1024 px WebP.",
+  "files": [
+    {
+      "source": "C:\\Users\\dot0m\\Documents\\ChatGPT\\3D-Forge\\mara-vertical-slice\\black-lab\\packages\\web-app\\public\\assets\\living-lab\\living-specimen.json",
+      "sha256": "6f79b08d3f18ebcc482323f2c994e9a7823d0edb86e2dd3406bcabfbcea06d9e",
+      "sourceBytes": 1101041
+    },
+    {
+      "source": "C:\\Users\\dot0m\\Documents\\ChatGPT\\3D-Forge\\mara-vertical-slice\\black-lab\\packages\\web-app\\public\\assets\\living-lab\\mara-body-v3.json",
+      "sha256": "1e5909cacfbc89167e9b4c6d5f67d54ac50503ddcf61bf08d7360bddf1b413d5",
+      "sourceBytes": 14030232
+    },
+    {
+      "source": "C:\\Users\\dot0m\\Documents\\ChatGPT\\3D-Forge\\mara-vertical-slice\\black-lab\\packages\\web-app\\public\\assets\\living-lab\\mara-head-v3.json",
+      "sha256": "5226a612745f156ae001acc662a610f0b98a45775dd51f80993321b07d14c0a4",
+      "sourceBytes": 15062964
+    },
+    {
+      "source": "C:\\Users\\dot0m\\Documents\\ChatGPT\\3D-Forge\\mara-vertical-slice\\black-lab\\packages\\web-app\\public\\assets\\living-lab\\mara-body-v3-skin-albedo.png",
+      "sha256": "76cce0497012ddce446887a5cf01f8c745c73ec1ca306ad84364568180a39d5d",
+      "derivative": "assets\\mara\\mara-body-v3-skin-albedo.webp",
+      "size": [
+        1024,
+        1024
+      ]
+    },
+    {
+      "source": "C:\\Users\\dot0m\\Documents\\ChatGPT\\3D-Forge\\mara-vertical-slice\\black-lab\\packages\\web-app\\public\\assets\\living-lab\\mara-body-v3-skin-normal.png",
+      "sha256": "aad374d62f9809dbe9778f739ce9498ab14bb240d26dd3efb8b6a0d11b22ee2e",
+      "derivative": "assets\\mara\\mara-body-v3-skin-normal.webp",
+      "size": [
+        1024,
+        1024
+      ]
+    },
+    {
+      "source": "C:\\Users\\dot0m\\Documents\\ChatGPT\\3D-Forge\\mara-vertical-slice\\black-lab\\packages\\web-app\\public\\assets\\living-lab\\mara-body-v3-cloth-albedo.png",
+      "sha256": "434f1686c288910d5b66a1b5a82b96f48fd7bd04c6db898b895914d44b1eccb7",
+      "derivative": "assets\\mara\\mara-body-v3-cloth-albedo.webp",
+      "size": [
+        1024,
+        1024
+      ]
+    },
+    {
+      "source": "C:\\Users\\dot0m\\Documents\\ChatGPT\\3D-Forge\\mara-vertical-slice\\black-lab\\packages\\web-app\\public\\assets\\living-lab\\mara-body-v3-cloth-normal.png",
+      "sha256": "7ceab99b6999bea41be32e4e37f03595bbbfb32fe5a0e984bfaa4370c2041256",
+      "derivative": "assets\\mara\\mara-body-v3-cloth-normal.webp",
+      "size": [
+        1024,
+        1024
+      ]
+    },
+    {
+      "source": "C:\\Users\\dot0m\\Documents\\ChatGPT\\3D-Forge\\mara-vertical-slice\\black-lab\\packages\\web-app\\public\\assets\\living-lab\\mara-head-v3-albedo.png",
+      "sha256": "d0cbc1700eefe3008e2192acbac9bc35e6f021deef3a191ac750462b792a6720",
+      "derivative": "assets\\mara\\mara-head-v3-albedo.webp",
+      "size": [
+        1024,
+        1024
+      ]
+    },
+    {
+      "source": "C:\\Users\\dot0m\\Documents\\ChatGPT\\3D-Forge\\mara-vertical-slice\\black-lab\\packages\\web-app\\public\\assets\\living-lab\\mara-head-v3-normal.png",
+      "sha256": "2e255db27eef8ea04c0f17678bcdd6935e5d58dcde40b1bda521906a646347b5",
+      "derivative": "assets\\mara\\mara-head-v3-normal.webp",
+      "size": [
+        1024,
+        1024
+      ]
+    }
+  ],
+  "meshes": 38,
+  "vertices": 185904,
+  "triangles": 269990
+}

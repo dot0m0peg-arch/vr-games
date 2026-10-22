@@ -1,0 +1,188 @@
+{
+  "title": "The Neighborhood: asset provenance record",
+  "written_by": "Claude (Command)",
+  "date": "2026-10-20",
+  "summary": "Every picture, model and texture the game ships is either the owner's own art (Mara, one reference image) or original procedural geometry and runtime-drawn canvas textures written for this project. No downloaded, purchased, Meshy-generated or other third-party art is used. The only third-party code is the Babylon.js engine, vendored locally.",
+  "engine": {
+    "name": "@babylonjs/core",
+    "version": "9.21.2",
+    "license": "Apache-2.0",
+    "copyright": "Copyright 2023 The Babylon.js team",
+    "license_file": "vendor/babylon/license.md",
+    "notice_file": "vendor/babylon/NOTICE.md",
+    "location": "vendor/babylon (bundled into dist/ by the build)"
+  },
+  "owner_art": {
+    "mara": "assets/provenance.json (source paths, source sha256, derivative sizes)",
+    "files": [
+      {
+        "file": "assets/mara/mara-body-v3-cloth-albedo.webp",
+        "bytes": 86854,
+        "sha256": "f5ffacadc767a88c165a730e0e0f684adac4920a128196d72758605d515b3540",
+        "origin": "Owner-authored Black Lab Mara, read-only adaptation (see assets/provenance.json)",
+        "license": "Owner art; private use; not to be altered or regenerated without the owner",
+        "record": "assets/provenance.json",
+        "drawn_by_game": true
+      },
+      {
+        "file": "assets/mara/mara-body-v3-cloth-normal.webp",
+        "bytes": 10868,
+        "sha256": "ae1261a2efd972942e841018c61a22e6719d86c6a099deb5475384a3dd35eea4",
+        "origin": "Owner-authored Black Lab Mara, read-only adaptation (see assets/provenance.json)",
+        "license": "Owner art; private use; not to be altered or regenerated without the owner",
+        "record": "assets/provenance.json",
+        "drawn_by_game": true
+      },
+      {
+        "file": "assets/mara/mara-body-v3-skin-albedo.webp",
+        "bytes": 105286,
+        "sha256": "e97ac05dc3c02bcf5c8152dd37f694931383fadd3d0e5701cfbeaf6a45a66536",
+        "origin": "Owner-authored Black Lab Mara, read-only adaptation (see assets/provenance.json)",
+        "license": "Owner art; private use; not to be altered or regenerated without the owner",
+        "record": "assets/provenance.json",
+        "drawn_by_game": true
+      },
+      {
+        "file": "assets/mara/mara-body-v3-skin-normal.webp",
+        "bytes": 5524,
+        "sha256": "25c0e1f3407e5b6cafc081aff45b7a03568f68be6004d47e5b95494ae0356272",
+        "origin": "Owner-authored Black Lab Mara, read-only adaptation (see assets/provenance.json)",
+        "license": "Owner art; private use; not to be altered or regenerated without the owner",
+        "record": "assets/provenance.json",
+        "drawn_by_game": true
+      },
+      {
+        "file": "assets/mara/mara-head-v3-albedo.webp",
+        "bytes": 162116,
+        "sha256": "fd8716a0bf61858d8572ff3258e3675219b5e7d69ebb70c6b8c383eda72e4cff",
+        "origin": "Owner-authored Black Lab Mara, read-only adaptation (see assets/provenance.json)",
+        "license": "Owner art; private use; not to be altered or regenerated without the owner",
+        "record": "assets/provenance.json",
+        "drawn_by_game": true
+      },
+      {
+        "file": "assets/mara/mara-head-v3-normal.webp",
+        "bytes": 7194,
+        "sha256": "93755c2d8a1d20f4281c95c40bd5ed42c04a77e011d65ad8eecddf893e069f06",
+        "origin": "Owner-authored Black Lab Mara, read-only adaptation (see assets/provenance.json)",
+        "license": "Owner art; private use; not to be altered or regenerated without the owner",
+        "record": "assets/provenance.json",
+        "drawn_by_game": true
+      },
+      {
+        "file": "assets/mara/mara.json",
+        "bytes": 15846532,
+        "sha256": "16117acc2f85526cfc58d3efad41e52925876970c5619d0d4634d96962f53188",
+        "origin": "Owner-authored Black Lab Mara, read-only adaptation (see assets/provenance.json)",
+        "license": "Owner art; private use; not to be altered or regenerated without the owner",
+        "record": "assets/provenance.json",
+        "drawn_by_game": true
+      },
+      {
+        "file": "assets/owner-images/Interactable_Props_20/01_milk_vending_machine.png",
+        "bytes": 2639960,
+        "sha256": "5869a4c9d5e4b555c029db6e013b56288984ae9b4cd75e3f33c65c7b00182bec",
+        "origin": "Owner-supplied reference image, unchanged",
+        "license": "Owner art; private use; not to be altered or regenerated without the owner",
+        "record": "owner-supplied",
+        "drawn_by_game": false
+      }
+    ]
+  },
+  "procedural_kits": [
+    {
+      "kit": "character-motion-v1",
+      "record": "assets/environment/character-motion-v1/provenance.json",
+      "author": "Claude (Command)",
+      "origin": "original display-only procedural body language and contact shadows for the authored Mara bodies",
+      "external_assets": "none",
+      "license": "Owner project code (original procedural geometry and runtime canvas textures)",
+      "loaded_by_game": true,
+      "source_files_now": {
+        "src/character-motion.js": "92c8f64654303f7761eda4ee7e0e8f16fc22013439e89d2fa611b9613e7d13d6",
+        "src/characters.js": "1e42f9e38a89b57ec8760770c61fbf9d0776c8fd8d9217fd217115af24ebac29",
+        "src/main.js": "d3b0d884336a7ef356f9cc3a859e496453c760a986543f896e960ce1a9cdbe90"
+      }
+    },
+    {
+      "kit": "character-view-v1",
+      "record": "assets/environment/character-view-v1/provenance.json",
+      "author": "Codex (Command)",
+      "origin": "original display-only procedural motion, saved-path linen ribbon and patient-only inspection light",
+      "external_assets": "none",
+      "license": "Owner project code (original procedural geometry and runtime canvas textures)",
+      "loaded_by_game": false,
+      "source_files_now": {
+        "src/character-view.js": "527770b53e81cc596d5b1a6c6f4c42142c9c557f4724453fb8f4537a74335b1c",
+        "src/characters.js": "1e42f9e38a89b57ec8760770c61fbf9d0776c8fd8d9217fd217115af24ebac29",
+        "src/main.js": "d3b0d884336a7ef356f9cc3a859e496453c760a986543f896e960ce1a9cdbe90"
+      }
+    },
+    {
+      "kit": "furniture-kit-v1",
+      "record": "assets/environment/furniture-kit-v1/provenance.json",
+      "author": "Codex (Command)",
+      "origin": "Original procedural geometry and oak-grain canvas texture authored in the owner-authorized graphics step; no external or owner artwork used or changed",
+      "external_assets": "none",
+      "license": "Owner project code (original procedural geometry and runtime canvas textures)",
+      "loaded_by_game": true,
+      "source_files_now": {
+        "src/furniture-view.js": "19b965531a31b9b53f2ced92a4fccd6aa0560dbb5370691055f8769627049c7e"
+      }
+    },
+    {
+      "kit": "house-kit-v1",
+      "record": "assets/environment/house-kit-v1/provenance.json",
+      "author": "Codex (Command)",
+      "origin": "Original procedural boxes, gables and deterministic canvas textures; no third-party downloads or generated raster assets",
+      "external_assets": "none",
+      "license": "Owner project code (original procedural geometry and runtime canvas textures)",
+      "loaded_by_game": true,
+      "source_files_now": {
+        "src/house-exteriors.js": "321b134dac9c31424d2f4d98128013f246aeb17cff2ee720471b8c8ba658a3b5",
+        "src/world.js": "c8c584e8ca7cdf1154001363be83ed05994aefaf29cd1d6c293bbc7c4fb0dc94",
+        "src/interaction-view.js": "54bf630652253fb3ee46da218505bc145412ef226ca4c684fefd60541a636959"
+      }
+    },
+    {
+      "kit": "lighting-v1",
+      "record": "assets/environment/lighting-v1/provenance.json",
+      "author": "Codex (Command)",
+      "origin": "Original procedural light rig; no imported assets or owner art changed",
+      "external_assets": "none",
+      "license": "Owner project code (original procedural geometry and runtime canvas textures)",
+      "loaded_by_game": true,
+      "source_files_now": {
+        "src/lighting.js": "b9dc9c087d75d2279f0e23b391da68b3725499e82d845b6a3e0b0c3245c3da5d"
+      }
+    },
+    {
+      "kit": "vegetation-v1",
+      "record": "assets/environment/vegetation-v1/provenance.json",
+      "author": "Codex (Command), gpt-6.1-sol",
+      "origin": "Original procedural geometry and canvas textures authored for this project; no external downloaded assets or owner art replaced",
+      "external_assets": "none",
+      "license": "Owner project code (original procedural geometry and runtime canvas textures)",
+      "loaded_by_game": true,
+      "source_files_now": {
+        "src/vegetation.js": "90445f1938e70ddb532dd9ec8c7d65d7ce65b4be5767db54e6a1ca64be568a5a"
+      }
+    },
+    {
+      "kit": "vehicle-v1",
+      "record": "assets/environment/vehicle-v1/provenance.json",
+      "author": "Codex (Command)",
+      "origin": "Original procedural estate-car geometry/materials; no imports, no owner Mara art changes",
+      "external_assets": "none",
+      "license": "Owner project code (original procedural geometry and runtime canvas textures)",
+      "loaded_by_game": true,
+      "source_files_now": {
+        "src/vehicle-view.js": "35f14484762bfb029c64e2723fdcbd43f3fb5dc353c293ab252019274f818c73"
+      }
+    }
+  ],
+  "kit_hash_note": "Hashes inside each kit's own provenance.json were taken when that kit was made; later steps edited the same source files. source_files_now above are the hashes of the delivered build (the files played in done/neighborhood-claude-gameplay-20261020).",
+  "external_assets": [],
+  "meshy_assets": [],
+  "purchases": []
+}

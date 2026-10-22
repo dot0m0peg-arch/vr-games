@@ -1,0 +1,9 @@
+{
+  "name": "lighting-v1",
+  "author": "Codex (Command)",
+  "created": "2026-10-20",
+  "origin": "Original procedural light rig; no imported assets or owner art changed",
+  "runtime": "src/lighting.js",
+  "sha256": "b9dc9c087d75d2279f0e23b391da68b3725499e82d845b6a3e0b0c3245c3da5d",
+  "clock": "Reads existing state.time in minutes only; no clock/save changes"
+}

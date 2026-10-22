@@ -1,0 +1,25 @@
+{
+  "asset_set": "vegetation-v1",
+  "author": "Codex (Command), gpt-6.1-sol",
+  "origin": "Original procedural geometry and canvas textures authored for this project; no external downloaded assets or owner art replaced",
+  "source": "src/vegetation.js",
+  "textures": {
+    "bark": [
+      128,
+      256
+    ],
+    "leaf": [
+      64,
+      128
+    ],
+    "lawn": [
+      256,
+      256
+    ],
+    "soil": [
+      128,
+      128
+    ]
+  },
+  "compatibility": "Existing tree/canopy origins, names, material object IDs, collision footprints and RNG call sequence retained. Deterministic visual hash uses seed+stable identity. Garden/branch additions register through existing universal material system."
+}

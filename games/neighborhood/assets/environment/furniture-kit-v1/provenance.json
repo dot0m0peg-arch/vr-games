@@ -1,0 +1,11 @@
+{
+  "asset_set": "furniture-kit-v1",
+  "author": "Codex (Command)",
+  "created": "2026-10-19",
+  "origin": "Original procedural geometry and oak-grain canvas texture authored in the owner-authorized graphics step; no external or owner artwork used or changed",
+  "source": "src/furniture-view.js",
+  "source_sha256": "19b965531a31b9b53f2ced92a4fccd6aa0560dbb5370691055f8769627049c7e",
+  "runtime_assets": "one shared 128x256 grain texture, five shared PBR finishes; Babylon vendored locally",
+  "compatibility": "All original mesh names, vertices, local transforms, opening pivots, dimensions and collision records retained. Added mesh names contain kit; every part carries original container identity. Simulation and save format unchanged.",
+  "independent_astra_audit": "pending; informational, not a release gate"
+}

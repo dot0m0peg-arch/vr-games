@@ -15,8 +15,9 @@ index.html                 Games landing page; add new listings here
 how-to-play.html           Player instructions and VR capability check
 assets/                    Shared styles, favicon, VR check
  games/
-  miner/index.html         Replace this placeholder with Miner's WebXR export
+  miner/index.html         Miner (browser + experimental VR mode)
   miner/assets/            Miner's own assets
+  neighborhood/            The Neighborhood: built output of the owner's Neighborhood project (see its README.md)
   _template/               Copy for each additional game
  docs/
   ADDING-GAMES.md           Claude's game integration guide
