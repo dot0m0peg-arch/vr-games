@@ -1,14 +1,10 @@
 # Add or replace a WebXR game
 
-## Miner first
+## Update an existing game
 
-The exact published entry point is:
+Miner (`games/miner/`) and The Neighborhood (`games/neighborhood/`) are imported builds of the owner's projects. To update one, build it in its project and copy the new build over its folder here. Do not hand-edit the Neighborhood export (see its README). Preserve the owner's art and behavior. Do not replace a game with an invented one.
 
-https://dot0m0peg-arch.github.io/vr-games/games/miner/
-
-Replace `games/miner/index.html` with Miner's working browser/WebXR entry point and place its exported assets underneath `games/miner/`. No existing game code or assets are in this shell. Obtain the real Miner export/source from the owner and preserve its art and behavior. Do not replace it with an invented game or treat the placeholder as a completed port.
-
-When verified playable, update Miner's heading, description and status in root `index.html`, change the link label from `View Miner` to `Play Miner`, and update the collection count/status. Only claim controls, supported devices and features that were tested. Keep a route back to the collection in the game or its surrounding launch page.
+After a headset pass, update the game's status line in root `index.html` to what was tested. Only claim controls, supported devices and features that were tested. Keep a route back to the collection in the game or its surrounding launch page.
 
 ## Another game
 

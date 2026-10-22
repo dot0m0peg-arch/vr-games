@@ -6,7 +6,7 @@ A public, independent home for browser VR games. This repository is separate fro
 - **Miner:** https://dot0m0peg-arch.github.io/vr-games/games/miner/
 - **Repository:** https://github.com/dot0m0peg-arch/vr-games
 
-The shell is live; **Miner is not playable yet**. No original Miner code or artwork was imported. The geometric decorations belong to the portal, not the game. There are no trackers, external runtime dependencies, accounts, or backend services.
+The shell is live with two early-access games, **Miner** and **The Neighborhood**. Both play in a desktop browser; VR mode is not yet verified on a headset. The geometric decorations on the portal belong to the portal, not the games. There are no trackers, external runtime dependencies, accounts, or backend services.
 
 ## Layout
 
@@ -15,8 +15,7 @@ index.html                 Games landing page; add new listings here
 how-to-play.html           Player instructions and VR capability check
 assets/                    Shared styles, favicon, VR check
  games/
-  miner/index.html         Miner (browser + experimental VR mode)
-  miner/assets/            Miner's own assets
+  miner/                   Miner: single-file Three.js game, font, icons, manifest, service worker
   neighborhood/            The Neighborhood: built output of the owner's Neighborhood project (see its README.md)
   _template/               Copy for each additional game
  docs/
