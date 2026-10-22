@@ -12,3 +12,4 @@ Owner-authorized new public VR game portal, independent of Sophia's app.
 - Preserve the portal design, owner art and other projects. Do not use Sophia's repository, deployment, settings or source.
 - Validate links with `python tools/check_site.py`; verify deployed pages and actual headset behavior separately. Follow the owner's laptop check-only pipeline when applicable.
 - Publication is authorized for this portal; do not infer authorization for spending, store accounts, unrelated projects or game asset replacement.
+- Handoffs for the owner's pipeline go to the private PROJECT-COMMAND repository on a `claude/<topic>-<date>` branch. A session started on vr-games cannot grant itself write access to another repository; the permission layer refuses the attempt, so do not retry it. Start the session with both repositories selected, or create a child session on PROJECT-COMMAND (`create_session` with its URL and an `outcome_branch`) and have it commit the handoff.
