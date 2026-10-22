@@ -121,6 +121,36 @@ the bridge's `Parts:` line shows it), or add your own folders to `partsDirs` in 
 - `*.js` modules exporting `default { name, aliases, size, holdable, desc, build(THREE, opts) }`.
   These run as code in your browser, so only put your own trusted code there.
 
+## Laptop checks
+
+Three commands check a setup. Each prints a PASS/FAIL table and exits with 0 (pass) or 1 (fail), so
+a task runner can use them. They read the bridge data folder (`--data <dir>` picks another one) and
+save their reports in its `reports` folder. Run them from the repository folder:
+
+- `node games/training-room/bridge/doctor.mjs [--require stt,tts,vision] [--json]` checks Node.js,
+  config.json, Ollama (version, models, the model the bridge uses), one real command ("AI, spawn a
+  villa to my left") through that model, and the optional parts: the vision model (a drawn circle),
+  the laptop voice, Whisper (the laptop voice says "spawn a crate" and Whisper must hear "crate") and
+  the network (headset address, running bridge, certificate). It passes when Node.js, the settings,
+  Ollama and the command work; `--require` makes optional parts required. Model calls can take 60 s
+  (`--timeout <s>`).
+- `node games/training-room/bridge/eval-model.mjs [--model a,b] [--threshold 0.8] [--limit n]` gives
+  each model the test commands in `tests/fixtures/model-eval.json` and scores the answers. It prints
+  accuracy, mean, median and p95 latency, each miss with the answer, and the recommended model (most
+  accurate, then fastest). It passes when every model reaches the threshold.
+- `node games/training-room/bridge/check-headset-report.mjs [--min-fps 65] [--max-age-hours 72]`
+  checks the newest headset self-test report, which the game sends to the bridge: secure page, VR
+  session, frame rate, both controllers or hands, microphone, bridge, and Whisper when it runs.
+
+## Headset check
+
+On the launch screen, **Headset check** (Device check on a laptop or phone) tests this device in
+two taps: tap 1 asks for the microphone on the flat page, records 1.5 s, sends it through Whisper
+when the bridge has it, and checks speech, the laptop bridge and the laptop voice; tap 2 (**Start VR
+test**) enters VR with a test scene, measures the frame rate for 10 s, exits by itself and sends the
+report to the laptop (`reports/headset-*.json` in the bridge data folder). The result list stays on
+screen and **Copy report** works without the bridge. `check-headset-report.mjs` above grades it.
+
 ## Magic marker
 
 Draw in the air, on a laptop sheet or on the phone, then say **"make it real"**. The model guesses

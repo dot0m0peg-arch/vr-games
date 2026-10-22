@@ -47,8 +47,10 @@
 //
 // Data folder contents: config.json (settings and room key), key.pem/cert.pem (HTTPS certificate,
 // regenerated when your network address changes), room.json (the saved room), parts/ (your parts
-// bin; see parts/README.txt). Nothing is written into the game's repository.
+// bin; see parts/README.txt), reports/ (device self-tests, doctor and model-eval reports). Nothing is
+// written into the game's repository.
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
 import path from "node:path";
@@ -71,7 +73,8 @@ import { loadConfig, defaultDataDir, isInside, KEY_LENGTH } from "./config.mjs";
 export const VERSION = "1.0.0";
 export const GAME_PATH = "/vr-games/games/training-room/";
 const API_PREFIXES = [`${GAME_PATH}api/`, "/api/"];
-const LIMITS = { json: 256 * 1024, interpret: 600 * 1024, frame: 4 * 1024 * 1024, audio: 8 * 1024 * 1024 };
+const LIMITS = { json: 256 * 1024, interpret: 600 * 1024, frame: 4 * 1024 * 1024, audio: 8 * 1024 * 1024, report: 128 * 1024 };
+const REPORT_KINDS = ["headset", "client"];
 const COOKIE_DAYS = 30;
 // Calls that would flood the console; logged only with --verbose.
 const QUIET = /^(pose|share\/[^/]+|parts\/file\/.*)$/;
@@ -161,6 +164,35 @@ function parseCookies(header = "") {
 }
 
 const time = () => new Date().toTimeString().slice(0, 8);
+
+// Local time as YYYYMMDD-HHMMSS, for report file names.
+export function reportStamp(date = new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`;
+}
+
+// Writes { ext: text } as <dataDir>/reports/<base>.<ext> (or <base>-2.<ext>, … when taken), owner-only
+// like room.json. Never overwrites a report. → full paths in the order given.
+export async function saveReport(dataDir, base, files) {
+  const dir = path.join(dataDir, "reports");
+  await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
+  for (let n = 1; n <= 99; n++) {
+    const stem = n === 1 ? base : `${base}-${n}`;
+    const written = [];
+    try {
+      for (const [ext, text] of Object.entries(files)) {
+        const file = path.join(dir, `${stem}.${ext}`);
+        await fsp.writeFile(file, text, { flag: "wx", mode: 0o600 });
+        written.push(file);
+      }
+      return written;
+    } catch (err) {
+      await Promise.all(written.map((file) => fsp.rm(file, { force: true })));
+      if (err.code !== "EEXIST") throw err;
+    }
+  }
+  throw new Error(`${dir} already has 99 reports named ${base}`);
+}
 
 // Terminal QR code with half blocks; light modules are drawn, so it reads on dark terminals.
 export function renderQR(text, { quiet = 2, ansi = false } = {}) {
@@ -398,6 +430,8 @@ export async function createBridge(options = {}) {
         return transcribe(req, res, ctx);
       case "POST tts":
         return speech(req, res, ctx);
+      case "POST report":
+        return saveDeviceReport(req, res, ctx);
       case "GET parts":
         return sendJSON(res, 200, bin.manifest(apiBaseOf(req)));
       case "POST parts/save": {
@@ -519,6 +553,18 @@ export async function createBridge(options = {}) {
     if (res.destroyed) return;
     res.writeHead(200, { "content-type": out.type, "content-length": out.audio.length, "cache-control": "no-store" });
     return res.end(out.audio);
+  }
+
+  // Self-test results from a device: { kind, report } → reports/<kind>-<YYYYMMDD-HHMMSS>-<user or ip>.json.
+  async function saveDeviceReport(req, res, ctx) {
+    const body = await readJSON(req, LIMITS.report);
+    if (!REPORT_KINDS.includes(body.kind)) return sendJSON(res, 400, { error: "bad-kind", detail: `kind must be ${REPORT_KINDS.join(" or ")}` });
+    if (!body.report || typeof body.report !== "object" || Array.isArray(body.report)) return sendJSON(res, 400, { error: "bad-report", detail: "report must be an object" });
+    const who = String(typeof body.user === "string" && body.user ? body.user : ctx.ip).replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "unknown";
+    const [file] = await saveReport(dataDir, `${body.kind}-${reportStamp()}-${who}`, { json: `${JSON.stringify(body.report, null, 2)}\n` });
+    const saved = path.basename(file);
+    ctx.note = `saved ${saved}`;
+    return sendJSON(res, 200, { saved });
   }
 
   async function transcribe(req, res, ctx) {

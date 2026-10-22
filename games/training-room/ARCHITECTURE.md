@@ -174,6 +174,8 @@ and adds `size: [w, h, d]`.
 | `js/net/net.js`, `avatars.js`, `share.js` | `Net` (bridge client), `Avatars`, `Share` (screen/camera frames) |
 | `js/ui/ui.js`, `js/ui/hud.js` | DOM UI (launch, desktop, phone companion), VR HUD |
 | `js/room.js`, `js/runner.js`, `js/main.js` | room wrapper, command runner, bootstrap |
+| `js/selftest.js` | `runSelfTest({ phase, report, … })`, `summarize(report)`, `postReport(net, report)`: the one-tap headset check (report saved by the bridge via `api/report`) |
+| `bridge/doctor.mjs`, `bridge/eval-model.mjs`, `bridge/check-headset-report.mjs` | laptop acceptance CLIs used by the owner's check-only pipeline (exit 0 = pass) |
 | `bridge/*.mjs` | laptop bridge |
 
 ## Bridge HTTP API
@@ -199,6 +201,7 @@ work). `GET /?k=KEY` sets an HttpOnly cookie `tr_key`; API calls may instead sen
 | `POST api/interpret` | `{ user?, image?, ascii, stats, size, hint?, parts? }` (≤ 600 KB) → `{ guess, confidence, part, blueprint?, behavior, say, source: "model", model, vision, ms }`; 503 `no-model`, 502 `bad-output`, 504 `timeout`, 400 `no-sketch`/`bad-image` (see "Magic marker") |
 | `POST api/transcribe` | `audio/wav` body → `{ text, ms }`; 503 `{ error: "no-stt" }` |
 | `POST api/tts` | `{ text }` (≤ 400 chars) → audio bytes (`audio/wav`, or the voice server's audio type); 503 `{ error: "no-tts" }` (off or unreachable), 504 `tts-timeout`, 502 `tts-failed` |
+| `POST api/report` | `{ kind: "headset"\|"client", user?, report: { … } }` (≤ 128 KB) → `{ saved: "<kind>-<YYYYMMDD-HHMMSS>-<user or ip>.json" }`, written owner-only to `<data>/reports/` and never overwritten (`bridge/check-headset-report.mjs` reads the headset ones); 400 `bad-kind`/`bad-report`, 413 `too-large` |
 | `GET api/parts` | → `{ parts: [ { name, aliases, category, desc, size, holdable, grip?, kind: "blueprint"\|"gltf"\|"module", url?, blueprint? } ] }` |
 | `GET api/parts/file/<path>` | parts-bin file (glb, gltf, bin, png, jpg, js, mjs, json) |
 | `POST api/parts/save` | `{ blueprint }` → `{ name }` (saved to `<parts>/generated/`) |

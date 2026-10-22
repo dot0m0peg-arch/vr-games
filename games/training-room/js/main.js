@@ -23,6 +23,7 @@ import { Share } from "./net/share.js";
 import { Room } from "./room.js";
 import { Runner } from "./runner.js";
 import { makeId } from "./util/ids.js";
+import { runSelfTest, summarize } from "./selftest.js";
 
 const STATE_KEY = "training-room:standalone-state";
 const KEY_KEY = "training-room:room-key";
@@ -315,7 +316,7 @@ xr.on("end", () => {
   interact.releaseAll();
   camera.position.set(0, 1.6, 0);
   camera.quaternion.identity();
-  ui.showLaunchAgain("Left VR. Your room is still here.");
+  ui.showLaunchAgain(selfTesting ? null : "Left VR. Your room is still here.");
 });
 xr.on("turn", () => interact.resetMotion());
 xr.on("teleport", () => interact.resetMotion());
@@ -491,6 +492,30 @@ function actingPoseFor(userId) {
   if (!head) return playerPose();
   return { user: userId, p: head.p, yaw: head.yaw, hands: { left: null, right: null } };
 }
+
+// ---------- headset check (js/selftest.js) ----------
+// Tap 1 ("prepare") runs on the flat page: mic prompt, Whisper, speech, bridge. Tap 2 ("vr") must
+// reach requestSession inside its own click, so nothing is awaited before runSelfTest, which enters
+// VR first, measures 10 s, exits and posts the report to the laptop.
+let selfTestReport = null;
+let selfTesting = false;
+ui.on("selftest", async ({ phase }) => {
+  if (selfTesting) return;
+  selfTesting = true;
+  try {
+    const report = await runSelfTest({
+      phase, report: selfTestReport, renderer, scene, camera, rig, xr, net, voice, build, field,
+      log: (text) => ui.setSelfTestBusy(text),
+    });
+    selfTestReport = report;
+    ui.showSelfTest(summarize(report), { canStartVR: report.xr.supported, saved: report.post?.posted ? report.post.saved : null, report });
+  } catch (err) {
+    ui.setSelfTestBusy(null);
+    ui.toast(`The check stopped: ${err.message || err}`, "error");
+  } finally {
+    selfTesting = false;
+  }
+});
 
 // ---------- laptop bridge ----------
 let lastUsers = [];
@@ -758,4 +783,4 @@ window.addEventListener("pagehide", () => net?.leave());
 start();
 
 // Debug handle for tests and the browser console.
-window.trainingRoom = { THREE, scene, camera, rig, renderer, room, runner, objects, voice, ui, hud, xr, field, interact, draw, get net() { return net; }, get me() { return me; }, playerPose };
+window.trainingRoom = { THREE, scene, camera, rig, renderer, room, runner, objects, voice, ui, hud, xr, field, interact, draw, get net() { return net; }, get selfTestReport() { return selfTestReport; }, get me() { return me; }, playerPose };

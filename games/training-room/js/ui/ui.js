@@ -3,7 +3,7 @@
 // Emits: enter-vr, play-flat, command (text), talk-down, talk-up, mic-mode (mode), undo, clear,
 // spawn (part), remove (id), share ("screen"|"camera"|"stop"), follow (bool), room-key (key),
 // time (value), settings (settings), marker (on), marker-color (hex), realize, guess, erase,
-// undo-stroke, sketch ({ lines, aspect, color, colors, realize }).
+// undo-stroke, sketch ({ lines, aspect, color, colors, realize }), selftest ({ phase: "prepare" | "vr" }).
 import { Emitter } from "../util/emitter.js";
 import qrcode from "../../vendor/qrcode.mjs";
 
@@ -24,6 +24,8 @@ const SKETCH_MAX_POINTS = 4000;
 const SKETCH_MIN_STEP2 = 2.25; // 1.5 px between kept points
 const SKETCH_PAPER = "#f3f1ea";
 const SKETCH_OUTSIDE = "#0b0e0c";
+const CHECK_ICON = { pass: "✓", fail: "✕", warn: "!", skip: "–" };
+const CHECK_WORD = { pass: "Pass", fail: "Fail", warn: "Warning", skip: "Skipped" };
 
 const ICON = {
   mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>',
@@ -276,6 +278,120 @@ export class UI extends Emitter {
       l.bridge.textContent = "Checking the key…";
       this.emit("room-key", key);
     });
+    this._buildSelfTest();
+  }
+
+  // Headset/device check in the "This device" card: tap 1 emits selftest { phase: "prepare" },
+  // "Start VR test" (tap 2) emits { phase: "vr" } so requestSession runs inside that tap.
+  _buildSelfTest() {
+    this._checkBusy = false;
+    this._checkReport = null;
+    const card = this.launch.root.querySelector(".tr-status-card");
+    if (!card) return;
+    const label = this.device === "headset" ? "Headset check" : "Device check";
+    const box = document.createElement("section");
+    box.className = "tr-selftest";
+    box.setAttribute("aria-label", label);
+    box.innerHTML = `
+      <button type="button" class="button tr-selftest-run" data-st="run" disabled>${label}</button>
+      <p class="tr-selftest-note">${this.device === "headset" ? "Tests the mic, Whisper, the laptop voice and the VR frame rate, then sends a report to the laptop." : "Tests the mic, voice and laptop bridge on this device. The full check runs in the headset."}</p>
+      <p class="tr-selftest-busy" data-st="busy" role="status" hidden></p>
+      <div class="tr-selftest-result" data-st="result" hidden>
+        <p class="tr-selftest-head" data-st="head" tabindex="-1"></p>
+        <ul class="tr-selftest-rows" data-st="rows"></ul>
+        <p class="tr-selftest-saved" data-st="saved" hidden></p>
+        <div class="tr-selftest-actions">
+          <button type="button" class="button primary" data-st="vr" hidden>Start VR test</button>
+          <button type="button" class="button" data-st="copy" disabled>Copy report</button>
+        </div>
+        <textarea class="tr-selftest-text" data-st="text" readonly aria-label="Report" hidden></textarea>
+      </div>`;
+    card.appendChild(box);
+    const c = {};
+    for (const node of box.querySelectorAll("[data-st]")) c[node.dataset.st] = node;
+    this._check = c;
+    c.run.addEventListener("click", () => this.emit("selftest", { phase: "prepare" }));
+    c.vr.addEventListener("click", () => this.emit("selftest", { phase: "vr" }));
+    c.copy.addEventListener("click", () => this._copyReport());
+  }
+
+  // rows: [{ name, status: "pass" | "fail" | "warn" | "skip", detail }] (selftest.js summarize).
+  // canStartVR shows "Start VR test"; saved: path string or true once the laptop stored the report;
+  // report: the object "Copy report" copies as JSON.
+  showSelfTest(rows, { canStartVR = false, saved = null, report = null } = {}) {
+    const c = this._check;
+    if (!c) return;
+    const list = Array.isArray(rows) ? rows : [];
+    const count = (status) => list.filter((row) => row.status === status).length;
+    const fails = count("fail");
+    const warns = count("warn");
+    const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    const vrDone = !!report?.xr?.sessionStarted;
+    c.head.textContent = (fails || warns ? [fails && plural(fails, "problem"), warns && plural(warns, "warning")].filter(Boolean).join(", ") + "." : "All checks passed.") +
+      (canStartVR && !vrDone ? " Next: Start VR test." : "");
+    c.head.dataset.status = fails ? "fail" : warns ? "warn" : "pass";
+    c.rows.replaceChildren(...list.map((row) => {
+      const status = CHECK_WORD[row.status] ? row.status : "skip";
+      const li = document.createElement("li");
+      li.className = `tr-ck tr-ck-${status}`;
+      const icon = span("tr-ck-icon", CHECK_ICON[status]);
+      icon.setAttribute("aria-hidden", "true");
+      const text = document.createElement("div");
+      text.append(span("tr-selftest-sr", `${CHECK_WORD[status]}: `), span("tr-ck-name", row.name || ""), span("tr-ck-detail", row.detail || ""));
+      li.append(icon, text);
+      return li;
+    }));
+    c.saved.hidden = !saved;
+    c.saved.textContent = typeof saved === "string" ? `Report saved on the laptop: ${saved}` : saved ? "Report saved on the laptop." : "";
+    c.vr.hidden = !canStartVR;
+    c.vr.textContent = vrDone ? "Run VR test again" : "Start VR test";
+    this._checkReport = report;
+    c.copy.disabled = !report;
+    c.text.hidden = true;
+    c.result.hidden = false;
+    this.setSelfTestBusy(null);
+    c.head.focus({ preventScroll: false });
+  }
+
+  // text: progress line while a check runs (buttons disabled); null when it is done.
+  setSelfTestBusy(text) {
+    const c = this._check;
+    if (!c) return;
+    this._checkBusy = !!text;
+    c.busy.hidden = !text;
+    c.busy.textContent = text || "";
+    c.vr.disabled = this._checkBusy;
+    this._syncLaunchButtons();
+  }
+
+  async _copyReport() {
+    const c = this._check;
+    if (!this._checkReport) return;
+    const json = JSON.stringify(this._checkReport, null, 2);
+    c.text.value = json;
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(json);
+      copied = true;
+    } catch {
+      // No async clipboard (http page, older browser): copy from the textarea instead.
+      c.text.hidden = false;
+      c.text.select();
+      try {
+        copied = document.execCommand("copy");
+      } catch {
+        copied = false;
+      }
+    }
+    if (copied) {
+      c.text.hidden = true;
+      this.toast("Report copied.");
+    } else {
+      c.text.hidden = false;
+      c.text.focus();
+      c.text.select();
+      this.toast("Copy the selected report text.", "warn");
+    }
   }
 
   showLaunch({ xr = false, bridge = { state: "none", info: null }, voice = { engine: "none" } } = {}) {
@@ -317,6 +433,7 @@ export class UI extends Emitter {
     const ready = this._launchReady && !this._loading;
     this.launch.enter.disabled = !ready || !this._launch.xr;
     this.launch.play.disabled = !ready;
+    if (this._check) this._check.run.disabled = !ready || this._checkBusy;
   }
 
   _setLaunchVisible(visible) {

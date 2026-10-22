@@ -119,13 +119,15 @@ function capsOf(name, caps) {
 
 // show: false answers /api/show with 404 (a server that cannot report capabilities).
 // refuseImages: models that answer 500 when a message carries images (a wrong name-based guess).
-export async function startFakeOllama({ models = ["llama3.2:3b", "nomic-embed-text:latest", "qwen2.5-coder:7b"], slowMs = 4000, show = true, caps = {}, refuseImages = [] } = {}) {
+// answers(command, model) → the reply object for a command, or undefined for the canned replies above.
+// delays: { model: ms } before each chat answer. version: what /api/version reports.
+export async function startFakeOllama({ models = ["llama3.2:3b", "nomic-embed-text:latest", "qwen2.5-coder:7b"], slowMs = 4000, show = true, caps = {}, refuseImages = [], answers = null, delays = {}, version = "0.40.1" } = {}) {
   const requests = [];
   const shows = [];
   const server = http.createServer(async (req, res) => {
     const body = await readAll(req);
     if (req.method === "GET" && req.url === "/api/tags") return json(res, 200, { models: models.map((name) => ({ name, model: name })) });
-    if (req.method === "GET" && req.url === "/api/version") return json(res, 200, { version: "0.40.1" });
+    if (req.method === "GET" && req.url === "/api/version") return json(res, 200, { version });
     if (req.method === "POST" && req.url === "/api/show") {
       if (!show) return json(res, 404, "404 page not found");
       const name = JSON.parse(body.toString("utf8") || "{}").model;
@@ -146,6 +148,9 @@ export async function startFakeOllama({ models = ["llama3.2:3b", "nomic-embed-te
       const { text: last, image } = lastUser(parsed);
       if (image && refuseImages.includes(parsed.model)) return json(res, 500, { error: `${parsed.model} does not support images` });
       const command = marker ? (last.match(/^Player's words: "(.*)"$/m) || [])[1] || "" : (last.match(/Command: "(.*)"$/m) || [])[1] || "";
+      if (delays[parsed.model]) await new Promise((resolve) => setTimeout(resolve, delays[parsed.model]));
+      const canned = !marker && answers ? answers(command, parsed.model) : undefined;
+      if (canned !== undefined) return json(res, 200, { model: parsed.model, message: { role: "assistant", content: JSON.stringify(canned) }, done: true });
       if (command.includes("slow")) {
         const timer = setTimeout(() => json(res, 200, { model: parsed.model, message: { role: "assistant", content: "{}" } }), slowMs);
         res.on("close", () => clearTimeout(timer));
@@ -270,3 +275,53 @@ export async function startFakePiper({ legacy = false, delayMs = 0, slowMs = 300
   const port = await listen(server);
   return { server, url: `http://127.0.0.1:${port}`, requests, audio, state };
 }
+
+// Model replies to the commands in model-eval.json, keyed by command text: a careful model answers
+// EVAL_ANSWERS; a sloppy one answers EVAL_WRONG where it has an entry (8 of 33 wrong).
+const spawn = (part, place, extra = {}) => ({ do: "spawn", what: { part }, ...(place ? { place } : {}), ...extra });
+const one = (intent, say = "Done.") => ({ intents: [intent], say });
+export const EVAL_ANSWERS = {
+  "AI, spawn a villa to my left": one(spawn("villa", { rel: "left" }), "A villa, on your left."),
+  "AI, spawn an axe in my hand": one(spawn("axe", { rel: "hand" }), "Axe in your hand."),
+  "AI, spawn a deck of playing cards on a card table": { intents: [spawn("card table", { rel: "front", dist: 1.5 }), spawn("deck of cards", { rel: "on", ref: { batch: 0 } })], say: "Cards on a card table." },
+  "spawn three crates in front of me": one(spawn("crate", { rel: "front" }, { count: 3 })),
+  "AI, summon two training dummies behind me": one(spawn("training dummy", { rel: "behind" }, { count: 2 })),
+  "give me a red sword in my left hand": one(spawn("sword", { rel: "hand", hand: "left" }, { color: "red" })),
+  "spawn a blue ball in front of me": one(spawn("ball", { rel: "front" }, { color: "blue" })),
+  "put a dagger in my right hand": one(spawn("dagger", { rel: "hand", hand: "right" })),
+  "spawn a tree 20 meters in front of me": one(spawn("tree", { rel: "front", dist: 20 })),
+  "put a monitor on the desk": one(spawn("monitor", { rel: "on", ref: { part: "desk" } })),
+  "spawn a lamp post next to the villa": one(spawn("lamp post", { rel: "next", ref: { part: "villa" } })),
+  "spawn a crate next to the barrel": one(spawn("crate", { rel: "next", ref: { part: "barrel" } })),
+  "remove the crate on my left": one({ do: "remove", target: { id: "o-crate-l" } }),
+  "get rid of all the crates": one({ do: "remove", target: { part: "crate", which: "all" } }),
+  "move the training dummy behind me": one({ do: "move", target: { part: "training dummy" }, place: { rel: "behind" } }),
+  "bring the barrel here": one({ do: "move", target: { part: "barrel" }, place: { rel: "here" } }),
+  "make the tree twice as big": one({ do: "scale", target: { part: "tree" }, factor: 2 }),
+  "paint the crate on my right green": one({ do: "color", target: { id: "o-crate-r" }, color: "green" }),
+  "hold the sword in my left hand": one({ do: "hold", target: { part: "sword" }, hand: "left" }),
+  "drop the axe": one({ do: "drop", hand: "right" }),
+  "write Q3 goals on the whiteboard": one({ do: "write", target: { part: "whiteboard" }, text: "Q3 goals" }),
+  "note: call the supplier": one({ do: "write", text: "call the supplier" }),
+  "deal five cards": one({ do: "deal", count: 5 }),
+  "undo": one({ do: "undo" }),
+  "undo the last two things": one({ do: "undo", count: 2 }),
+  "make it night": one({ do: "time", value: "night" }),
+  "AI, change the time to sunset": one({ do: "time", value: "sunset" }),
+  "spawn a dragon statue": one({ do: "spawn", what: { custom: TINY_DRAGON, label: "dragon statue" }, place: { rel: "front", dist: 6 } }),
+  "AI, make it real": one({ do: "realize" }),
+  "no, it's a gun": one({ do: "correct", label: "gun" }),
+  "make it fly": one({ do: "animate", target: { ref: "it" }, behavior: "fly" }),
+  "what is this?": one({ do: "guess" }),
+  "what should we name our new product?": { intents: [], say: "How about Meadow?" },
+};
+export const EVAL_WRONG = {
+  "AI, spawn a villa to my left": one(spawn("villa", { rel: "right" })),
+  "spawn three crates in front of me": one(spawn("crate", { rel: "front" }, { count: 2 })),
+  "spawn a blue ball in front of me": one(spawn("ball", { rel: "front" }, { color: "red" })),
+  "remove the crate on my left": one({ do: "remove", target: { id: "o-crate-r" } }),
+  "make the tree twice as big": one({ do: "scale", target: { part: "tree" }, factor: 0.5 }),
+  "make it night": one({ do: "time", value: "day" }),
+  "spawn a dragon statue": one(spawn("statue", { rel: "front" })),
+  "no, it's a gun": one({ do: "realize", hint: "gun" }),
+};

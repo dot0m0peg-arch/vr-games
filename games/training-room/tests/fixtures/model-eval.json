@@ -1,0 +1,71 @@
+{
+  "_doc": "Canonical voice commands for bridge/eval-model.mjs. The case and pattern format is explained at the top of that file. The player stands at the world origin looking toward -Z; scenes are room records that exist before the command.",
+  "version": 1,
+  "player": { "user": "u-eval", "p": [0, 1.6, 0], "yaw": 0, "hands": { "left": null, "right": null } },
+  "scenes": {
+    "yard": [
+      { "id": "o-crate-l", "part": "crate", "label": "crate", "p": [-3, 0, -3], "ry": 0, "s": 1, "by": "u-other", "t": 1700000000001 },
+      { "id": "o-crate-r", "part": "crate", "label": "crate", "p": [3, 0, -3], "ry": 0, "s": 1, "by": "u-other", "t": 1700000000002 },
+      { "id": "o-dummy", "part": "training dummy", "label": "training dummy", "p": [0, 0, -5], "ry": 0, "s": 1, "by": "u-other", "t": 1700000000003 },
+      { "id": "o-tree", "part": "tree", "label": "tree", "p": [6, 0, -12], "ry": 0, "s": 1, "by": "u-other", "t": 1700000000004 },
+      { "id": "o-villa", "part": "villa", "label": "villa", "p": [-22, 0, -14], "ry": 0.9, "s": 1, "by": "u-other", "t": 1700000000005 },
+      { "id": "o-barrel", "part": "barrel", "label": "barrel", "p": [2.5, 0, 3], "ry": 0, "s": 1, "by": "u-other", "t": 1700000000006 }
+    ],
+    "office": [
+      { "id": "o-desk", "part": "desk", "label": "desk", "p": [0, 0, -2], "ry": 0, "s": 1, "by": "u-other", "t": 1700000000001 },
+      { "id": "o-board", "part": "whiteboard", "label": "whiteboard", "p": [2.5, 0, -3], "ry": -0.7, "s": 1, "by": "u-other", "t": 1700000000002 },
+      { "id": "o-table", "part": "card table", "label": "card table", "p": [-2.5, 0, -2], "ry": 0.9, "s": 1, "by": "u-other", "t": 1700000000003 },
+      { "id": "o-deck", "part": "deck of cards", "label": "deck of cards", "p": [-2.5, 0.76, -2], "ry": 0.9, "s": 1, "onto": "o-table", "data": { "cards": ["AS", "2S", "3S", "4S", "5S", "6S", "7S", "8S", "9S", "TS", "JS", "QS", "KS", "AH", "2H", "3H", "4H", "5H", "6H", "7H"], "faceUp": false }, "by": "u-other", "t": 1700000000004 },
+      { "id": "o-sword", "part": "sword", "label": "sword", "p": [1.2, 0, -1.2], "ry": 0, "s": 1, "by": "u-other", "t": 1700000000005 }
+    ],
+    "holding": [
+      { "id": "o-crate", "part": "crate", "label": "crate", "p": [0, 0, -3], "ry": 0, "s": 1, "by": "u-other", "t": 1700000000001 },
+      { "id": "o-axe", "part": "axe", "label": "axe", "p": [0.2, 1.1, -0.5], "ry": 0, "s": 1, "attach": { "user": "u-eval", "hand": "right", "grip": "snap" }, "by": "u-eval", "t": 1700000000002 }
+    ],
+    "marker": [
+      { "id": "o-drawing", "part": "drawing", "label": "drawing", "p": [1.5, 1, -2], "ry": 0, "s": 1, "data": { "strokes": [{ "c": "#9b6bff", "w": 0.012, "pts": [0, 0, 0, 0.3, 0.2, 0, 0.6, 0, 0, 0.3, -0.2, 0, 0, 0, 0] }], "by": "u-eval" }, "by": "u-eval", "t": 1700000000001 },
+      { "id": "o-ball", "part": "ball", "label": "ball", "p": [0, 0, -2], "ry": 0, "s": 1, "by": "u-eval", "t": 1700000000002 }
+    ]
+  },
+  "cases": [
+    { "id": "owner-villa", "text": "AI, spawn a villa to my left", "expect": { "ops": [{ "t": "add", "part": "villa", "side": "left" }] } },
+    { "id": "owner-axe", "text": "AI, spawn an axe in my hand", "expect": { "ops": [{ "t": "add", "part": "axe", "held": { "$in": ["left", "right"] } }] } },
+    { "id": "owner-cards", "text": "AI, spawn a deck of playing cards on a card table", "expect": { "ops": [{ "t": "add", "part": "card table" }, { "t": "add", "part": "deck of cards", "onto": "card table" }] } },
+    { "id": "count-crates", "text": "spawn three crates in front of me", "expect": { "ops": [{ "t": "add", "part": "crate", "side": "front", "$n": 3 }] } },
+    { "id": "count-dummies", "text": "AI, summon two training dummies behind me", "expect": { "ops": [{ "t": "add", "part": "training dummy", "side": "behind", "$n": 2 }] } },
+    { "id": "color-hand-sword", "text": "give me a red sword in my left hand", "expect": { "ops": [{ "t": "add", "part": "sword", "held": "left", "color": "#d63a3a" }] } },
+    { "id": "color-ball", "text": "spawn a blue ball in front of me", "expect": { "ops": [{ "t": "add", "part": "ball", "side": "front", "color": "#2f6fd6" }] } },
+    { "id": "hand-dagger", "text": "put a dagger in my right hand", "expect": { "ops": [{ "t": "add", "part": "dagger", "held": "right" }] } },
+    { "id": "far-tree", "text": "spawn a tree 20 meters in front of me", "expect": { "ops": [{ "t": "add", "part": "tree", "side": "front", "dist": { "$gte": 15, "$lte": 25 } }] } },
+    { "id": "on-desk", "text": "put a monitor on the desk", "scene": "office", "expect": { "ops": [{ "t": "add", "part": "monitor", "onto": "desk" }] } },
+    { "id": "next-villa", "text": "spawn a lamp post next to the villa", "scene": "yard", "expect": { "ops": [{ "t": "add", "part": "lamp post", "near": "villa" }] } },
+    { "id": "next-barrel", "text": "spawn a crate next to the barrel", "scene": "yard", "expect": { "ops": [{ "t": "add", "part": "crate", "near": "barrel" }] } },
+    { "id": "remove-left", "text": "remove the crate on my left", "scene": "yard", "expect": { "ops": [{ "t": "del", "ids": ["o-crate-l"] }] } },
+    {
+      "id": "remove-all", "text": "get rid of all the crates", "scene": "yard",
+      "anyOf": [
+        { "ops": [{ "t": "del", "ids": ["o-crate-l", "o-crate-r"] }] },
+        { "ops": [{ "t": "del", "ids": ["o-crate-l"] }, { "t": "del", "ids": ["o-crate-r"] }] }
+      ]
+    },
+    { "id": "move-behind", "text": "move the training dummy behind me", "scene": "yard", "expect": { "ops": [{ "t": "set", "id": "o-dummy", "side": "behind" }] } },
+    { "id": "move-here", "text": "bring the barrel here", "scene": "yard", "expect": { "ops": [{ "t": "set", "id": "o-barrel", "dist": { "$lte": 3 } }] } },
+    { "id": "scale-tree", "text": "make the tree twice as big", "scene": "yard", "expect": { "ops": [{ "t": "set", "id": "o-tree", "s": 2 }] } },
+    { "id": "color-crate", "text": "paint the crate on my right green", "scene": "yard", "expect": { "ops": [{ "t": "set", "id": "o-crate-r", "color": "#3fa34d" }] } },
+    { "id": "hold-sword", "text": "hold the sword in my left hand", "scene": "office", "expect": { "ops": [{ "t": "set", "id": "o-sword", "held": "left" }] } },
+    { "id": "drop-axe", "text": "drop the axe", "scene": "holding", "expect": { "ops": [{ "t": "set", "id": "o-axe", "held": null }] } },
+    { "id": "write-board", "text": "write Q3 goals on the whiteboard", "scene": "office", "expect": { "ops": [{ "t": "set", "id": "o-board", "text": "Q3 goals" }] } },
+    { "id": "write-note", "text": "note: call the supplier", "expect": { "ops": [{ "t": "add", "part": "sticky note", "text": { "$re": "call the supplier" } }] } },
+    { "id": "deal", "text": "deal five cards", "scene": "office", "expect": { "ops": [{ "t": "set", "id": "o-deck" }, { "t": "add", "part": "playing card", "onto": "card table", "$n": 5 }] } },
+    { "id": "undo", "text": "undo", "expect": { "undo": 1, "ops": [] } },
+    { "id": "undo-two", "text": "undo the last two things", "expect": { "undo": 2, "ops": [] } },
+    { "id": "time-night", "text": "make it night", "expect": { "ops": [{ "t": "env", "time": "night" }] } },
+    { "id": "time-sunset", "text": "AI, change the time to sunset", "expect": { "ops": [{ "t": "env", "time": "sunset" }] } },
+    { "id": "custom-dragon", "text": "spawn a dragon statue", "expect": { "ops": [{ "t": "add", "custom": true, "label": { "$re": "dragon" } }] } },
+    { "id": "marker-real", "text": "AI, make it real", "scene": "marker", "expect": { "intents": [{ "do": "realize" }] } },
+    { "id": "marker-gun", "text": "no, it's a gun", "scene": "marker", "expect": { "intents": [{ "do": "correct", "label": { "$re": "^(a )?gun$" } }] } },
+    { "id": "marker-fly", "text": "make it fly", "scene": "marker", "expect": { "ops": [{ "t": "set", "id": "o-ball", "behavior": "fly" }] } },
+    { "id": "marker-guess", "text": "what is this?", "scene": "marker", "expect": { "intents": [{ "do": "guess" }] } },
+    { "id": "think-tank", "text": "what should we name our new product?", "expect": { "intents": [], "ops": [], "say": true } }
+  ]
+}
