@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Training Room laptop bridge (Node.js 20+, no npm packages).
+// Training Room laptop bridge (Node.js 20+, 22 LTS recommended; no npm packages).
 //
 // Serves the game to your headset, phone and laptop, keeps them in one shared room, sends voice
 // commands and magic-marker drawings to a local model (Ollama or any OpenAI-compatible server such
