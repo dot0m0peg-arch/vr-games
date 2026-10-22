@@ -188,6 +188,18 @@ describe("bridge units", () => {
     assert.equal(ensureCert(dir, { ips: ["127.0.0.1"] }).generated, true);
   });
 
+  it("ensureCert keeps earlier networks, so going back to a known Wi-Fi needs no new certificate", () => {
+    const dir = fs.mkdtempSync(path.join(tmpRoot, "cert-roam-"));
+    ensureCert(dir, { ips: ["127.0.0.1", "192.168.1.30"] });
+    const work = ensureCert(dir, { ips: ["127.0.0.1", "10.0.4.17"] });
+    assert.equal(work.generated, true);
+    const covered = certIPs(new crypto.X509Certificate(work.cert));
+    assert.ok(covered.includes("192.168.1.30") && covered.includes("10.0.4.17"), covered.join(","));
+    const home = ensureCert(dir, { ips: ["127.0.0.1", "192.168.1.30"] });
+    assert.equal(home.generated, false);
+    assert.equal(home.cert, work.cert);
+  });
+
   it("ensureCert does not regenerate for a changed VM/WSL adapter address", () => {
     const dir = fs.mkdtempSync(path.join(tmpRoot, "cert-vm-"));
     const first = ensureCert(dir, { ips: ["127.0.0.1", "192.168.1.30", "172.20.16.1"], required: ["127.0.0.1", "192.168.1.30"] });

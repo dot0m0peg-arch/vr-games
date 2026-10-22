@@ -202,3 +202,37 @@ test("wake → push while the mic is opening still releases it after the idle wi
   await sleep(80);
   assert.deepEqual([b.voice.mode, b.voice.micOpen], ["wake", true]);
 });
+
+test("wake mode switching from laptop Whisper to browser recognition releases the recording mic", async () => {
+  const ctx = makeCtx();
+  const streams = [];
+  const recognitions = [];
+  class FakeRecognition {
+    constructor() {
+      recognitions.push(this);
+    }
+    start() {}
+    stop() {}
+    abort() {}
+  }
+  const voice = new Voice({
+    transcribe: async () => ({ text: "" }),
+    getUserMedia: async () => {
+      const stream = new FakeStream();
+      streams.push(stream);
+      return stream;
+    },
+    AudioContextImpl: ctx.FakeCtx,
+    SpeechRecognitionImpl: FakeRecognition,
+  });
+  voice.setMode("wake");
+  await sleep(10);
+  assert.equal(voice.engine, "bridge");
+  assert.equal(liveTracks(streams), 1);
+  voice.setTranscriber(null);
+  await sleep(10);
+  assert.equal(voice.engine, "browser");
+  assert.equal(liveTracks(streams), 0, "the Whisper capture stream is stopped");
+  assert.ok(recognitions.length >= 1, "browser recognition took over");
+  voice.dispose();
+});

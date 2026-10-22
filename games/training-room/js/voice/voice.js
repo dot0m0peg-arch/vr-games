@@ -253,6 +253,8 @@ export class Voice extends Emitter {
       this._cancelPush();
       if (this._mode === "wake") {
         this._stopWake();
+        // The browser engine records on its own; drop the stream the bridge engine was using.
+        if (before === "bridge") this._releaseMic();
         this._startWake();
       } else if (before === "bridge") {
         this._releaseMic();

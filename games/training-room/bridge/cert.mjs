@@ -214,18 +214,23 @@ export function ensureCert(dataDir, { ips, required, names } = {}) {
   required = required || ips;
   const keyPath = path.join(dataDir, "key.pem");
   const certPath = path.join(dataDir, "cert.pem");
+  let previous = [];
   try {
     const key = fs.readFileSync(keyPath, "utf8");
     const cert = fs.readFileSync(certPath, "utf8");
     const x509 = new crypto.X509Certificate(cert);
     const valid = Date.parse(x509.validTo) > Date.now() + 24 * 3600 * 1000 && Date.parse(x509.validFrom) <= Date.now();
     const covered = certIPs(x509);
+    previous = covered;
     if (valid && required.every((ip) => covered.includes(ip)) && x509.checkPrivateKey(crypto.createPrivateKey(key))) {
       return { key, cert, generated: false, ips: covered };
     }
   } catch {
     // Missing or unreadable: make a new one below.
   }
+  // Keep the addresses the old certificate covered (home and work Wi-Fi), so moving back to a
+  // known network does not force a new certificate and another browser warning.
+  ips = [...new Set([...ips, ...previous])].slice(0, 32);
   const fresh = generateCert({ names, ips });
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(keyPath, fresh.key, { mode: 0o600 });
