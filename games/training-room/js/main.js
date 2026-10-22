@@ -220,6 +220,7 @@ function updateDrawingAvailable() {
 // ---------- commands, replies ----------
 const runner = new Runner({ room, send, getNet: () => net, getPlayer: actingPose, getUser: () => me.id, settings, getDraw: () => draw });
 let summonHandle = null;
+let speakSeq = 0;
 runner.on("thinking", () => {
   const pose = playerPose();
   const ahead = new THREE.Vector3(pose.p[0] - Math.sin(pose.yaw) * 2.2, 0, pose.p[2] - Math.cos(pose.yaw) * 2.2);
@@ -237,8 +238,12 @@ runner.on("reply", ({ text, source, speak: spoken }) => {
   hud.setReply(text, { source });
   if (net?.connected) net.sendSay(text);
   if (spoken && settings().speak && canSpeak()) {
+    // Only the latest reply clears "speaking": a newer reply cancels the older one first.
+    const n = ++speakSeq;
     voice.setSpeaking(true);
-    speak(text).finally(() => voice.setSpeaking(false));
+    speak(text).finally(() => {
+      if (n === speakSeq) voice.setSpeaking(false);
+    });
   }
 });
 runner.on("parts-changed", () => ui.setParts(allMeta()));
@@ -431,7 +436,11 @@ ui.on("time", (value) => runner.exec([{ do: "time", value }], { label: "time" })
 ui.on("follow", (on) => {
   following = !!on;
   const target = headsetUser();
-  touch.setFollow(on && target ? () => avatars.headPose(target.id) : null);
+  // Resolve the headset player every frame: they may rejoin with a new id.
+  touch.setFollow(on && target ? () => {
+    const current = headsetUser();
+    return current ? avatars.headPose(current.id) : null;
+  } : null);
   ui.setFollow(following && !!target);
 });
 ui.on("share", async (kind) => {
@@ -514,17 +523,15 @@ async function connectBridge(key = null) {
   me = { ...me, ...joined.user };
   placeAtSpawn();
   room.load(joined.state);
+  // Undo steps from before joining belong to a different room.
+  runner.history.length = 0;
+  runner.lastIds = [];
   setUsers(joined.users || []);
   share = new Share({ net });
   share.on("ended", (stream, info) => {
     if (info?.local) ui.setShare({ active: false });
   });
-  runner.modelAvailable = !!bridgeInfo.model?.available;
-  // The headset browser may have no speech voices; the laptop can speak for it.
-  setSpeechSource(bridgeInfo.tts?.available ? (text) => net.tts(text) : null);
-  if (bridgeInfo.stt?.available) voice.setTranscriber((blob) => net.transcribe(blob));
-  ui.setConnection({ state: "online", model: bridgeInfo.model, stt: bridgeInfo.stt, url: joinUrl(), users: lastUsers });
-  hud.setConnection?.({ state: "online", model: bridgeInfo.model });
+  applyBridgeInfo(bridgeInfo);
   if (device === "desktop") ui.showJoinQR(joinUrl());
   loadLaptopParts(true);
   return true;
@@ -550,6 +557,29 @@ function placeAtSpawn() {
   rig.rotation.y = Math.atan2(x, z);
 }
 
+// Model, Whisper and laptop voice can start after the page loaded (or restart): re-read hello.
+function applyBridgeInfo(info) {
+  if (!info || !net) return;
+  bridgeInfo = info;
+  runner.modelAvailable = !!info.model?.available;
+  // The headset browser may have no speech voices; the laptop can speak for it.
+  setSpeechSource(info.tts?.available ? (text) => net.tts(text) : null);
+  voice.setTranscriber(info.stt?.available ? (blob) => net.transcribe(blob) : null);
+  ui.setConnection({ state: "online", model: info.model, stt: info.stt, url: joinUrl(), users: lastUsers });
+  hud.setConnection?.({ state: "online", model: info.model });
+}
+
+async function refreshBridgeInfo() {
+  if (!net?.connected) return;
+  try {
+    const probe = await Net.probe(apiBase(), net.key);
+    if (probe.bridge && probe.auth) applyBridgeInfo(probe.info);
+  } catch {
+    // Offline for a moment; the next refresh or reconnect tries again.
+  }
+}
+setInterval(refreshBridgeInfo, 30000);
+
 function joinUrl() {
   const lan = bridgeInfo?.lan?.[0];
   if (!lan) return null;
@@ -561,7 +591,13 @@ function setUsers(users) {
   lastUsers = users;
   avatars.setUsers(users);
   ui.setUsers(users);
-  ui.setFollowAvailable(!!headsetUser());
+  const headset = headsetUser();
+  ui.setFollowAvailable(!!headset);
+  if (following && !headset) {
+    following = false;
+    touch.setFollow(null);
+    ui.setFollow(false);
+  }
 }
 
 function wireNet(client) {
@@ -583,10 +619,14 @@ function wireNet(client) {
   client.on("rejoined", ({ state, user }) => {
     if (user) me = { ...me, ...user };
     room.load(state);
+    refreshBridgeInfo();
   });
   client.on("status", (status) => {
     if (status === "offline") ui.setConnection({ state: "offline" });
-    if (status === "online") ui.setConnection({ state: "online", model: bridgeInfo?.model, stt: bridgeInfo?.stt, url: joinUrl(), users: lastUsers });
+    if (status === "online") {
+      ui.setConnection({ state: "online", model: bridgeInfo?.model, stt: bridgeInfo?.stt, url: joinUrl(), users: lastUsers });
+      refreshBridgeInfo();
+    }
   });
 }
 
@@ -640,6 +680,21 @@ async function start() {
   ui.showLaunch(launchInfo({ state: online ? "online" : bridgeInfo ? "needs-key" : "none", info: bridgeInfo }));
 }
 
+// Hover highlight: raycasting dense meshes every frame is costly on a Quest, so only re-pick when
+// the laser moved a little or the room changed.
+const lastHover = { origin: new THREE.Vector3(Infinity, 0, 0), dir: new THREE.Vector3(), id: null, version: -1 };
+let roomVersion = 0;
+room.on("change", () => roomVersion++);
+function hoverPick(ray) {
+  const still = ray.ray.origin.distanceToSquared(lastHover.origin) < 9e-6 && ray.ray.direction.dot(lastHover.dir) > 0.99999;
+  if (still && lastHover.version === roomVersion) return lastHover.id;
+  lastHover.origin.copy(ray.ray.origin);
+  lastHover.dir.copy(ray.ray.direction);
+  lastHover.version = roomVersion;
+  lastHover.id = objects.pick(ray, { skipDrawings: true })?.id || null;
+  return lastHover.id;
+}
+
 // ---------- frame loop ----------
 const headWorld = new THREE.Vector3();
 let poseTimer = 0;
@@ -679,7 +734,7 @@ renderer.setAnimationLoop(() => {
   }
 
   if (xr.presenting && xr.rayFrom("right", raycaster)) {
-    if (!hud.hover(raycaster)) objects.setHighlight(interact.held("right") ? null : objects.pick(raycaster)?.id || null);
+    if (!hud.hover(raycaster)) objects.setHighlight(interact.held("right") ? null : hoverPick(raycaster));
   }
 
   poseTimer += dt;

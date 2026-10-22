@@ -9,7 +9,7 @@ import { summarize } from "./core/room-state.js";
 import { allMeta, getMeta, registerMeta } from "./parts/meta/index.js";
 import { metaOfRecord, sizeOfRecord, registerBuilder } from "./parts/build/index.js";
 import { buildBlueprint } from "./parts/build/blueprint.js";
-import { matchPart } from "./core/lexicon.js";
+import { matchPart, normalizeText } from "./core/lexicon.js";
 import { classifySketch, projectStrokes, sketchBounds } from "./core/sketch.js";
 import { WAKE_WORDS } from "./config.js";
 
@@ -31,6 +31,14 @@ function behaviorFor(name) {
   const text = String(name || "").toLowerCase();
   for (const [kind, re] of BEHAVIOR_WORDS) if (re.test(text)) return kind;
   return "none";
+}
+
+// Catalog part for a free-form name, only when the name's head noun is an exact catalog match
+// ("dragon statue" is not a statue, "horse" is not a house).
+function headPart(text) {
+  const hit = matchPart(text, allMeta());
+  const words = normalizeText(text).split(" ").filter(Boolean).length;
+  return hit && hit.end === words && hit.score >= 0.95 ? hit.name : "";
 }
 
 function withArticle(noun) {
@@ -98,7 +106,6 @@ export class Runner extends Emitter {
         }
       } catch (err) {
         console.warn("[runner] model failed, using parser", err);
-        if (err.code === "no-model") this.modelAvailable = false;
         say = parsed.say ? [parsed.say] : [];
         if (!parsed.intents.length) say.push(`The local model did not answer (${err.code || err.message}).`);
       } finally {
@@ -125,6 +132,13 @@ export class Runner extends Emitter {
     const pose = player || this.getPlayer();
     const user = pose.user || this.getUser();
     intents = intents.map((intent) => this.resolveRefs(intent));
+    // An untargeted erase means this device's latest drawing, like "make it real" does.
+    const draw = this.getDraw();
+    intents = intents.map((intent) => {
+      if (intent.do !== "erase" || intent.target || !draw) return intent;
+      const drawing = draw.latestDrawing(this.getUser(), pose) || draw.latestDrawing(pose.user, pose);
+      return drawing ? { ...intent, target: { id: drawing.id } } : intent;
+    });
     const plan = planIntents(intents, {
       state: this.room.state,
       player: pose,
@@ -171,7 +185,7 @@ export class Runner extends Emitter {
     let guess = null;
     let source = "sketch";
     if (intent.hint) {
-      guess = { guess: intent.hint, part: matchPart(intent.hint, allMeta())?.name || "", confidence: 1, behavior: behaviorFor(intent.hint), say: `${withArticle(intent.hint)}, coming right up.` };
+      guess = { guess: intent.hint, part: headPart(intent.hint), confidence: 1, behavior: behaviorFor(intent.hint), say: `${withArticle(intent.hint)}, coming right up.` };
     } else {
       const net = this.getNet();
       if (this.modelAvailable && net?.connected && net.interpret) {
@@ -208,7 +222,7 @@ export class Runner extends Emitter {
     const y = floating ? Math.max(0.3, center[1] - bounds.size[1] / 2) : 0;
     const drawnSize = Math.max(bounds.size[0], bounds.size[1], 0.2);
     const label = String(guess.guess || "doodle").slice(0, 60);
-    const part = getMeta(guess.part) ? guess.part : matchPart(label, allMeta())?.name || "";
+    const part = getMeta(guess.part) ? guess.part : guess.blueprint?.parts?.length ? "" : headPart(label);
     const decorate = (op) => {
       if (op.t !== "add") return;
       op.obj.label = label;
@@ -254,7 +268,7 @@ export class Runner extends Emitter {
     }
     const name = String(label || "").trim();
     const behavior = behaviorFor(name);
-    const part = matchPart(name, allMeta())?.name || "";
+    const part = headPart(name);
     const at = { rel: "at", p: [prev.p[0], FLOATERS.has(behavior) ? Math.max(0.3, prev.p[1]) : 0, prev.p[2]] };
     const decorate = (op) => {
       if (op.t !== "add") return;
@@ -284,7 +298,8 @@ export class Runner extends Emitter {
     const result = this.exec([{ do: "remove", target: { id: prev.id } }, spawn], { label: `it's ${name}`, source: "correction", decorate });
     const added = result.ops.find((op) => op.t === "add");
     if (added) this.lastRealized = { ...this.lastRealized, id: added.obj.id, guess: name };
-    this.reply(`Oh, ${withArticle(name)}! My mistake.`, "correction");
+    // Without the model, unknown names become a labelled crate; say so instead of pretending.
+    this.reply(result.say.length ? result.say.join(" ") : `Oh, ${withArticle(name)}! My mistake.`, "correction");
     return result;
   }
 
