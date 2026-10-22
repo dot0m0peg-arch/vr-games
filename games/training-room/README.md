@@ -151,6 +151,29 @@ test**) enters VR with a test scene, measures the frame rate for 10 s, exits by 
 report to the laptop (`reports/headset-*.json` in the bridge data folder). The result list stays on
 screen and **Copy report** works without the bridge. `check-headset-report.mjs` above grades it.
 
+## Kingdom mode
+
+Kingdom mode turns the field into a realm you rule in person. Tick **Kingdom mode** on the start
+screen (or in Menu → Settings), or open `games/training-room/?mode=kingdom`. Each device chooses
+its own mode; buildings are ordinary parts, so everyone in a shared room sees them.
+
+- **Three advisors walk beside you:** the Master Builder on your left, the Lord Steward on your
+  right and the Marshal behind him. Talk to one by title: **"Builder, build a house right here."**
+  Their titles also work as wake words in wake mode.
+- **Point to place.** In VR the right-hand laser reaches 40 m and a gold ring marks the ground spot;
+  on a laptop it is the center of the view. "Here", "right here" and "over there" put the building
+  on that ring (pushed clear of you and of other buildings).
+- **Kingdom buildings:** castle, farm field, market stall, blacksmith, chapel, tavern and peasant,
+  plus the existing house, cabin, wall, tower, well, windmill, barn and siege weapons.
+- **Ask about the realm:** "Steward, how is the kingdom?", "how much gold do we have?", "is there
+  enough food?", "Marshal, how are our defenses?", "Builder, what should we build next?" The answer
+  is worked out from the buildings in the field: homes, food, gold, defense and faith.
+- **Villagers** (up to 10) wander between your buildings as the realm grows, and a peasant you
+  summon walks about on its own.
+
+There is no money to spend and nothing to lose yet: it is a sandbox with advice, not a strategy
+game. Advisors and villagers are drawn on each device and are not synced.
+
 ## Magic marker
 
 Draw in the air, on a laptop sheet or on the phone, then say **"make it real"**. The model guesses
@@ -198,11 +221,12 @@ In loud places push-to-talk works best: the mic only listens while you hold the 
 - **Office:** "spawn a whiteboard", "write Q3 goals on the whiteboard", "note: call the supplier"
 - **Cards:** "deal five cards", "shuffle the deck", "flip the cards"
 - **Combat:** "spawn a training dummy", "give me the battle axe", then swing; hits are counted
+- **Kingdom mode:** "Builder, build a castle over there", "Builder, build a farm right here", "Steward, how is the kingdom?"
 - **Room:** "undo", "remove that", "clear everything", "make it night" (or sunset, dawn, day)
 
 ## Files
 
 [ARCHITECTURE.md](ARCHITECTURE.md) has the module contract and the bridge API. To run the tests
 (Node 22+, no install): `node --test games/training-room/tests/*.test.mjs`. three.js r185 (MIT) and
-qrcode-generator (MIT) are vendored in `vendor/`. All 119 parts are original procedural geometry
+qrcode-generator (MIT) are vendored in `vendor/`. All 126 parts are original procedural geometry
 made for this game.

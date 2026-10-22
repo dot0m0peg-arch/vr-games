@@ -8,7 +8,7 @@ import { measure } from "../js/parts/build/kit.js";
 // PARTS_CATEGORY=combat,leisure limits the per-part checks while categories are being written.
 const only = (process.env.PARTS_CATEGORY || "").split(",").filter(Boolean);
 const metas = allMeta().filter((m) => !only.length || only.includes(m.category));
-const CATEGORIES = new Set(["structures", "nature", "office", "leisure", "combat"]);
+const CATEGORIES = new Set(["structures", "nature", "office", "leisure", "combat", "kingdom"]);
 
 test("catalog entries are well formed and names/aliases do not collide", () => {
   const seen = new Map();

@@ -477,7 +477,8 @@ function parsePlacement(w, i, st) {
     return { place: { rel: "front", dist: 1.5 }, end: w[i + 1] === "to" ? i + 2 : i + 1 };
   }
   if ((e = seq(w, i, "on the ground|floor|grass")) >= 0) return { place: null, end: e };
-  if ((e = seq(w, i, "over|out there")) >= 0 || (e = seq(w, i, "there")) >= 0) return { place: { rel: "front", dist: 6 }, end: e };
+  // point: Kingdom mode puts "over there" where the player points, when they point at the ground.
+  if ((e = seq(w, i, "over|out there")) >= 0 || (e = seq(w, i, "there")) >= 0) return { place: { rel: "front", dist: 6, point: true }, end: e };
   // Relations to other objects.
   for (const pat of ["on|upon top of", "on to", "up on|onto", "top of", "on|onto|atop|upon"]) {
     if ((e = seq(w, i, pat)) < 0) continue;

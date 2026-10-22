@@ -175,6 +175,13 @@ function handPose(player, hand) {
   return h && Array.isArray(h.p) ? h.p : null;
 }
 
+// A pointed-at ground spot within reach, or null.
+const AIM_RANGE = 150;
+function aimPoint(aim, head) {
+  if (!Array.isArray(aim) || aim.length < 3 || !aim.every(Number.isFinite)) return null;
+  return Math.hypot(aim[0] - head[0], aim[2] - head[2]) <= AIM_RANGE ? aim : null;
+}
+
 // → { p, ry, attach?, onto? }. See ARCHITECTURE.md "Placement".
 export function resolvePlacement(place, ctx = {}) {
   const pl = place && typeof place === "object" ? place : {};
@@ -189,6 +196,19 @@ export function resolvePlacement(place, ctx = {}) {
   const right = rightOf(yaw);
   const userDist = typeof pl.dist === "number" && Number.isFinite(pl.dist) && pl.dist > 0 ? Math.min(pl.dist, 2000) : null;
   const rel = pl.rel || "front";
+
+  // Kingdom mode sends the ground point under the player's pointer ("build a house right here").
+  const aim = aimPoint(player.aim, head);
+  if (aim && (rel === "here" || (rel === "front" && pl.point === true))) {
+    const dx = aim[0] - head[0];
+    const dz = aim[2] - head[2];
+    const len = Math.hypot(dx, dz);
+    const dir = len > 0.05 ? [dx / len, 0, dz / len] : fwd;
+    const need = radius + GAP;
+    const p = len < need ? [head[0] + dir[0] * need, 0, head[2] + dir[2] * need] : [aim[0], 0, aim[2]];
+    avoid(p, dir, radius, obstacles({ ...ctx, exclude }, sizeOf));
+    return { p: round3(p), ry: r4(faceYaw(p, head)) };
+  }
 
   const ground = (dir, dist) => {
     const p = [head[0] + dir[0] * dist, 0, head[2] + dir[2] * dist];

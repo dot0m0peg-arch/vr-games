@@ -5,12 +5,13 @@ import { builders as nature } from "./nature.js";
 import { builders as office } from "./office.js";
 import { builders as leisure } from "./leisure.js";
 import { builders as combat } from "./combat.js";
+import { builders as kingdom } from "./kingdom.js";
 import { builders as sketch } from "./sketch.js";
 import { buildBlueprint } from "./blueprint.js";
 import { getMeta } from "../meta/index.js";
 import { sketchBounds } from "../../core/sketch.js";
 
-const registry = new Map(Object.entries({ ...structures, ...nature, ...office, ...leisure, ...combat, ...sketch }));
+const registry = new Map(Object.entries({ ...structures, ...nature, ...office, ...leisure, ...combat, ...kingdom, ...sketch }));
 
 export function registerBuilder(name, fn) {
   registry.set(String(name).toLowerCase(), fn);

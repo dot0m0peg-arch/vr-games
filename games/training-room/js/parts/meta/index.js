@@ -5,8 +5,9 @@ import { metas as nature } from "./nature.js";
 import { metas as office } from "./office.js";
 import { metas as leisure } from "./leisure.js";
 import { metas as combat } from "./combat.js";
+import { metas as kingdom } from "./kingdom.js";
 
-export const BUILTIN = [...structures, ...nature, ...office, ...leisure, ...combat];
+export const BUILTIN = [...structures, ...nature, ...office, ...leisure, ...combat, ...kingdom];
 
 const registry = new Map();
 for (const meta of BUILTIN) registry.set(meta.name, { ...meta, source: "builtin" });
