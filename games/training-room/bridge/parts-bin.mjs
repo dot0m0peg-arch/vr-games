@@ -5,7 +5,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { Emitter } from "../js/util/emitter.js";
-import { normalizeBlueprint } from "../js/core/blueprint.js";
+import { normalizeBlueprint, slug } from "../js/core/blueprint.js";
 import { safeSegments, mimeOf } from "./static.mjs";
 
 export const FILE_TYPES = new Set(["glb", "gltf", "bin", "png", "jpg", "jpeg", "webp", "ktx2", "js", "mjs", "json"]);
@@ -42,10 +42,6 @@ every few seconds; reload the game to pick up new parts. Spoken names are the fi
 
 function nameFromFile(file) {
   return path.basename(file).replace(/\.(part\.json|json|glb|gltf|mjs|js)$/i, "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-export function slugify(text) {
-  return String(text || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "blueprint";
 }
 
 const finite = (n) => typeof n === "number" && Number.isFinite(n);
@@ -370,10 +366,10 @@ export class PartsBin extends Emitter {
     bp.name = name;
     const folder = path.join(this.primary, "generated");
     await fsp.mkdir(folder, { recursive: true });
-    const slug = slugify(name);
+    const base = slug(name);
     const body = JSON.stringify(bp, null, 2) + "\n";
     for (let n = 1; n < 1000; n++) {
-      const file = path.join(folder, n === 1 ? `${slug}.json` : `${slug}-${n}.json`);
+      const file = path.join(folder, n === 1 ? `${base}.json` : `${base}-${n}.json`);
       try {
         await fsp.writeFile(file, body, { flag: "wx" });
         await this.scan();

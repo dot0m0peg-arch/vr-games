@@ -214,3 +214,68 @@ Desktop: click to look (pointer lock), WASD/arrows move, Shift sprint, **hold V 
 
 Phone companion: big hold-to-talk button, mute switch, command box, parts chips, object list,
 drag to look, follow-headset camera, share camera.
+
+## Magic marker (sketch → AI guess → it comes alive)
+
+Inspired by Harold and the Purple Crayon and ChalkZone. The player draws; the model guesses what
+the drawing is and makes it real where it was drawn, then it comes alive. Misreads are part of
+the fun ("that's clearly a fish"); "no, it's a gun" corrects it.
+
+### Records and parts
+
+- `marker` (catalog, office): holdable, `marker: true`, built upright with the nib on top,
+  `grip.r = [-90, 0, 0]`, `tip` at the nib. While a hand holds a marker, its trigger draws.
+- `drawing` (not in the catalog; special builder): `p` = frame origin (world, where the drawing
+  started), `ry` = yaw the drawing faces (toward the person drawing).
+  `data = { strokes: [ { c: "#9b6bff", w: 0.012, pts: [x, y, z, x, y, z, …] } ], by }` with points in
+  drawing-local meters (x right, y up, z toward the drawer), rounded to 5 mm, ≤ 6000 points total.
+- `doodle` (not in the catalog; special builder): the drawing made solid when nothing better is
+  known. Same `data.strokes`; closed strokes become extruded colored cut-outs, open strokes thick tubes.
+- Any record may carry `data.behavior = { kind, speed }` with kind one of
+  `swim | fly | walk | hop | roll | spin | float | bounce | sway | none`. The 3D layer animates the
+  inner object around the record pose every frame (deterministic from time + id, no network
+  traffic) and skips it while the object is held.
+
+### Intents
+
+```js
+{ do: "realize", target?, hint? }        // "AI, make it real", "bring it to life", "make it a fish" (hint)
+{ do: "guess", target? }                 // "what is this?" → say only
+{ do: "correct", label, target? }        // "no, it's a gun" → replace the last realized thing in place
+{ do: "animate", target, behavior }      // "make it fly", "make the dog walk", "stop moving" (none)
+{ do: "erase", target? }                 // "erase the drawing", "wipe it"
+```
+
+Default target for realize/guess/erase: the nearest `drawing` within 15 m, preferring the most
+recent one by this user.
+
+### Pure helpers (`js/core/sketch.js`)
+
+`simplifyStroke(flatPts, epsilon)`, `quantize(flatPts, step)`, `sketchBounds(strokes)` →
+`{ min, max, size, center }`, `projectStrokes(strokes)` → 2D polylines in the drawing plane,
+`asciiArt(strokes2d, cols = 40, rows = 20)`, `sketchStats(strokes)` →
+`{ strokes, points, closed, aspect, width, height }`, `classifySketch(strokes2d)` →
+`{ guess, part, confidence, behavior }` (offline heuristic: circle → ball, box → crate,
+triangle → tent, triangle over box → house, long line → staff, otherwise null),
+`limitStrokes(strokes, maxPoints)`.
+
+### Bridge
+
+`POST api/interpret { image?: "data:image/png;base64,…", ascii, stats, size: [w, h], hint?, parts? }` →
+`{ guess, confidence, part, blueprint?, behavior, say, source: "model", model, vision: bool, ms }`.
+Uses a vision model when one is installed (Ollama `/api/show` capabilities include "vision", or
+`config.visionModel`; Ollama messages carry `images: [base64]`, OpenAI-compatible servers get
+`image_url` content parts). Otherwise the text model receives the ASCII rendering and stats.
+503 `{ error: "no-model" }` when no model is reachable.
+
+### Input
+
+- VR: hold a marker (spawn with "AI, give me a marker" or the HUD menu "Marker"); trigger draws from
+  the marker tip. Release ends the stroke. Strokes within 2 m of an open drawing (yours, < 60 s
+  since its last stroke) join it.
+- Desktop: **F** toggles marker mode (pointer lock released, a faint drawing sheet appears 2.5 m
+  ahead); left-drag draws on it.
+- Phone: **Draw** opens a full-screen sketch pad (finger drawing, colors, undo stroke, clear,
+  "Send", "Make it real"); the sketch appears 2 m wide in front of the acting player (the headset
+  player when one is connected).
+- The live stroke is drawn locally every frame; the bridge receives one op per finished stroke.

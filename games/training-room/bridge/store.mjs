@@ -22,23 +22,15 @@ export class BridgeError extends Error {
   }
 }
 
-// validateOp may return true/false, { ok, error }, an error string or throw; normalize all of them.
+// Strict network sanitizer from room-state: → { ok, op (sanitized copy), error }.
 export function checkOp(op) {
-  if (!op || typeof op !== "object" || Array.isArray(op)) return { ok: false, error: "op must be an object" };
-  let result;
+  if (!op || typeof op !== "object" || Array.isArray(op)) return { ok: false, op: null, error: "op must be an object" };
   try {
-    result = validateOp(op);
+    const result = validateOp(op);
+    return result?.ok ? { ok: true, op: result.op || op, error: null } : { ok: false, op: null, error: String(result?.error || "invalid op") };
   } catch (err) {
-    return { ok: false, error: err?.message || "invalid op" };
+    return { ok: false, op: null, error: err?.message || "invalid op" };
   }
-  if (result === true || result === undefined || result === null) return { ok: true };
-  if (result === false) return { ok: false, error: "invalid op" };
-  if (typeof result === "string") return { ok: false, error: result };
-  if (typeof result === "object") {
-    const ok = "ok" in result ? !!result.ok : "valid" in result ? !!result.valid : !result.error;
-    return { ok, error: ok ? undefined : String(result.error || result.reason || "invalid op") };
-  }
-  return { ok: !!result };
 }
 
 const finite = (n) => typeof n === "number" && Number.isFinite(n);
@@ -112,7 +104,7 @@ export class RoomStore extends Emitter {
     try {
       const json = JSON.parse(fs.readFileSync(this.file, "utf8"));
       this.state = loadState(json.state ?? json);
-      this.seq = Number.isInteger(json.seq) && json.seq >= 0 ? json.seq : 0;
+      this.seq = Number.isInteger(json.seq) && json.seq >= 0 ? json.seq : this.state.seq || 0;
       return true;
     } catch (err) {
       const aside = `${this.file}.corrupt-${Date.now()}`;
@@ -289,7 +281,8 @@ export class RoomStore extends Emitter {
       }
       p[1] = 0;
       try {
-        this.commit({ t: "set", id: record.id, patch: { attach: null, p }, uid: makeId("b"), by: "bridge" });
+        const check = checkOp({ t: "set", id: record.id, patch: { attach: null, p }, uid: makeId("b"), by: "bridge" });
+        if (check.ok) this.commit(check.op);
       } catch (err) {
         this.log.warn?.(`[room] could not drop ${record.id}: ${err.message}`);
       }
@@ -301,9 +294,9 @@ export class RoomStore extends Emitter {
     this.requireUser(userId);
     const check = checkOp(op);
     if (!check.ok) throw new BridgeError(400, { error: "bad-op", detail: check.error });
-    op.by = userId;
-    if (typeof op.uid !== "string" || !op.uid) op.uid = makeId("p");
-    return { seq: this.commit(op) };
+    const safe = { ...check.op, by: userId };
+    if (!safe.uid) safe.uid = makeId("p");
+    return { seq: this.commit(safe) };
   }
 
   commit(op) {
@@ -313,6 +306,7 @@ export class RoomStore extends Emitter {
       throw new BridgeError(400, { error: "bad-op", detail: err?.message || "op could not be applied" });
     }
     this.seq++;
+    this.state.seq = this.seq;
     const entry = { seq: this.seq, op };
     this.ring.push(entry);
     if (this.ring.length > RING_SIZE) this.ring.shift();
