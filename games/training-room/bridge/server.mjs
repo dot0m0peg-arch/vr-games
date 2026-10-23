@@ -254,7 +254,7 @@ export async function createBridge(options = {}) {
   const loaded = store.load();
   const bin = new PartsBin({ dirs: [partsPrimary, ...extraDirs], roomKey: config.roomKey, log, scanMs: options.scanMs || 10000 });
   bin.ensurePrimary();
-  const model = new LocalModel(config, { log, fetchImpl: options.fetchImpl, timeoutMs: options.modelTimeoutMs || 25000, visionTimeoutMs: options.visionTimeoutMs || 45000 });
+  const model = new LocalModel(config, { log, fetchImpl: options.fetchImpl, timeoutMs: options.modelTimeoutMs || config.modelTimeoutSec * 1000, visionTimeoutMs: options.visionTimeoutMs || config.visionTimeoutSec * 1000 });
   const stt = new SpeechToText(config, { log, fetchImpl: options.fetchImpl });
   const tts = new TextToSpeech(config, { log, fetchImpl: options.fetchImpl, timeoutMs: options.ttsTimeoutMs || 20000 });
   const statics = createStatic({ root: options.root || REPO_ROOT });
@@ -344,6 +344,9 @@ export async function createBridge(options = {}) {
         tts: authed ? tts0 : { available: tts0.available, kind: tts0.kind },
         parts: { count: bin.count },
         lan: lanUrls(),
+        // Devices skip the model for commands their parser understands and wait as long as the model may take.
+        parserFirst: config.parserFirst,
+        timeouts: { model: model.timeoutMs, vision: model.visionTimeoutMs },
       };
       if (authed) {
         body.key = config.roomKey;

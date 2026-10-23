@@ -82,6 +82,12 @@ dragon statue"); designs are saved to the parts bin and reused. Model output is 
 For LM Studio set `"provider": "openai"` and `"openaiUrl": "http://127.0.0.1:1234/v1"` in
 config.json.
 
+On a laptop without a graphics card a model answer takes 10 to 60 seconds. Set
+`"parserFirst": true` in config.json: commands the game understands by itself (catalog parts,
+"in my hand", moving, undo) then appear at once, and only the rest goes to the model (new designs,
+questions, drawings). Raise `"modelTimeoutSec"` (default 25) to about 90 so those slower answers
+still arrive; devices wait as long as the bridge does.
+
 ### Voice on the laptop (Whisper)
 
 Windows builds of whisper.cpp are in its releases marked `bNNNN` (`whisper-bin-x64.zip`). The zip

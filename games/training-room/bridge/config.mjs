@@ -17,6 +17,9 @@ export const DEFAULTS = {
   visionModel: "",
   think: false,
   numCtx: 8192,
+  parserFirst: false,
+  modelTimeoutSec: 25,
+  visionTimeoutSec: 45,
   sttKind: "whisper.cpp",
   sttUrl: "http://127.0.0.1:8080/inference",
   sttModel: "whisper-1",
@@ -30,7 +33,7 @@ export const DEFAULTS = {
   allowOrigins: ["https://dot0m0peg-arch.github.io"],
 };
 
-export const HELP = "Training Room bridge settings. Restart the bridge after editing. roomName: room name the bridge reports to devices; port: HTTPS port for the headset/phone on your network; httpPort: plain HTTP on this laptop only (also for adb reverse); roomKey: code other devices need (delete it to get a new one); provider: \"ollama\" or \"openai\" (LM Studio or any OpenAI-compatible server at openaiUrl); ollamaUrl: Ollama's address; openaiUrl: the OpenAI-compatible server's address (LM Studio: http://127.0.0.1:1234/v1); openaiKey: bearer key for provider \"openai\" (\"\" for none); model: \"\" picks an installed model automatically (names with \"coder\", then \"qwen\"); visionModel: \"\" picks an installed vision model (llava, qwen2.5vl, gemma3 and others) that looks at magic-marker drawings, else the text model reads them as ASCII art; think: false turns hidden reasoning off for faster answers, true on, null leaves the model default; numCtx: model context size in tokens, 2048-262144 (lower uses less memory; the bridge shortens its prompt to fit); sttKind: \"whisper.cpp\" (whisper-server at sttUrl), \"openai\" (an /v1/audio/transcriptions URL) or \"none\"; sttModel: model name sent to an \"openai\" transcription server; sttLanguage: language code such as \"en\" (\"\" sends none, so the server's own setting applies); sttPrompt: words that help Whisper spell commands and part names (\"\" turns it off); ttsKind: \"none\" (the headset's own browser voice), \"piper\" (piper1-gpl HTTP server at ttsUrl, default http://127.0.0.1:5000) or \"openai\" (Kokoro-FastAPI, speaches or any /v1/audio/speech URL, default http://127.0.0.1:8880/v1/audio/speech) speaks the AI's replies with a laptop voice; ttsVoice/ttsModel: voice and model for \"openai\"; partsDirs: extra folders with parts (blueprint .json, .glb/.gltf, .js; relative paths start in the data folder); allowOrigins: web pages allowed to call this bridge from another site.";
+export const HELP = "Training Room bridge settings. Restart the bridge after editing. roomName: room name the bridge reports to devices; port: HTTPS port for the headset/phone on your network; httpPort: plain HTTP on this laptop only (also for adb reverse); roomKey: code other devices need (delete it to get a new one); provider: \"ollama\" or \"openai\" (LM Studio or any OpenAI-compatible server at openaiUrl); ollamaUrl: Ollama's address; openaiUrl: the OpenAI-compatible server's address (LM Studio: http://127.0.0.1:1234/v1); openaiKey: bearer key for provider \"openai\" (\"\" for none); model: \"\" picks an installed model automatically (names with \"coder\", then \"qwen\"); visionModel: \"\" picks an installed vision model (llava, qwen2.5vl, gemma3 and others) that looks at magic-marker drawings, else the text model reads them as ASCII art; think: false turns hidden reasoning off for faster answers, true on, null leaves the model default; numCtx: model context size in tokens, 2048-262144 (lower uses less memory; the bridge shortens its prompt to fit); parserFirst: true makes devices use the built-in command parser for commands it understands and ask the model only for the rest (instant spawns on a laptop without a graphics card), false asks the model first; modelTimeoutSec/visionTimeoutSec: how long a model answer may take, 5-600 s (raise them for a slow laptop; vision is for magic-marker drawings with a vision model); sttKind: \"whisper.cpp\" (whisper-server at sttUrl), \"openai\" (an /v1/audio/transcriptions URL) or \"none\"; sttModel: model name sent to an \"openai\" transcription server; sttLanguage: language code such as \"en\" (\"\" sends none, so the server's own setting applies); sttPrompt: words that help Whisper spell commands and part names (\"\" turns it off); ttsKind: \"none\" (the headset's own browser voice), \"piper\" (piper1-gpl HTTP server at ttsUrl, default http://127.0.0.1:5000) or \"openai\" (Kokoro-FastAPI, speaches or any /v1/audio/speech URL, default http://127.0.0.1:8880/v1/audio/speech) speaks the AI's replies with a laptop voice; ttsVoice/ttsModel: voice and model for \"openai\"; partsDirs: extra folders with parts (blueprint .json, .glb/.gltf, .js; relative paths start in the data folder); allowOrigins: web pages allowed to call this bridge from another site.";
 
 // Room key alphabet without look-alikes (no I, O, 0, 1).
 const KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -94,6 +97,10 @@ export function sanitizeConfig(raw = {}) {
     c.think = null; // null = leave the model's own default
   }
   take("numCtx", Number.isInteger(raw.numCtx) && raw.numCtx >= 2048 && raw.numCtx <= 262144 ? raw.numCtx : null);
+  take("parserFirst", typeof raw.parserFirst === "boolean" ? raw.parserFirst : null);
+  const seconds = (v) => (Number.isInteger(v) && v >= 5 && v <= 600 ? v : null);
+  take("modelTimeoutSec", seconds(raw.modelTimeoutSec));
+  take("visionTimeoutSec", seconds(raw.visionTimeoutSec));
   take("sttKind", ["whisper.cpp", "openai", "none"].includes(raw.sttKind) ? raw.sttKind : null);
   take("sttUrl", cleanUrl(raw.sttUrl));
   take("sttModel", str(raw.sttModel, 200) || null);
