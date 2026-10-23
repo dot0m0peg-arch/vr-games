@@ -634,6 +634,10 @@ function applyBridgeInfo(info) {
   if (!info || !net) return;
   bridgeInfo = info;
   runner.modelAvailable = !!info.model?.available;
+  runner.parserFirst = !!info.parserFirst;
+  // A slow laptop model may take longer than the default request timeouts: wait a little past the bridge.
+  if (info.timeouts?.model > 0) net.timeouts.command = Math.max(30000, info.timeouts.model + 5000);
+  if (info.timeouts?.vision > 0) net.timeouts.interpret = Math.max(50000, Math.max(info.timeouts.vision, info.timeouts.model || 0) + 5000);
   // The headset browser may have no speech voices; the laptop can speak for it.
   setSpeechSource(info.tts?.available ? (text) => net.tts(text) : null);
   voice.setTranscriber(info.stt?.available ? (blob) => net.transcribe(blob) : null);

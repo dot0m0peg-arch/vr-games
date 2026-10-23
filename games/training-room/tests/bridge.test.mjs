@@ -268,6 +268,17 @@ describe("bridge units", () => {
     assert.equal(cleanSpeech("word ".repeat(200)), "word ".repeat(80).trim(), "at most 400 characters");
   });
 
+  it("config: parser first and model timeouts for a slow laptop", () => {
+    const { config: d } = sanitizeConfig({});
+    assert.deepEqual([d.parserFirst, d.modelTimeoutSec, d.visionTimeoutSec], [false, 25, 45]);
+    const { config, problems } = sanitizeConfig({ parserFirst: true, modelTimeoutSec: 90, visionTimeoutSec: 120 });
+    assert.deepEqual(problems, []);
+    assert.deepEqual([config.parserFirst, config.modelTimeoutSec, config.visionTimeoutSec], [true, 90, 120]);
+    const bad = sanitizeConfig({ parserFirst: "yes", modelTimeoutSec: 2, visionTimeoutSec: 30.5 });
+    assert.deepEqual(bad.problems, ["parserFirst", "modelTimeoutSec", "visionTimeoutSec"]);
+    assert.deepEqual([bad.config.parserFirst, bad.config.modelTimeoutSec, bad.config.visionTimeoutSec], [false, 25, 45]);
+  });
+
   it("magic marker prompt: honest-guess system prompt, catalog, ASCII art or image, the player's words", () => {
     const metas = allMeta();
     const schema = interpretSchema();
@@ -752,6 +763,8 @@ describe("bridge server", () => {
     assert.equal(hello.json.stt.available, true);
     assert.equal(hello.json.stt.kind, "whisper.cpp");
     assert.equal(hello.json.parts.count, 3);
+    assert.equal(hello.json.parserFirst, false);
+    assert.deepEqual(hello.json.timeouts, { model: 1500, vision: 1500 }, "the test bridge's model timeouts");
     assert.ok(Array.isArray(hello.json.lan));
     for (const url of hello.json.lan) assert.match(url, new RegExp(`^https://[0-9.]+:${sp}/$`));
   });

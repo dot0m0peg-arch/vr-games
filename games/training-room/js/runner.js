@@ -65,6 +65,8 @@ export class Runner extends Emitter {
     this.lastIds = [];
     this.modelAvailable = false;
     this.modelName = "";
+    // The bridge can ask for the parser first (a slow laptop model): set from its hello.
+    this.parserFirst = false;
     this.busy = 0;
   }
 
@@ -104,7 +106,8 @@ export class Runner extends Emitter {
     const marker = parsed.intents.find((intent) => MARKER_INTENTS.has(intent.do));
     if (marker && parsed.confidence >= 0.8) return this.markerFlow(marker, command);
     const net = this.getNet();
-    const useModel = this.modelAvailable && net?.connected && !(this.settings().fast && parsed.confidence >= 0.8);
+    const parserFirst = this.parserFirst || this.settings().fast;
+    const useModel = this.modelAvailable && net?.connected && !(parserFirst && parsed.confidence >= 0.8);
 
     let intents = parsed.intents;
     let say = parsed.say ? [parsed.say] : [];

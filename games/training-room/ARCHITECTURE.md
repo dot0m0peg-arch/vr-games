@@ -211,7 +211,7 @@ work). `GET /?k=KEY` sets an HttpOnly cookie `tr_key`; API calls may instead sen
 
 | Method & path | Body → response |
 | --- | --- |
-| `GET api/hello` | → `{ bridge: true, auth, version, model: { available, name, provider, vision /* vision model name or null */ }, stt: { available, kind }, tts: { available, kind }, parts: { count }, lan: [urls] }` |
+| `GET api/hello` | → `{ bridge: true, auth, version, model: { available, name, provider, vision /* vision model name or null */ }, stt: { available, kind }, tts: { available, kind }, parts: { count }, lan: [urls], parserFirst /* devices use their parser first */, timeouts: { model, vision } /* ms the bridge waits for the model */ }` |
 | `POST api/join` | `{ name, device, color? }` → `{ user, users, state, seq }` |
 | `GET api/events?user=ID` | SSE: `op` `{ seq, op }`, `state` `{ seq, state }` (full snapshot when missed ops cannot be replayed), `users` `[...]`, `poses` `{ id: pose }`, `fx` `{ user, fx }`, `share` `{ stream, user, active, n }`, `say` `{ user, text }`, `parts` `{ count }` (laptop parts bin changed) |
 | `POST api/op` | `{ user, op }` → `{ seq }` (410 if user unknown → re-join) |
