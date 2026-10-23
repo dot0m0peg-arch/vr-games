@@ -82,11 +82,19 @@ dragon statue"); designs are saved to the parts bin and reused. Model output is 
 For LM Studio set `"provider": "openai"` and `"openaiUrl": "http://127.0.0.1:1234/v1"` in
 config.json.
 
-On a laptop without a graphics card a model answer takes 10 to 60 seconds. Set
-`"parserFirst": true` in config.json: commands the game understands by itself (catalog parts,
-"in my hand", moving, undo) then appear at once, and only the rest goes to the model (new designs,
-questions, drawings). Raise `"modelTimeoutSec"` (default 25) to about 90 so those slower answers
-still arrive; devices wait as long as the bridge does.
+On a laptop without a graphics card, set `"parserFirst": true` in config.json: commands the game
+understands by itself (catalog parts, "in my hand", moving, undo) then appear at once, and only the
+rest goes to the model (new designs, questions, drawings). Raise `"modelTimeoutSec"` and
+`"visionTimeoutSec"` (defaults 25 and 45) to 300 so slow answers still arrive; devices wait as long as
+the bridge does.
+
+Measured on such a laptop (Intel i5-1135G7, 31 GB, Ollama 0.35): the command prompt is about 6,600
+tokens and the CPU reads about 30 tokens a second, so the first answer after the model loads takes
+about 4 minutes. After that Ollama reuses the cached prompt, and qwen2.5-coder:3b answered in 5 to 8
+seconds; a brand-new design (a dragon statue, about 900 tokens of answer) took 3 minutes. Hybrid
+models such as qwen3.5 can only reuse the cached prompt up to a saved checkpoint, so each answer
+took over a minute there: on a CPU prefer a plain transformer model such as qwen2.5-coder. Load the
+model once before playing (any command does it) so nobody waits for that first answer.
 
 ### Voice on the laptop (Whisper)
 
