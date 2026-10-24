@@ -103,7 +103,9 @@ then sends a normal `set` with the resting pose.
 ### Intents (output of the rule parser and of the model)
 
 ```js
-{ do: "spawn", what: { part: "villa" } | { custom: Blueprint, label }, count?, place?, color?, scale?, text? }
+{ do: "spawn", what: { part: "villa" } | { label: "machine gun" } | { custom: Blueprint, label }, count?, place?, color?, scale?, text? }
+// { label } alone: not in the catalog, designed on the spot (see "Designs on the spot"). The model
+// answers commands this way; { custom } comes from drawings, saved designs and older replies.
 { do: "remove", target }        { do: "move", target, place }
 { do: "scale", target, factor } { do: "color", target, color }
 { do: "hold", target, hand }    { do: "drop", hand? }            // hand: "left" | "right"
@@ -219,6 +221,7 @@ work). `GET /?k=KEY` sets an HttpOnly cookie `tr_key`; API calls may instead sen
 | `POST api/fx` | `{ user, fx }` → 204 |
 | `POST api/say` | `{ user, text }` → 204, broadcasts `say` |
 | `POST api/command` | `{ user, text, ctx: { player, scene, parts } }` → `{ intents, say, source: "model", model, ms }`; 503 `{ error: "no-model" }` |
+| `POST api/design` | `{ user?, name (≤ 80), hint? (≤ 300, the player's words) }` → `{ blueprint, say, source: "model", model, ms }` (see "Designs on the spot"); 400 `no-name`, 503 `no-model`, 502 `bad-output`, 504 `timeout` |
 | `POST api/interpret` | `{ user?, image?, ascii, stats, size, hint?, parts? }` (≤ 600 KB) → `{ guess, confidence, part, blueprint?, behavior, say, source: "model", model, vision, ms }`; 503 `no-model`, 502 `bad-output`, 504 `timeout`, 400 `no-sketch`/`bad-image` (see "Magic marker") |
 | `POST api/transcribe` | `audio/wav` body → `{ text, ms }`; 503 `{ error: "no-stt" }` |
 | `POST api/tts` | `{ text }` (≤ 400 chars) → audio bytes (`audio/wav`, or the voice server's audio type); 503 `{ error: "no-tts" }` (off or unreachable), 504 `tts-timeout`, 502 `tts-failed` |
@@ -308,6 +311,42 @@ Uses a vision model when one is installed (Ollama `/api/show` capabilities inclu
   "Send", "Make it real"); the sketch appears 2 m wide in front of the acting player (the headset
   player when one is connected).
 - The live stroke is drawn locally every frame; the bridge receives one op per finished stroke.
+
+## Designs on the spot
+
+Nothing a player asks for ends as "I don't have that". With the laptop model online, the runner
+plans unknown spawns with `ctx.design`, so `planIntents` adds a `designing` record (part
+`designing`, `data: { designing: name }`, holdable, 0.4 m, an animated wire marker) instead of a
+labelled crate. For each one the runner calls `net.design(name, hint)` (`POST api/design`), one at
+a time, then swaps the placeholder for `custom:<slug>` with `data.blueprint` in one del + add step
+that joins the original spawn's undo entry. The real thing keeps the marker's spot unless it is
+bigger than the marker: then `resolvePlacement` (rel `here`, the marker as the aim point) moves it
+out until it clears the player and other things. A design too big for a hand lands in front instead.
+On the ground the marker floats up to chest height so it shows above the grass.
+If the design fails, the placeholder becomes the old labelled crate with a "say it again" line.
+Designed blueprints are learned (`registerMeta` + builder) and saved to the laptop parts bin, so
+the next request is a catalog hit.
+
+When the parser understood the whole sentence except the thing ("give me a machine gun in my
+hand"), only the design call goes to the model; its prompt (`buildDesignPrompt`) is a few hundred
+tokens instead of the command prompt's catalog. When the model reads the command, it names what the
+catalog lacks as `{ label }` instead of writing the blueprint inline (the command schema has no
+`custom`), so command answers stay short and every design takes the same path. A label alone
+counts only as an exact catalog name, so "dragon statue" is designed rather than spawned as the
+catalog's plain statue. `bridge/eval-model.mjs` runs designs the same way. Other model rules that
+serve the same goal:
+
+- The command and design prompts say weapons, tools and every other object are harmless props and
+  forbid refusals; a design with no shapes counts as a failure (502), never an empty thing.
+- Category words (`js/core/asks.js`: furniture, weapons, tools, decorations, toys, food) expand to
+  concrete catalog parts, with at most three designs per category.
+- `isChatter` drops fragments of up to four words that are neither a question nor a request, so
+  they never hold the one model slot.
+- A newer command aborts the one still waiting (`net.command(text, ctx, { signal })` → error code
+  `aborted`, runner result `brain: "replaced"`).
+- Answers are capped: `ANSWER_TOKENS` (Ollama `num_predict`, OpenAI `max_tokens`), at most
+  `MAX_INTENTS` (10) intents, repeated identical intents collapse into one, designs at most
+  `DESIGN_PARTS` (24) shapes.
 
 ## Additions after review
 

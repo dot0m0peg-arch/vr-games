@@ -429,6 +429,8 @@ export async function createBridge(options = {}) {
         return command(req, res, ctx);
       case "POST interpret":
         return interpret(req, res, ctx);
+      case "POST design":
+        return design(req, res, ctx);
       case "POST transcribe":
         return transcribe(req, res, ctx);
       case "POST tts":
@@ -515,6 +517,20 @@ export async function createBridge(options = {}) {
     });
     return abort.signal;
   };
+
+  // A missing thing designed on the spot: { name, hint? } → { blueprint, say, model, ms } (ARCHITECTURE "Designs on the spot").
+  async function design(req, res, ctx) {
+    const body = await readJSON(req);
+    const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
+    if (!name) return sendJSON(res, 400, { error: "no-name", detail: "send the name of the thing to design" });
+    const hint = typeof body.hint === "string" ? body.hint.trim().slice(0, 300) : "";
+    const caller = typeof body.user === "string" ? store.users.get(body.user) : null;
+    if (caller) caller.lastSeen = Date.now();
+    ctx.note = JSON.stringify(name);
+    const result = await model.design({ name, hint, signal: abortOnClose(res) });
+    ctx.note += ` → ${result.blueprint.parts.length} shapes (${result.model}, ${result.ms} ms)`;
+    return sendJSON(res, 200, result);
+  }
 
   // Magic marker: { image?, ascii, stats, size, hint?, parts? } → the model's guess (ARCHITECTURE "Magic marker").
   async function interpret(req, res, ctx) {

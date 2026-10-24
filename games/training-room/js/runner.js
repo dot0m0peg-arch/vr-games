@@ -6,12 +6,15 @@ import { stripWake } from "./core/wake.js";
 import { parseCommand } from "./core/parse.js";
 import { planIntents } from "./core/execute.js";
 import { summarize } from "./core/room-state.js";
+import { resolvePlacement } from "./core/place.js";
 import { allMeta, getMeta, registerMeta } from "./parts/meta/index.js";
 import { metaOfRecord, sizeOfRecord, registerBuilder } from "./parts/build/index.js";
 import { buildBlueprint } from "./parts/build/blueprint.js";
+import { normalizeBlueprint, slug } from "./core/blueprint.js";
 import { matchPart, normalizeText } from "./core/lexicon.js";
 import { classifySketch, projectStrokes, sketchBounds } from "./core/sketch.js";
 import { WAKE_WORDS } from "./config.js";
+import { isChatter, expandCategories } from "./core/asks.js";
 import { addressAdvisor, kingdomQuery, kingdomReport, kingdomStats, advisorAck, getAdvisor } from "./core/kingdom.js";
 
 // Intents that need the drawing and maybe the model, handled here instead of in planIntents.
@@ -49,6 +52,7 @@ function withArticle(noun) {
 
 const HISTORY_LIMIT = 60;
 
+
 export class Runner extends Emitter {
   // send(op): applies locally and forwards to the bridge. getPlayer(): pose of whoever commands act for.
   constructor({ room, send, getNet, getPlayer, getUser, settings, getDraw = () => null }) {
@@ -67,6 +71,9 @@ export class Runner extends Emitter {
     this.modelName = "";
     // The bridge can ask for the parser first (a slow laptop model): set from its hello.
     this.parserFirst = false;
+    this.inflight = null; // the model command in progress; a newer command replaces it
+    this.learned = new Map(); // name -> blueprint designed in this session
+    this.designs = Promise.resolve(); // designs run one at a time (the laptop model is one at a time)
     this.busy = 0;
   }
 
@@ -106,13 +113,26 @@ export class Runner extends Emitter {
     const marker = parsed.intents.find((intent) => MARKER_INTENTS.has(intent.do));
     if (marker && parsed.confidence >= 0.8) return this.markerFlow(marker, command);
     const net = this.getNet();
+    const online = this.modelAvailable && !!net?.connected;
+    // Chatter goes nowhere instead of queueing for the model.
+    if (online && isChatter(command, parsed)) {
+      this.emit("ignored", { text: command });
+      return { brain: "ignored", ops: [], say: [], errors: [] };
+    }
     const parserFirst = this.parserFirst || this.settings().fast;
-    const useModel = this.modelAvailable && net?.connected && !(parserFirst && parsed.confidence >= 0.8);
+    // "give me a machine gun": the parser understood everything but the thing itself, so the thing
+    // is designed on the spot instead of asking the model to read the whole command first.
+    const designOnly = online && typeof net.design === "function" && parsed.unknown?.length > 0 && parsed.intents.length > 0
+      && parsed.intents.every((intent) => intent.do === "spawn");
+    const useModel = online && !designOnly && !(parserFirst && parsed.confidence >= 0.8);
 
     let intents = parsed.intents;
     let say = parsed.say ? [parsed.say] : [];
     let brain = "parser";
     if (useModel) {
+      this.inflight?.abort();
+      const inflight = new AbortController();
+      this.inflight = inflight;
       this.busy++;
       this.emit("thinking", { text: command });
       try {
@@ -121,7 +141,7 @@ export class Runner extends Emitter {
           player,
           scene: summarize(this.room.state, player),
           parts: allMeta().filter((m) => m.source !== "builtin").map((m) => m.name),
-        });
+        }, { signal: inflight.signal });
         intents = Array.isArray(response.intents) ? response.intents : [];
         say = response.say ? [response.say] : [];
         brain = response.model ? `model:${response.model}` : "model";
@@ -131,14 +151,17 @@ export class Runner extends Emitter {
           brain = "parser";
         }
       } catch (err) {
+        if (err.code === "aborted") return { brain: "replaced", ops: [], say: [], errors: [] }; // a newer command took over
         console.warn("[runner] model failed, using parser", err);
         say = parsed.say ? [parsed.say] : [];
         if (!parsed.intents.length) say.push(`The local model did not answer (${err.code || err.message}).`);
       } finally {
+        if (this.inflight === inflight) this.inflight = null;
         this.busy--;
         this.emit("done", {});
       }
     }
+    intents = expandCategories(intents);
     if (!intents.length && !say.length) {
       say.push(parsed.unknown?.length
         ? `I don't know "${parsed.unknown.join(", ")}" yet. Try: spawn a crate in front of me.`
@@ -146,7 +169,7 @@ export class Runner extends Emitter {
     }
     const markerIntent = intents.find((intent) => MARKER_INTENTS.has(intent.do));
     if (markerIntent) return this.markerFlow(markerIntent, command);
-    const result = this.exec(intents, { label: command, source: brain });
+    const result = this.exec(intents, { label: command, source: brain, design: online && typeof net.design === "function", hint: command });
     const replies = [...say, ...result.say].filter(Boolean);
     if (advisor) {
       const ack = result.ops.length ? advisorAck(advisor, this.history.length) : "";
@@ -158,7 +181,7 @@ export class Runner extends Emitter {
   }
 
   // Executes intents directly (UI buttons, HUD menu, model output). Returns { ops, say, errors }.
-  exec(intents, { label = "", source = "ui", player = null, decorate = null } = {}) {
+  exec(intents, { label = "", source = "ui", player = null, decorate = null, design = false, hint = "" } = {}) {
     const pose = player || this.getPlayer();
     const user = pose.user || this.getUser();
     // "it" after a spawn in the same command means that new thing, not the previous command's.
@@ -180,6 +203,7 @@ export class Runner extends Emitter {
       sizeOf: (record) => sizeOfRecord(record),
       newId: (prefix = "o") => makeId(prefix),
       rng: rng(),
+      design,
     });
     if (plan.undo) {
       this.undo(plan.undo);
@@ -196,8 +220,10 @@ export class Runner extends Emitter {
       if (op.t === "add" && op.obj.data?.blueprint) this.learnBlueprint(op.obj.data.blueprint);
     }
     if (plan.ops.length) {
-      this.history.push({ label, inverse });
+      const entry = { label, inverse };
+      this.history.push(entry);
       if (this.history.length > HISTORY_LIMIT) this.history.shift();
+      for (const op of plan.ops) if (op.t === "add" && op.obj.part === "designing") this.queueDesign(op.obj, hint || label, entry);
     }
     if (touched.length) this.lastIds = touched;
     return { ops: plan.ops, say: plan.say || [], errors: plan.errors || [], source };
@@ -334,6 +360,95 @@ export class Runner extends Emitter {
     return result;
   }
 
+  // A missing thing: the placeholder is already in the room; the design replaces it when it arrives.
+  queueDesign(record, hint, entry) {
+    const name = String(record.data?.designing || record.label || "thing");
+    this.designs = this.designs.then(() => this.designOne(record.id, name, hint, entry)).catch((err) => console.warn("[runner] design failed", err));
+    return this.designs;
+  }
+
+  async designOne(id, name, hint, entry) {
+    if (!this.room.get(id)) return; // removed (or undone) before its turn
+    const net = this.getNet();
+    let blueprint = null;
+    let line = "";
+    let failure = "";
+    const known = getMeta(name);
+    // Designed meanwhile (same thing asked twice): reuse it instead of asking again.
+    const learned = known && this.learned.get(known.name);
+    if (learned) blueprint = learned;
+    else {
+      this.busy++;
+      this.emit("designing", { name });
+      try {
+        const result = await net.design(name, hint);
+        const res = normalizeBlueprint({ ...result.blueprint, name });
+        if (res.ok) {
+          blueprint = res.blueprint;
+          line = String(result.say || "");
+        } else failure = res.error;
+      } catch (err) {
+        failure = err.code || err.message || "no answer";
+      } finally {
+        this.busy--;
+        this.emit("done", {});
+      }
+    }
+    const current = this.room.get(id);
+    if (!current || current.part !== "designing") return;
+    if (!blueprint) {
+      // Truthful fallback: a labelled crate, and a way to try again.
+      this.replacePlaceholder(current, { part: `custom:${slug(name)}`.slice(0, 80), label: name, data: { unknown: true } }, entry);
+      this.reply(`I couldn't design ${withArticle(name)} this time (${failure}). Say it again and I'll try once more.`, "design");
+      return;
+    }
+    this.learnBlueprint(blueprint);
+    this.learned.set(blueprint.name, blueprint);
+    const holdable = blueprint.holdable && Math.max(...blueprint.size) <= 2;
+    const swap = { part: `custom:${slug(name)}`.slice(0, 80), label: name, data: { blueprint } };
+    if (current.attach && !holdable) {
+      // Too big for a hand after all: it lands in front of the player instead.
+      this.replacePlaceholder(current, swap, entry, { detach: true });
+      this.reply(`${capital(withArticle(name))} is too big to hold, so it's in front of you.`, "design");
+    } else {
+      this.replacePlaceholder(current, swap, entry);
+      this.reply(line || `${capital(withArticle(name))}, made just for you.`, "design");
+    }
+  }
+
+  // Swaps the placeholder for its real thing in one step that "undo" removes with the original spawn.
+  replacePlaceholder(record, swap, entry, { detach = false } = {}) {
+    const obj = { ...record, ...swap, id: makeId("o"), t: Date.now() };
+    const size = swap.data?.blueprint ? sizeOfRecord(obj) : null;
+    const pose = this.getPlayer();
+    const head = Array.isArray(pose.p) ? pose.p : [0, 1.6, 0];
+    const near = Array.isArray(record.p) && Math.hypot(record.p[0] - head[0], record.p[2] - head[2]) < 100;
+    if (detach || (size && near && !record.attach && !record.onto)) {
+      // The real thing is bigger than its 0.4 m marker: the same spot, but never on top of the
+      // player or other things (a pirate ship asked for "in front of me").
+      delete obj.attach;
+      const place = detach ? { rel: "front" } : { rel: "here" };
+      const spot = resolvePlacement(place, {
+        player: detach ? pose : { ...pose, aim: record.p }, size: size || [1, 1, 1],
+        records: this.room.records(), sizeOf: (r) => sizeOfRecord(r), exclude: [record.id],
+      });
+      obj.p = spot.p;
+      obj.ry = spot.ry;
+    }
+    const ops = [{ t: "del", ids: [record.id], uid: makeId("u") }, { t: "add", obj, uid: makeId("u") }];
+    const inverse = [];
+    for (const op of ops) {
+      inverse.unshift(...this.room.inverse(op));
+      this.send(op);
+    }
+    if (entry && this.history.includes(entry)) entry.inverse.unshift(...inverse);
+    else {
+      this.history.push({ label: `design ${swap.label}`, inverse });
+      if (this.history.length > HISTORY_LIMIT) this.history.shift();
+    }
+    this.lastIds = [obj.id, ...this.lastIds.filter((x) => x !== record.id)].slice(0, 20);
+  }
+
   // Sends raw ops with undo support; merge = fold into the previous history entry.
   sendTracked(ops, label, merge = false) {
     const inverse = [];
@@ -390,6 +505,11 @@ export class Runner extends Emitter {
   reply(text, source, { speak = true } = {}) {
     this.emit("reply", { text, source, speak });
   }
+}
+
+function capital(text) {
+  const t = String(text || "");
+  return t ? t[0].toUpperCase() + t.slice(1) : t;
 }
 
 function describe(ops) {

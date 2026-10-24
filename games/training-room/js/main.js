@@ -105,15 +105,14 @@ function playerPose() {
     hands[hand] = pose ? { p: pose.p.toArray(), q: pose.q.toArray() } : null;
   }
   const pose = { user: me.id, ...head, hands };
-  if (settings().kingdom) {
-    const aim = aimPoint();
-    if (aim) pose.aim = aim;
-  }
+  // "right here" / "over there" land where the right hand (or the view) points at the ground.
+  const aim = aimPoint();
+  if (aim) pose.aim = aim;
   return pose;
 }
 
-// Kingdom mode: the ground spot under the right-hand laser (VR) or the view center (flat screen),
-// so "build a house right here" lands where the player points.
+// The ground spot under the right-hand laser (VR) or the view center (flat screen), so "put a bed
+// right there" lands where the player points.
 const aimRay = new THREE.Raycaster();
 const AIM_RANGE = 120;
 function aimPoint() {
@@ -285,6 +284,14 @@ runner.on("reply", ({ text, source, speak: spoken }) => {
   }
 });
 runner.on("parts-changed", () => ui.setParts(allMeta()));
+runner.on("designing", ({ name }) => {
+  ui.setReply(`Designing ${name}…`, { source: "model" });
+  hud.setReply(`Designing ${name}…`, { source: "model" });
+});
+runner.on("ignored", ({ text }) => {
+  ui.setReply(`Heard "${text}" (not a request).`, { source: "system" });
+  hud.setReply(`Heard "${text}"`, { source: "system" });
+});
 runner.on("advisor", ({ id }) => kingdom.speak(id));
 
 // ---------- voice ----------
@@ -571,10 +578,10 @@ async function connectBridge(key = null) {
   const roomKey = key || PARAMS.get("key") || loadJSON(KEY_KEY, null);
   ui.setConnection({ state: "connecting" });
   let probe;
-  try {
-    probe = await Net.probe(base, roomKey);
-  } catch {
-    probe = { bridge: false };
+  // A laptop busy with its model can miss the first short probe: ask again, waiting longer.
+  for (const timeout of [2500, 8000, 15000]) {
+    probe = await Net.probe(base, roomKey, { timeout });
+    if (probe.bridge || !probe.timeout) break;
   }
   if (!probe.bridge) {
     ui.setConnection({ state: "standalone" });

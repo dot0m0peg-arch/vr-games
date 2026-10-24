@@ -18,6 +18,7 @@ import { generateCert, ensureCert, certIPs, lanIPs, lanAddresses } from "../brid
 import {
   extractJSON, normalizeOutput, buildPrompt, EXAMPLES, intentSchema, pickModel, createMatcher, catalogText, LocalModel,
   interpretSchema, buildInterpretPrompt, normalizeInterpret, attachImage, pickVisionModel, BEHAVIORS, VISION_NAME,
+  MAX_INTENTS, ANSWER_TOKENS, DESIGN_PARTS, designSchema, buildDesignPrompt, normalizeDesign,
 } from "../bridge/llm.mjs";
 import { cleanTranscript, SpeechToText } from "../bridge/stt.mjs";
 import { cleanSpeech } from "../bridge/tts.mjs";
@@ -429,13 +430,13 @@ describe("bridge units", () => {
         { do: "write", target: { part: "white board" }, text: "Q3 goals" },
         { do: "move", target: { id: "o1" } },
         { do: "move", target: { ref: "that" }, place: { rel: "left side", dist: "3" } },
-        { do: "spawn", what: "crate", place: { rel: "on", ref: 1 } },
       ],
       say: "Okay.",
     }, { metas, sceneNames: new Set(["dragon statue"]) });
-    const [table, deck, axe, unknown, snow, scale, time, remove, write, move, crate] = out.intents;
-    assert.equal(out.intents.length, 11);
+    const [table, deck, axe, unknown, snow, scale, time, remove, write, move] = out.intents;
+    assert.equal(out.intents.length, 10);
     assert.deepEqual(move, { do: "move", target: { ref: "it" }, place: { rel: "left", dist: 3 } });
+    const [, crate] = normalizeOutput({ intents: [{ do: "dance" }, { do: "spawn", what: { part: "poker table" } }, { do: "spawn", what: "crate", place: { rel: "on", ref: 1 } }] }, { metas }).intents;
     assert.deepEqual(crate, { do: "spawn", what: { part: "crate" }, place: { rel: "on", ref: { batch: 0 } } });
     assert.deepEqual(table, { do: "spawn", what: { part: "card table" }, count: 20, place: { rel: "front", dist: 300 } });
     assert.deepEqual(deck.place, { rel: "on", ref: { batch: 0 } }, "batch index remapped after the dropped intent");
@@ -450,8 +451,54 @@ describe("bridge units", () => {
     assert.deepEqual(remove.target, { part: "dragon statue" }, "custom scene parts are not fuzzy-matched to statue");
     assert.deepEqual(write, { do: "write", target: { part: "whiteboard" }, text: "Q3 goals" });
     assert.equal(out.say, "Okay.");
-    const many = normalizeOutput({ intents: Array.from({ length: 50 }, () => ({ do: "clear" })) }, { metas });
-    assert.equal(many.intents.length, 30);
+    const many = normalizeOutput({ intents: Array.from({ length: 50 }, (_, i) => ({ do: "spawn", what: { part: "crate" }, place: { rel: "front", dist: i + 1 } })) }, { metas });
+    assert.equal(many.intents.length, MAX_INTENTS, "capped");
+    const repeats = normalizeOutput({ intents: Array.from({ length: 30 }, () => ({ do: "spawn", what: { part: "crate" } })) }, { metas });
+    assert.equal(repeats.intents.length, 1, "a small model repeating itself spawns one, not thirty");
+  });
+
+  it("the command prompt forbids refusals and made-up names, and spells out category words", () => {
+    const [system] = buildPrompt({ text: "give me a gun", catalog: catalogText(allMeta()) });
+    assert.match(system.content, /Guns, swords, bows[^\n]*harmless props[^\n]*Never refuse/);
+    assert.match(system.content, /For anything the catalog lacks, spawn what:\{label:"<what it is>"\}[^\n]*designed on the spot/);
+    assert.doesNotMatch(system.content, /BLUEPRINT/, "no inline designs: they have their own call");
+    assert.equal(intentSchema().properties.intents.items.properties.what.properties.custom, undefined);
+    assert.match(system.content, /A category word \(furniture/);
+    assert.match(system.content, /never the same intent twice/);
+  });
+
+  it("designSchema, buildDesignPrompt and normalizeDesign", () => {
+    const schema = designSchema();
+    assert.equal(schema.properties.parts.maxItems, DESIGN_PARTS);
+    assert.ok(schema.required.includes("parts") && schema.required.includes("say"));
+    const [system, user] = buildDesignPrompt({ name: "machine gun", hint: "AI give me a machine gun" });
+    assert.match(system.content, /Never refuse/);
+    assert.match(system.content, /business end \([^)]*\) along \+z/);
+    assert.equal(user.content, 'Design: "machine gun"\nThe player said: "AI give me a machine gun"');
+    assert.equal(buildDesignPrompt({ name: "lamp", hint: "Lamp" })[1].content, 'Design: "lamp"', "a hint that only repeats the name is left out");
+    const parts = [
+      { shape: "box", p: [0, 1, 0], s: [0.1, 0.1, 0.5], color: "#222222", mat: "metal" },
+      { shape: "cylinder", p: [0, 1, 0.3], s: [0.03, 0.2, 0.03], color: "#111111", mat: "metal", r: [90, 0, 0] },
+    ];
+    const out = normalizeDesign({ name: "Blaster", holdable: true, parts, say: "Pew." }, "Machine Gun");
+    assert.equal(out.blueprint.name, "machine gun", "keeps the requested name");
+    assert.ok(out.blueprint.aliases.includes("blaster"), "the model's own name becomes an alias");
+    assert.equal(out.blueprint.holdable, true);
+    assert.ok(Math.abs(out.blueprint.parts[0].p[1] - 0.05) < 1e-6, "re-centered to the ground");
+    assert.equal(out.say, "Pew.");
+    assert.equal(normalizeDesign({ blueprint: { parts }, say: "" }, "anvil").say, "An anvil, made just for you.", "unwrapped, default say");
+    assert.equal(normalizeDesign({ name: "x", parts: [], say: "I can't help with that." }, "gun"), null, "no shapes is a failure, not an empty thing");
+    assert.equal(normalizeDesign("nope", "gun"), null);
+    assert.equal(normalizeDesign([parts], "gun"), null);
+  });
+
+  it("normalizeOutput: a label alone is something to design, not the nearest catalog part", () => {
+    const metas = allMeta();
+    const what = (w) => normalizeOutput({ intents: [{ do: "spawn", what: w }] }, { metas }).intents[0].what;
+    assert.deepEqual(what({ label: "dragon statue" }), { part: "dragon statue", label: "dragon statue" }, "not a statue");
+    assert.deepEqual(what({ label: "machine gun" }), { part: "machine gun", label: "machine gun" });
+    assert.deepEqual(what({ label: "swords" }), { part: "sword", label: "swords" }, "exact catalog names still count");
+    assert.deepEqual(what({ part: "dragon statue" }), { part: "statue", label: "dragon statue" }, "a part name may still be fuzzy");
   });
 
   it("normalizeOutput keeps { batch: n } targets: the part spawned earlier in this command", () => {
@@ -956,7 +1003,7 @@ describe("bridge server", () => {
       assert.equal(sent.stream, false);
       assert.equal(sent.keep_alive, "30m");
       assert.equal(sent.think, false);
-      assert.deepEqual(sent.options, { temperature: 0.1, num_ctx: 8192 });
+      assert.deepEqual(sent.options, { temperature: 0.1, num_ctx: 8192, num_predict: ANSWER_TOKENS.command });
       assert.equal(sent.format.type, "object");
       assert.equal(sent.messages[0].role, "system");
       assert.match(sent.messages[0].content, /- snowman \(frosty\)/, "laptop parts are in the catalog");
@@ -1018,6 +1065,54 @@ describe("bridge server", () => {
       bridge.model.configure(bridge.config);
       await bridge.model.refresh(true);
       assert.equal((await post("command", { text: "spawn a villa" })).status, 200);
+    });
+  });
+
+  describe("design on the spot", () => {
+    it("designs a missing thing with a capped answer and the never-refuse prompt", async () => {
+      const res = await post("design", { user: "u1", name: "pistol", hint: "AI give me a pistol" });
+      assert.equal(res.status, 200, res.text);
+      assert.equal(res.json.source, "model");
+      assert.equal(res.json.model, "qwen2.5-coder:7b");
+      assert.equal(res.json.blueprint.name, "pistol");
+      assert.equal(res.json.blueprint.holdable, true);
+      assert.equal(res.json.blueprint.parts.length, 4);
+      assert.equal(res.json.say, "A pistol, pew pew.");
+      const sent = ollama.requests.at(-1);
+      assert.equal(sent.options.num_predict, ANSWER_TOKENS.design);
+      assert.equal(sent.format.properties.parts.maxItems, DESIGN_PARTS);
+      assert.match(sent.messages[0].content, /Never refuse/);
+      assert.equal(sent.messages[1].content, 'Design: "pistol"\nThe player said: "AI give me a pistol"');
+    });
+
+    it("a wrapped answer still works; refusals, junk and a missing name are errors", async () => {
+      const wrapped = await post("design", { name: "wrapped blaster" });
+      assert.equal(wrapped.status, 200, wrapped.text);
+      assert.equal(wrapped.json.blueprint.name, "wrapped blaster");
+      assert.ok(wrapped.json.blueprint.aliases.includes("pistol"));
+      assert.equal(wrapped.json.say, "A wrapped blaster, made just for you.");
+      const refused = await post("design", { name: "refuse this" });
+      assert.equal(refused.status, 502);
+      assert.equal(refused.json.error, "bad-output");
+      assert.equal((await post("design", { name: "junk" })).status, 502);
+      const none = await post("design", { name: "  " });
+      assert.equal(none.status, 400);
+      assert.equal(none.json.error, "no-name");
+      assert.equal((await post("design", { name: "pistol" }, { "content-type": "application/json" })).status, 401, "needs the room key");
+    });
+
+    it("Net.design returns the blueprint and reports errors with .code", async () => {
+      const net = new Net({ base: `http://127.0.0.1:${hp}/api/`, key, EventSourceImpl: null });
+      const out = await net.design("pistol", "give me a pistol");
+      assert.equal(out.blueprint.name, "pistol");
+      await assert.rejects(net.design("junk"), (err) => err.code === "bad-output" && err.status === 502);
+      bridge.model.configure({ ...bridge.config, ollamaUrl: "http://127.0.0.1:9" });
+      try {
+        await assert.rejects(net.design("pistol"), (err) => err.code === "no-model" && err.status === 503);
+      } finally {
+        bridge.model.configure(bridge.config);
+        await bridge.model.refresh(true);
+      }
     });
   });
 

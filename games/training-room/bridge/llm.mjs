@@ -26,7 +26,13 @@ const REF_ALIASES = { that: "it", this: "it", them: "all", those: "all", these: 
 const TIMES = { day: "day", noon: "day", morning: "dawn", dawn: "dawn", sunrise: "dawn", sunset: "sunset", evening: "sunset", dusk: "sunset", night: "night", midnight: "night" };
 const SHAPES = ["box", "sphere", "cylinder", "cone", "capsule", "torus"];
 const MATS = ["matte", "wood", "metal", "glass", "glow", "stone", "fabric", "plastic"];
-export const MAX_INTENTS = 30;
+// One command never needs more; small models otherwise repeat the same intent until the limit.
+export const MAX_INTENTS = 10;
+
+// Answer length per call: a command (things it lacks are designed by their own call), a drawing's guess, one design.
+export const ANSWER_TOKENS = { command: 900, interpret: 1000, design: 1100 };
+// A design is one thing on the spot: enough shapes to be recognizable, few enough to arrive fast.
+export const DESIGN_PARTS = 24;
 
 // ---------- JSON schema for structured output ----------
 // Property order matters to grammar-constrained decoders (required first, then listed order).
@@ -46,6 +52,13 @@ function blueprintSchema() {
   };
 }
 
+// One object designed on the spot: a blueprint plus the line the AI says about it.
+export function designSchema() {
+  const bp = blueprintSchema();
+  bp.properties.parts = { ...bp.properties.parts, maxItems: DESIGN_PARTS };
+  return { type: "object", properties: { ...bp.properties, say: { type: "string" } }, required: [...bp.required, "say"] };
+}
+
 export function intentSchema() {
   const num = { type: "number" };
   const str = { type: "string" };
@@ -55,13 +68,12 @@ export function intentSchema() {
     type: "object",
     properties: { ref: { type: "string", enum: REFS }, part: str, which: str, id: str, batch: { type: "integer" } },
   };
-  const blueprint = blueprintSchema();
   const intent = {
     type: "object",
     properties: {
       do: { type: "string", enum: DOS },
       target,
-      what: { type: "object", properties: { part: str, custom: blueprint, label: str } },
+      what: { type: "object", properties: { part: str, label: str } },
       count: { type: "integer" },
       place: {
         type: "object",
@@ -91,7 +103,7 @@ export function intentSchema() {
 const JOB = `You turn a spoken command from a VR player into JSON intents for "Training Room": a huge, flat, grassy field (virtual office, combat practice yard and think tank) where things appear when the player asks. Reply with JSON only: {"intents":[...],"say":"..."}.
 
 INTENTS ("do" first; ? = optional)
-spawn {do:"spawn", what:{part:"<catalog name>"} or {custom:BLUEPRINT,label:"<name>"}, count?:1-20, place?:PLACE, color?:"red" or "#rrggbb", scale?:number, text?:"<text on boards/notes/signs>"}
+spawn {do:"spawn", what:{part:"<catalog name>"} or {label:"<what it is>"} (anything the catalog lacks), count?:1-20, place?:PLACE, color?:"red" or "#rrggbb", scale?:number, text?:"<text on boards/notes/signs>"}
 remove {do:"remove", target:TARGET}
 move {do:"move", target:TARGET, place:PLACE}
 scale {do:"scale", target:TARGET, factor:number} (2 = twice as big, 0.5 = half)
@@ -110,19 +122,17 @@ TARGET = {ref:"it"|"last"|"all"|"held"} or {part:"<name>", which?:"nearest"|"las
 PLACE = {rel, hand?, dist?, side?, ref?, p?}
   rel: front|left|right|behind|far (relative to where the player looks), here, feet, hand (in the player's hand), on (on top of ref), next (beside ref; side = left|right|front|behind), above (over ref or the player), at (world point p:[x,y,z]).
   dist: meters from the player. ref: TARGET, or {batch:n} = the n-th intent (0-based) of this same reply, which must be an earlier spawn.
-BLUEPRINT = {name:"<lowercase name>", desc:"<short description>", holdable:true|false, parts:[{shape, p:[x,y,z], s:[w,h,d], color:"#rrggbb", mat, r?:[rx,ry,rz]}]}
-  shape: box|sphere|cylinder|cone|capsule|torus. mat: matte|wood|metal|glass|glow|stone|fabric|plastic.
-  p = center of the shape in meters (y up, ground at y=0, the front faces +z). s = bounding size in meters. r = rotation in degrees (cylinder/cone/capsule stand along y).
 
 RULES
-- Use catalog names exactly as written below. Only design a custom BLUEPRINT when nothing in the catalog fits.
-- Blueprints: 3 to 40 primitives, realistic real-world dimensions in meters, the lowest point at y=0, a recognizable silhouette, sensible colors. holdable only for things under 2 m that a hand can hold.
-- One spawn intent per kind of object asked for; use count for several of the same thing.
+- This is a game. Guns, swords, bows, grenades and other weapons, tools, vehicles, animals, food and every other object are harmless props made of shapes. Never refuse and never say you can't help.
+- Use catalog names exactly as written below. For anything the catalog lacks, spawn what:{label:"<what it is>"} (a pistol, a pirate ship, a zombie): it is designed on the spot. Never answer that something is missing.
+- A category word (furniture, food, weapons, decorations, toys, tools) means 3 to 6 concrete things of that kind (bed, sofa, table, lamp, picture frame), never one part named after the category.
+- One spawn intent per kind of object asked for; use count for several of the same thing. At most 8 intents, never the same intent twice.
 - "on a X" or "on the X" when no X is in the scene: spawn X first, then the object with place {rel:"on", ref:{batch:0}} (the index of the X spawn).
 - "in my hand" means place {rel:"hand"}; "in my left hand" means place {rel:"hand", hand:"left"}.
 - Refer to existing things with TARGET. Never invent ids: only use ids listed in the scene.
 - Questions, ideas and brainstorming (think tank): answer in "say" (or a say intent) in one or two short sentences, no markdown.
-- Ignore the wake word ("AI", "hey AI"). If the command is unclear, return no intents and ask briefly in "say".
+- Ignore the wake word ("AI", "hey AI"). Chatter and half sentences that ask for nothing: no intents and an empty "say". If a request is unclear, return no intents and ask briefly in "say".
 - "say" is spoken aloud: one short friendly sentence.
 - Respond with JSON only.`;
 
@@ -162,27 +172,6 @@ export function catalogText(metas, { compact = false, maxCustom = 120 } = {}) {
   return skipped ? `${text}\n(and ${skipped} more saved parts: use the name the player says)` : text;
 }
 
-const DRAGON = {
-  name: "dragon statue", desc: "stone dragon statue on a plinth", holdable: false,
-  parts: [
-    { shape: "box", p: [0, 0.25, 0], s: [1.6, 0.5, 1.2], color: "#8a8a84", mat: "stone" },
-    { shape: "capsule", p: [0, 1, 0], s: [0.5, 1.1, 0.5], color: "#5d7a58", mat: "stone", r: [90, 0, 0] },
-    { shape: "cylinder", p: [0, 1.4, 0.5], s: [0.22, 0.6, 0.22], color: "#5d7a58", mat: "stone", r: [35, 0, 0] },
-    { shape: "box", p: [0, 1.72, 0.72], s: [0.28, 0.24, 0.45], color: "#5d7a58", mat: "stone" },
-    { shape: "cone", p: [-0.08, 1.92, 0.6], s: [0.06, 0.2, 0.06], color: "#d8d2c0", mat: "stone", r: [-30, 0, 0] },
-    { shape: "cone", p: [0.08, 1.92, 0.6], s: [0.06, 0.2, 0.06], color: "#d8d2c0", mat: "stone", r: [-30, 0, 0] },
-    { shape: "sphere", p: [-0.1, 1.77, 0.95], s: [0.05, 0.05, 0.05], color: "#ffcc33", mat: "glow" },
-    { shape: "sphere", p: [0.1, 1.77, 0.95], s: [0.05, 0.05, 0.05], color: "#ffcc33", mat: "glow" },
-    { shape: "box", p: [-0.55, 1.4, -0.05], s: [0.8, 0.04, 0.6], color: "#4a6646", mat: "stone", r: [0, 0, -25] },
-    { shape: "box", p: [0.55, 1.4, -0.05], s: [0.8, 0.04, 0.6], color: "#4a6646", mat: "stone", r: [0, 0, 25] },
-    { shape: "cone", p: [0, 0.8, -0.85], s: [0.2, 0.8, 0.2], color: "#5d7a58", mat: "stone", r: [-70, 0, 0] },
-    { shape: "cylinder", p: [-0.18, 0.62, 0.3], s: [0.14, 0.25, 0.14], color: "#5d7a58", mat: "stone" },
-    { shape: "cylinder", p: [0.18, 0.62, 0.3], s: [0.14, 0.25, 0.14], color: "#5d7a58", mat: "stone" },
-    { shape: "cylinder", p: [-0.18, 0.62, -0.3], s: [0.14, 0.25, 0.14], color: "#5d7a58", mat: "stone" },
-    { shape: "cylinder", p: [0.18, 0.62, -0.3], s: [0.14, 0.25, 0.14], color: "#5d7a58", mat: "stone" },
-  ],
-};
-
 const EMPTY = "Player: at (0, 0) facing yaw 0; hands empty.\nScene: nothing nearby.";
 // Few-shot pairs (user text, assistant JSON). Part names here must exist in the built-in catalog.
 export const EXAMPLES = [
@@ -197,7 +186,13 @@ export const EXAMPLES = [
   }],
   [`${EMPTY}\nCommand: "spawn three training dummies in front of me"`, { intents: [{ do: "spawn", what: { part: "training dummy" }, count: 3, place: { rel: "front", dist: 4 } }], say: "Three training dummies." }],
   [`${EMPTY}\nCommand: "make it night"`, { intents: [{ do: "time", value: "night" }], say: "Night falls." }],
-  [`${EMPTY}\nCommand: "summon a dragon statue over there"`, { intents: [{ do: "spawn", what: { custom: DRAGON, label: "dragon statue" }, place: { rel: "front", dist: 6 } }], say: "A stone dragon statue." }],
+  [`${EMPTY}\nCommand: "AI give me a machine gun and put a dragon statue over there"`, {
+    intents: [
+      { do: "spawn", what: { label: "machine gun" }, place: { rel: "hand" } },
+      { do: "spawn", what: { label: "dragon statue" }, place: { rel: "front", dist: 6 } },
+    ],
+    say: "A machine gun for you and a dragon statue over there.",
+  }],
   [`Player: at (2, -3) facing yaw 0.5; hands empty.\nScene: villa id o1a 14 m left; tree id o2b 8 m front.\nCommand: "remove the villa"`, { intents: [{ do: "remove", target: { part: "villa" } }], say: "The villa is gone." }],
   [`Player: at (0, 0) facing yaw 0; hands empty.\nScene: whiteboard id o3c 3 m front.\nCommand: "write Q3 goals on the whiteboard"`, { intents: [{ do: "write", target: { part: "whiteboard" }, text: "Q3 goals" }], say: "Written on the whiteboard." }],
   [`${EMPTY}\nCommand: "give me a red sword in my left hand"`, { intents: [{ do: "spawn", what: { part: "sword" }, place: { rel: "hand", hand: "left" }, color: "red" }], say: "A red sword, left hand." }],
@@ -455,9 +450,16 @@ export function normalizeOutput(raw, { metas = [], extraNames = [], sceneNames =
   }
   const intents = [];
   const batchMap = new Map(); // original index -> output index (for place.ref.batch)
+  const seen = new Map(); // intent JSON -> output index: repeats of the same intent collapse into one
   for (let i = 0; i < list.length && intents.length < MAX_INTENTS; i++) {
     const intent = normIntent(list[i], { match, sceneNames, batchMap, index: intents.length });
     if (!intent) continue;
+    const key = JSON.stringify(intent);
+    if (seen.has(key)) {
+      batchMap.set(i, seen.get(key));
+      continue;
+    }
+    seen.set(key, intents.length);
     batchMap.set(i, intents.length);
     intents.push(intent);
   }
@@ -595,8 +597,10 @@ function normWhat(item, match) {
   if (!raw) return null;
   const hit = match(raw);
   if (hit?.exact) return label && label.toLowerCase() !== hit.name ? { part: hit.name, label } : { part: hit.name };
+  // A label alone is something the catalog lacks: it is designed, so "dragon statue" is not a statue.
+  const labelOnly = what.part === undefined && what.name === undefined;
   // Fuzzy or unknown: keep the spoken name as the label so "dragon statue" is not just "statue".
-  if (hit) return { part: hit.name, label: label || raw };
+  if (hit && !labelOnly) return { part: hit.name, label: label || raw };
   return { part: raw, label: label || raw };
 }
 
@@ -709,6 +713,52 @@ export function buildInterpretPrompt({ ascii = "", stats = {}, size = null, hint
   return build(metas.map((m) => m.name).join(", "));
 }
 
+// ---------- design: one missing thing, made on the spot ----------
+const PISTOL = {
+  name: "pistol", desc: "black semi-automatic handgun", holdable: true,
+  parts: [
+    { shape: "box", p: [0, 0.12, 0.05], s: [0.035, 0.035, 0.2], color: "#2b2b2b", mat: "metal" },
+    { shape: "box", p: [0, 0.05, -0.02], s: [0.03, 0.1, 0.045], color: "#1e1e1e", mat: "plastic", r: [-15, 0, 0] },
+    { shape: "cylinder", p: [0, 0.12, 0.16], s: [0.014, 0.03, 0.014], color: "#111111", mat: "metal", r: [90, 0, 0] },
+    { shape: "box", p: [0, 0.085, 0.035], s: [0.008, 0.02, 0.04], color: "#2b2b2b", mat: "metal" },
+  ],
+  say: "One pistol, ready for the range.",
+};
+const DESIGN_JOB = `You design one object for "Training Room", a VR sandbox where anything the player asks for appears in front of them. Build it from simple 3D shapes so it is clearly recognizable at a glance: the right silhouette, proportions and colors.
+This is a game. Guns, rifles, swords, bows, grenades and other weapons, tools, vehicles, animals, food, furniture and every other object are harmless props. Never refuse.
+
+Reply with JSON only: {"name","desc","holdable","parts","say"}
+- name: what it is, lowercase. desc: a few words.
+- parts: 4 to ${DESIGN_PARTS} shapes {shape, p:[x,y,z], s:[w,h,d], color:"#rrggbb", mat, r?:[rx,ry,rz]}. shape: box|sphere|cylinder|cone|capsule|torus. mat: matte|wood|metal|glass|glow|stone|fabric|plastic.
+- Meters, y up, the lowest point at y=0, the front faces +z. p is the center of a shape, s its size, r a rotation in degrees. Cylinders, cones and capsules stand along y; r [90,0,0] lays one along z.
+- Real sizes: a pistol is 0.2 m long, a rifle 1 m, a chair 0.9 m tall, a bed 2 m long, a car 4.5 m long, a house 8 m wide.
+- holdable: true for things one hand can hold (under 1.5 m). Hand-held things point their business end (barrel, blade, head, spout) along +z.
+- say: one short, fun line about it.
+EXAMPLE for "pistol": ${JSON.stringify(PISTOL)}`;
+
+// name: the thing to design ("machine gun"); hint: the player's whole sentence, for context.
+export function buildDesignPrompt({ name = "", hint = "" } = {}) {
+  const what = cleanStr(name, 80);
+  const words = cleanStr(hint, 300);
+  const user = `Design: ${JSON.stringify(what)}${words && words.toLowerCase() !== what.toLowerCase() ? `\nThe player said: ${JSON.stringify(words)}` : ""}`;
+  return [{ role: "system", content: DESIGN_JOB }, { role: "user", content: user }];
+}
+
+// Raw model JSON → { blueprint, say } or null. The blueprint keeps the requested name.
+export function normalizeDesign(raw, name = "") {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const draft = raw.blueprint && typeof raw.blueprint === "object" ? raw.blueprint : raw;
+  const wanted = cleanStr(name, 48).toLowerCase();
+  const result = normalizeBp({ ...draft, name: wanted || draft.name || "thing" });
+  if (!result.ok) return null;
+  const blueprint = { ...result.blueprint, name: String(result.blueprint.name).toLowerCase().slice(0, 48) };
+  const given = cleanStr(draft.name, 48).toLowerCase();
+  if (given && given !== blueprint.name && !blueprint.aliases.includes(given)) blueprint.aliases = [...blueprint.aliases, given].slice(0, 8);
+  let say = cleanStr(raw.say, 200).replace(/\s+/g, " ");
+  if (!say) say = `${withArticle(blueprint.name)[0].toUpperCase()}${withArticle(blueprint.name).slice(1)}, made just for you.`;
+  return { blueprint, say };
+}
+
 // The drawing as an image on the user message, in the provider's format.
 export function attachImage(message, dataUrl, provider = "ollama") {
   const url = String(dataUrl || "");
@@ -802,7 +852,7 @@ const trimSlash = (url) => String(url || "").replace(/\/+$/, "");
 
 // One chat completion. Returns { content, model }. Throws errors with .status/.body.
 // Messages may carry images: Ollama `images: [base64]`, OpenAI-compatible `image_url` content parts.
-export async function callModel({ provider = "ollama", url, model, messages, schema = intentSchema(), schemaName = "intents", temperature = 0.1, think = false, numCtx = 8192, apiKey = "", signal, fetchImpl = globalThis.fetch }) {
+export async function callModel({ provider = "ollama", url, model, messages, schema = intentSchema(), schemaName = "intents", temperature = 0.1, think = false, numCtx = 8192, numPredict = 0, apiKey = "", signal, fetchImpl = globalThis.fetch }) {
   const base = trimSlash(url);
   const post = async (path, body) => {
     const headers = { "content-type": "application/json" };
@@ -815,10 +865,11 @@ export async function callModel({ provider = "ollama", url, model, messages, sch
   if (provider === "openai") {
     path = "/chat/completions";
     body = { model, messages, temperature, stream: false, response_format: { type: "json_schema", json_schema: { name: schemaName, schema, strict: false } } };
+    if (numPredict > 0) body.max_tokens = numPredict;
     if (think === false) body.reasoning_effort = "none";
   } else {
     path = "/api/chat";
-    body = { model, messages, stream: false, format: schema, options: { temperature, num_ctx: numCtx }, keep_alive: "30m" };
+    body = { model, messages, stream: false, format: schema, options: { temperature, num_ctx: numCtx, ...(numPredict > 0 ? { num_predict: numPredict } : {}) }, keep_alive: "30m" };
     if (typeof think === "boolean") body.think = think;
   }
   let { res, text } = await post(path, body);
@@ -967,13 +1018,13 @@ export class LocalModel {
 
   // One model call with the bridge's timeout and error mapping → { parsed, content, model }.
   // Throws errors with .status/.body: 503 no-model, 502 model-error/bad-output, 504 timeout, 499 aborted.
-  async ask({ model = this.name, messages, schema, schemaName, temperature, timeoutMs = this.timeoutMs, signal }) {
+  async ask({ model = this.name, messages, schema, schemaName, temperature, numPredict = 0, timeoutMs = this.timeoutMs, signal }) {
     const timeout = AbortSignal.timeout(timeoutMs);
     const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
     let out;
     try {
       out = await callModel({
-        provider: this.provider, url: this.url, model, messages, schema, schemaName, temperature, think: this.think, numCtx: this.numCtx,
+        provider: this.provider, url: this.url, model, messages, schema, schemaName, temperature, think: this.think, numCtx: this.numCtx, numPredict,
         apiKey: this.apiKey, signal: combined, fetchImpl: this.fetch,
       });
     } catch (err) {
@@ -1004,7 +1055,7 @@ export class LocalModel {
     if (!this.available) throw upstreamError(503, { error: "no-model", detail: this.detail });
     const extraParts = Array.isArray(ctx.parts) ? ctx.parts.filter((n) => typeof n === "string") : [];
     const messages = buildPrompt({ text, player: ctx.player, scene: scene ?? ctx.scene, held, metas, extraParts, catalog, numCtx: this.numCtx });
-    const out = await this.ask({ messages, signal });
+    const out = await this.ask({ messages, numPredict: ANSWER_TOKENS.command, signal });
     const parsed = out.parsed;
     const usable = parsed && typeof parsed === "object" && (Array.isArray(parsed) || Array.isArray(parsed.intents) || typeof parsed.say === "string" || typeof parsed.do === "string" || (parsed.intents && typeof parsed.intents === "object"));
     if (!usable) throw upstreamError(502, { error: "bad-output", raw: String(out.content).slice(0, 500) });
@@ -1029,7 +1080,7 @@ export class LocalModel {
       let messages = buildInterpretPrompt({ ascii, stats, size, hint, extraParts, metas, catalog, vision: !!visionName, numCtx: this.numCtx });
       if (visionName) messages = [messages[0], attachImage(messages[1], image, this.provider)];
       const out = await this.ask({
-        model: visionName || this.name, messages, schema: interpretSchema(), schemaName: "interpret", temperature: 0.3,
+        model: visionName || this.name, messages, schema: interpretSchema(), schemaName: "interpret", temperature: 0.3, numPredict: ANSWER_TOKENS.interpret,
         timeoutMs: visionName ? this.visionTimeoutMs : this.timeoutMs, signal,
       });
       const result = normalizeInterpret(out.parsed, { match: matcher });
@@ -1056,5 +1107,22 @@ export class LocalModel {
     }
     if (!hasAscii) throw upstreamError(400, { error: "no-sketch", detail: image ? "no vision model is installed and the drawing has no ASCII art" : "send image or ascii" });
     return run(null);
+  }
+
+  // One missing thing designed on the spot ("give me a machine gun" and the catalog has none).
+  // Returns { blueprint, say, source, model, ms }; throws errors with .status/.body.
+  async design({ name = "", hint = "", signal } = {}) {
+    const started = Date.now();
+    if (!cleanStr(name, 80)) throw upstreamError(400, { error: "no-name", detail: "send the name of the thing to design" });
+    await this.refresh();
+    if (!this.available && Date.now() - this.checkedAt > 3000) await this.refresh(true);
+    if (!this.available) throw upstreamError(503, { error: "no-model", detail: this.detail });
+    const out = await this.ask({
+      messages: buildDesignPrompt({ name, hint }), schema: designSchema(), schemaName: "design", temperature: 0.4,
+      numPredict: ANSWER_TOKENS.design, signal,
+    });
+    const result = normalizeDesign(out.parsed, name);
+    if (!result) throw upstreamError(502, { error: "bad-output", raw: String(out.content).slice(0, 500) });
+    return { ...result, source: "model", model: out.model, ms: Date.now() - started };
   }
 }

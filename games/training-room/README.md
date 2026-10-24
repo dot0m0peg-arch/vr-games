@@ -77,8 +77,16 @@ ollama pull qwen2.5-coder:7b
 Any installed model works; names containing "coder" are picked first, then "qwen". Small models
 answer faster; measure on your own laptop. The bridge sends the parts catalog, the scene around
 you and your words, and asks for JSON only (Ollama structured outputs; Ollama 0.31.2 or newer).
-For anything outside the catalog the model designs a new part from primitive shapes ("spawn a
-dragon statue"); designs are saved to the parts bin and reused. Model output is data, never code.
+For anything outside the catalog the model designs a new part from primitive shapes ("give me a
+machine gun", "spawn a dragon statue"): a glowing "designing…" marker appears at once where the
+thing goes (in your hand if you asked for it there), and the finished design replaces it. When the
+game understood the rest of the sentence itself, only that one thing goes to the model, with a short
+design prompt instead of the whole catalog. Designs are saved to the parts bin, so the next one
+appears instantly. Weapons, tools and every other object are props here: the model is told never to
+refuse. A category word means a few real things ("spawn some furniture" gives a couch, an armchair,
+a coffee table…), never one box called "furniture". Short chatter that asks for nothing ("bye bye",
+"my hand") is not sent to the model, and a new command replaces one still waiting for an answer.
+Model output is data, never code.
 For LM Studio set `"provider": "openai"` and `"openaiUrl": "http://127.0.0.1:1234/v1"` in
 config.json.
 
@@ -231,6 +239,7 @@ In loud places push-to-talk works best: the mic only listens while you hold the 
 ## Things to say
 
 - **Spawn:** "spawn three crates in front of me", "summon a red sword in my left hand", "put a monitor on the desk", "spawn a tree 20 meters away"
+- **Anything else:** "give me a pistol", "spawn a pirate ship over there", "spawn some furniture" (the laptop's model designs what the catalog lacks)
 - **Change:** "move the villa behind me", "make the tree bigger", "paint it blue", "bring the dummy here"
 - **Office:** "spawn a whiteboard", "write Q3 goals on the whiteboard", "note: call the supplier"
 - **Cards:** "deal five cards", "shuffle the deck", "flip the cards"

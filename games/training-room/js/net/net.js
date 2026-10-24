@@ -41,10 +41,15 @@ const defaultFetch = () => (typeof globalThis.fetch === "function" ? globalThis.
 
 // One HTTP call with timeout → { status, headers, body (parsed JSON | text | null) }.
 // binary: a successful answer's body is a Blob (errors are still read as JSON).
-async function call(fetchImpl, url, { method = "GET", key = null, json, body, type, timeout = TIMEOUTS.request, keepalive = false, binary = false } = {}) {
+// signal: the caller's own abort (a newer command replaces this one) → error code "aborted".
+async function call(fetchImpl, url, { method = "GET", key = null, json, body, type, timeout = TIMEOUTS.request, keepalive = false, binary = false, signal = null } = {}) {
   if (!fetchImpl) throw netError("offline", "fetch is not available");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
   const headers = {};
   if (key) headers["x-room-key"] = key;
   let payload;
@@ -60,6 +65,7 @@ async function call(fetchImpl, url, { method = "GET", key = null, json, body, ty
     try {
       res = await fetchImpl(url, { method, headers, body: payload, credentials: "include", signal: controller.signal, keepalive });
     } catch (err) {
+      if (signal?.aborted) throw netError("aborted", "A newer command replaced this one.");
       if (controller.signal.aborted) throw netError("timeout", `No answer from the laptop within ${Math.round(timeout / 1000)} s.`);
       throw netError("offline", `Can't reach the laptop bridge (${err?.message || err}).`);
     }
@@ -68,6 +74,7 @@ async function call(fetchImpl, url, { method = "GET", key = null, json, body, ty
       if (binary && res.ok) return { status: res.status, ok: true, headers: res.headers, body: await res.blob(), json: false };
       text = await res.text(); // always drain (also 204) so the connection is released
     } catch (err) {
+      if (signal?.aborted) throw netError("aborted", "A newer command replaced this one.");
       if (controller.signal.aborted) throw netError("timeout", `The laptop stopped answering after ${Math.round(timeout / 1000)} s.`);
       throw netError("offline", `The connection to the laptop dropped (${err?.message || err}).`);
     }
@@ -114,7 +121,8 @@ export class Net extends Emitter {
     this._poseTimer = 0;
   }
 
-  // GET base/hello with a short timeout. Never throws. → { bridge, auth, info }
+  // GET base/hello with a short timeout. Never throws. → { bridge, auth, info, timeout? }
+  // timeout: true when nothing answered in time (a busy laptop), so the caller may ask again.
   static async probe(base, key = null, { fetchImpl = null, timeout = TIMEOUTS.probe } = {}) {
     const root = String(base).endsWith("/") ? String(base) : `${base}/`;
     try {
@@ -122,8 +130,8 @@ export class Net extends Emitter {
       const info = res.json ? res.body : null;
       if (!res.ok || !info || info.bridge !== true) return { bridge: false, auth: false, info: null };
       return { bridge: true, auth: !!info.auth, info };
-    } catch {
-      return { bridge: false, auth: false, info: null };
+    } catch (err) {
+      return { bridge: false, auth: false, info: null, timeout: err?.code === "timeout" };
     }
   }
 
@@ -242,13 +250,26 @@ export class Net extends Emitter {
   // ---------- model, speech, parts ----------
 
   // → { intents, say, source, model, ms }. Errors carry .code: no-model | bad-output | timeout | offline | auth …
-  async command(text, ctx = {}) {
+  async command(text, ctx = {}, { signal = null } = {}) {
     const result = await this._json("command", {
       method: "POST",
       json: { user: this._user?.id || null, text, ctx },
       timeout: this.timeouts.command,
+      signal,
     });
     if (!result || typeof result !== "object" || !Array.isArray(result.intents)) throw netError("bad-output", "The local model answered with something that is not a command.");
+    return result;
+  }
+
+  // A missing thing designed on the spot → { blueprint, say, source, model, ms }.
+  // Errors carry .code like command: no-model | bad-output | timeout | offline | auth …
+  async design(name, hint = "") {
+    const result = await this._json("design", {
+      method: "POST",
+      json: { user: this._user?.id || null, name, hint },
+      timeout: this.timeouts.command,
+    });
+    if (!result || typeof result !== "object" || !result.blueprint || !Array.isArray(result.blueprint.parts)) throw netError("bad-output", "The local model did not design anything.");
     return result;
   }
 

@@ -350,8 +350,20 @@ test("probe: bridge, auth and non-bridge answers", async () => {
     await bridge.stop();
   }
   const started = Date.now();
-  assert.equal((await Net.probe(`http://127.0.0.1:${bridge.port}/api/`, null)).bridge, false, "nothing listening");
+  const refused = await Net.probe(`http://127.0.0.1:${bridge.port}/api/`, null);
+  assert.equal(refused.bridge, false, "nothing listening");
+  assert.ok(!refused.timeout, "refused is not worth asking again");
   assert.ok(Date.now() - started < 3000);
+  // A laptop too busy to answer in time: timeout is set so the game asks again, waiting longer.
+  const busy = http.createServer(() => {});
+  await new Promise((resolve) => busy.listen(0, "127.0.0.1", resolve));
+  try {
+    const slow = await Net.probe(`http://127.0.0.1:${busy.address().port}/api/`, null, { timeout: 200 });
+    assert.deepEqual([slow.bridge, slow.timeout], [false, true]);
+  } finally {
+    busy.closeAllConnections();
+    await new Promise((resolve) => busy.close(resolve));
+  }
 });
 
 test("join without the room key reports auth", async () => {
