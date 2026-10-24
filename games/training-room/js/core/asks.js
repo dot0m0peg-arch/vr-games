@@ -44,39 +44,62 @@ const ABSTRACT = new Set([
   "pitch", "task", "reminder", "favor", "favour", "clue", "guess", "hand", "sec", "lesson", "speech",
   "definition",
 ]);
+// The head noun decides: "an idea" is not an object, a "hand grenade" or a "name tag" is.
 export function isThing(label) {
   const words = normalizeText(String(label || "")).split(" ").filter(Boolean);
-  return words.length > 0 && !words.some((w) => ABSTRACT.has(w));
+  return words.length > 0 && !ABSTRACT.has(words[words.length - 1]);
 }
 
-// Spawn intents for a category word → concrete things: one for "a weapon", a few for "some
-// weapons" or "furniture", at most CATEGORY_MAX_DESIGNS of them designed. Later { batch: n } refs
-// follow the intents they meant (the first concrete thing stands for its category).
+// Spawn intents for a category word → concrete things: one for "a weapon", the number asked for
+// ("two weapons"), a few for "some weapons" or "furniture", at most CATEGORY_MAX_DESIGNS of them
+// designed. Later intents follow what they meant: a place on it goes to the first concrete thing,
+// an edit of it ("paint them red") applies to each.
+const SINGULAR = Object.fromEntries(Object.entries(PLURALS).map(([one, many]) => [many, one]));
 export function expandCategories(intents, text = "") {
   const said = ` ${normalizeText(String(text || ""))} `;
   const out = [];
-  const where = []; // old intent index → new index
+  const where = []; // old intent index → its new indexes
   for (const intent of intents) {
     const what = intent?.do === "spawn" ? intent.what || {} : null;
     const raw = what && !what.custom && !(what.part && getMeta(what.part)) ? normalizeText(what.label || what.part || "") : "";
-    const items = CATEGORY_WORDS[raw];
-    where.push(out.length);
-    if (!items) {
+    const key = CATEGORY_WORDS[raw] ? raw : SINGULAR[raw];
+    if (!key) {
+      where.push([out.length]);
       out.push(intent);
       continue;
     }
-    const many = MASS.has(raw) || (intent.count || 1) > 1 || said.includes(` ${PLURALS[raw] || raw} `) || /\b(some|several|few|lots|bunch|all)\b/.test(said);
+    const items = CATEGORY_WORDS[key];
+    const asked = Number.isInteger(intent.count) && intent.count > 1 ? Math.min(intent.count, items.length) : 0;
+    const many = asked > 0 || MASS.has(key) || raw !== key || said.includes(` ${PLURALS[key] || key} `);
     const known = items.filter((name) => getMeta(name));
-    const pick = many ? [...known, ...items.filter((name) => !getMeta(name)).slice(0, CATEGORY_MAX_DESIGNS)]
+    const designs = items.filter((name) => !getMeta(name)).slice(0, CATEGORY_MAX_DESIGNS);
+    const pick = asked ? [...known, ...designs].slice(0, asked) : many ? [...known, ...designs]
       : [known.length ? known[Math.floor(Math.random() * known.length)] : items[0]];
     const { count, ...rest } = intent;
+    where.push(pick.map((_, i) => out.length + i));
     for (const name of pick) out.push({ ...rest, what: getMeta(name) ? { part: getMeta(name).name } : { label: name } });
   }
-  const remap = (ref) => (ref && typeof ref === "object" && Number.isInteger(ref.batch) && where[ref.batch] !== undefined ? { ...ref, batch: where[ref.batch] } : ref);
-  return out.map((intent) => {
-    let next = intent;
-    if (intent.place?.ref?.batch !== undefined) next = { ...next, place: { ...next.place, ref: remap(next.place.ref) } };
-    if (intent.target?.batch !== undefined) next = { ...next, target: remap(next.target) };
-    return next;
-  });
+  // An edit of a category ("paint them red") becomes one per concrete thing; refs then point at
+  // final positions, which those copies shift.
+  const targetsOf = (intent) => (intent.do !== "spawn" && Number.isInteger(intent.target?.batch) && where[intent.target.batch]) || null;
+  const start = [];
+  let next = 0;
+  for (const intent of out) {
+    start.push(next);
+    next += targetsOf(intent)?.length || 1;
+  }
+  const final = (batch) => (where[batch] ? start[where[batch][0]] : batch);
+  const remapped = [];
+  for (const intent of out) {
+    const ref = intent.place?.ref;
+    const place = ref && Number.isInteger(ref.batch) ? { ...intent.place, ref: { ...ref, batch: final(ref.batch) } } : intent.place;
+    const targets = targetsOf(intent);
+    if (targets) {
+      for (const i of targets) remapped.push({ ...intent, ...(place ? { place } : {}), target: { ...intent.target, batch: start[i] } });
+      continue;
+    }
+    const target = Number.isInteger(intent.target?.batch) ? { ...intent.target, batch: final(intent.target.batch) } : intent.target;
+    remapped.push({ ...intent, ...(place ? { place } : {}), ...(target ? { target } : {}) });
+  }
+  return remapped;
 }

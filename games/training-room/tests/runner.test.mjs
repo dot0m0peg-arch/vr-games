@@ -124,22 +124,92 @@ test("chatter stays out of the model; a bare noun does not", async () => {
   assert.ok(h.commands.length === 1 || h.designs.length === 1, "dragon reached the model or the designer");
 });
 
-test("markers nobody is designing are taken over (undo of clear)", async () => {
+test("undo of a clear made while designing brings the marker back, and it is designed again", async () => {
   const h = harness();
-  await h.runner.run("give me a manticore");
-  await h.finish(bp("manticore", 1)).catch(() => {});
   await h.runner.run("spawn a basilisk");
-  await h.runner.run("clear everything");
-  assert.equal(h.room.records().length, 0);
-  await h.runner.run("undo");
   const [marker] = h.byPart("designing");
-  assert.ok(marker, "the basilisk marker is back");
-  // Its design was dropped when the marker vanished; the runner adopts it again.
-  while (h.designs.length) h.designs.shift().reject(Object.assign(new Error("gone"), { code: "aborted" }));
+  await h.runner.run("clear everything");
+  h.designs.shift().reject(Object.assign(new Error("gone"), { code: "aborted" }));
   for (let i = 0; i < 5; i++) await flush();
-  if (h.room.get(marker.id)?.part === "designing" && !h.runner.pending.has(marker.id)) assert.equal(h.runner.adoptDesigns(), 1);
-  assert.ok(h.runner.pending.has(marker.id) || h.room.get(marker.id).part !== "designing");
+  await h.runner.run("undo");
+  assert.equal(h.room.get(marker.id)?.part, "designing", "the marker is back");
+  assert.equal(h.runner.adoptDesigns(), 1, "this device made it: designed again");
   assert.equal(h.runner.adoptDesigns(), 0, "not twice");
+  await h.finish(bp("basilisk", 1));
+  assert.equal(h.room.get(marker.id).part, "custom:basilisk");
+  await h.runner.run("undo");
+  assert.ok(!h.room.get(marker.id), "undo removes it: the swap is no undo step of its own");
+  assert.equal(h.runner.adoptDesigns(), 0, "no loop");
+});
+
+test("only one device takes over a marker whose maker left; none while the maker is here", async () => {
+  // Two devices sharing one room; the phone acts for the headset player ("by" is the headset).
+  const h = harness();
+  const users = [{ id: "me" }, { id: "zz-headset" }];
+  h.net.users = users;
+  const headsetNet = { ...h.net, users };
+  const headset = new Runner({ room: h.room, send: (op) => h.room.apply(op, { local: true }), getNet: () => headsetNet, getPlayer: () => h.pose, getUser: () => "zz-headset", settings: () => ({ hand: "right" }) });
+  headset.modelAvailable = true;
+  h.pose.user = "zz-headset";
+  await h.runner.run("give me a cockatrice");
+  const [marker] = h.byPart("designing");
+  assert.equal(marker.by, "zz-headset");
+  assert.equal(headset.adoptDesigns(), 0, "the headset did not make it: the phone is designing it");
+  // A marker whose maker is gone is taken over by the lowest connected id only.
+  h.room.apply({ t: "add", obj: { id: "o-orphan", part: "designing", label: "golem", by: "gone-user", p: [3, 0, 0], ry: 0, s: 1, data: { designing: "golem" } } }, { local: true });
+  assert.equal(headset.adoptDesigns(), 0, "zz-headset is not the lowest id");
+  assert.equal(h.runner.adoptDesigns(), 1, "'me' is: it takes the orphan");
+  assert.equal(h.runner.adoptDesigns(), 0);
+  await h.finish(bp("cockatrice", 1));
+  const job = await h.finish(bp("golem", 1));
+  assert.equal(job.name, "golem");
+  h.net.users = [];
+  h.room.apply({ t: "add", obj: { id: "o-orphan2", part: "designing", label: "wyrm", by: "gone-user", p: [4, 0, 0], ry: 0, s: 1, data: { designing: "wyrm" } } }, { local: true });
+  assert.equal(h.runner.adoptDesigns(), 0, "without a user list nobody guesses");
+});
+
+test("undo of an edit made to the marker keeps the design; a stacked crate goes back where it was", async () => {
+  const h = harness();
+  await h.runner.run("give me a hippogriff");
+  const [marker] = h.byPart("designing");
+  await h.runner.run("make it walk");
+  assert.equal(h.room.get(marker.id).data.behavior?.kind, "walk");
+  await h.finish(bp("hippogriff", 1));
+  await h.runner.run("undo");
+  const design = h.room.get(marker.id);
+  assert.equal(design.part, "custom:hippogriff");
+  assert.ok(design.data.blueprint, "still the design, not a crate");
+  assert.equal(design.data.behavior, undefined, "the walk is undone");
+  assert.equal(design.data.designing, undefined);
+
+  const h2 = harness();
+  await h2.runner.run("spawn a crate to my right");
+  const [crate] = h2.byPart("crate");
+  const ground = [...crate.p];
+  await h2.runner.run("give me a kraken");
+  const [kraken] = h2.byPart("designing");
+  await h2.runner.run("put the crate on the kraken");
+  assert.equal(h2.room.get(crate.id).onto, kraken.id);
+  await h2.finish(bp("kraken", 2));
+  assert.ok(h2.room.get(crate.id).p[1] > 1.9, `the crate rides on the kraken's top: ${h2.room.get(crate.id).p}`);
+  await h2.runner.run("undo");
+  assert.deepEqual(h2.room.get(crate.id).p, ground, "back on the ground where it was");
+  await h2.runner.run("undo");
+  assert.deepEqual(h2.room.get(crate.id).p, ground, "and it stays there when the kraken goes");
+  assert.ok(!h2.room.get(kraken.id));
+});
+
+test("a design whose blueprint a late edit replaced gets it back", async () => {
+  const h = harness();
+  await h.runner.run("give me a gorgon");
+  const [marker] = h.byPart("designing");
+  await h.finish(bp("gorgon", 1));
+  // Another device's edit, planned on the marker, lands after the swap.
+  h.room.apply({ t: "set", id: marker.id, patch: { data: { designing: "gorgon", behavior: { kind: "spin", speed: 1 } } } }, { local: true });
+  assert.ok(!h.room.get(marker.id).data.blueprint);
+  h.runner.adoptDesigns();
+  assert.ok(h.room.get(marker.id).data.blueprint, "the blueprint is back");
+  assert.equal(h.room.get(marker.id).data.behavior.kind, "spin", "the edit stays");
 });
 
 test("'no, it's a chimera' after a drawing is designed, not a labelled crate", async () => {

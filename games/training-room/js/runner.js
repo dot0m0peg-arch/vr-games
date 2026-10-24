@@ -51,8 +51,6 @@ function withArticle(noun) {
 }
 
 const HISTORY_LIMIT = 60;
-// A marker nobody is designing (its device reloaded or closed mid-design) is taken over after this.
-const ORPHAN_MS = 6 * 60 * 1000;
 
 
 export class Runner extends Emitter {
@@ -77,6 +75,7 @@ export class Runner extends Emitter {
     this.learned = new Map(); // name -> blueprint designed in this session
     this.designs = Promise.resolve(); // designs run one at a time (the laptop model is one at a time)
     this.pending = new Set(); // placeholder ids queued for a design on this device
+    this.made = new Set(); // placeholder ids this device spawned (or took over)
     this.indexedParts = 0; // the laptop's indexed (batch) parts, fetched by name when asked for (hello)
     this.fetched = new Map(); // indexed part name -> blueprint, spawned with the blueprint inline
     this.busy = 0;
@@ -234,7 +233,7 @@ export class Runner extends Emitter {
       const entry = { label, inverse };
       this.history.push(entry);
       if (this.history.length > HISTORY_LIMIT) this.history.shift();
-      for (const op of plan.ops) if (op.t === "add" && op.obj.part === "designing") this.queueDesign(op.obj, hint || label, entry);
+      for (const op of plan.ops) if (op.t === "add" && op.obj.part === DESIGNING) this.queueDesign(op.obj, hint || label);
     }
     if (touched.length) this.lastIds = touched;
     return { ops: plan.ops, say: plan.say || [], errors: plan.errors || [], source };
@@ -405,26 +404,41 @@ export class Runner extends Emitter {
   }
 
   // A missing thing: the placeholder is already in the room; the design replaces it when it arrives.
-  queueDesign(record, hint, entry) {
+  queueDesign(record, hint) {
     const name = String(record.data?.designing || record.label || "thing");
     this.pending.add(record.id);
+    this.made.add(record.id);
     this.designs = this.designs
-      .then(() => this.designOne(record.id, name, hint, entry))
+      .then(() => this.designOne(record.id, name, hint))
       .catch((err) => console.warn("[runner] design failed", err))
       .finally(() => this.pending.delete(record.id));
     return this.designs;
   }
 
-  // Markers nobody is designing (undo of "clear", or the device that asked reloaded or closed
-  // mid-design): this device takes over its own at once, anyone's after ORPHAN_MS. → how many.
-  adoptDesigns(now = Date.now()) {
+  // Markers nobody is designing, run every few seconds: this device's own whose design was lost
+  // (undo of "clear" while it was being designed), and markers whose maker left the room (reloaded
+  // or closed mid-design). Those only on one device, the connected user with the lowest id, so each
+  // is designed once. Also puts back a blueprint a late edit from another device replaced. → how many.
+  adoptDesigns() {
     const net = this.getNet();
     if (!this.modelAvailable || !net?.connected || typeof net.design !== "function") return 0;
+    const me = this.getUser();
+    const users = (Array.isArray(net.users) ? net.users : []).map((u) => u?.id).filter(Boolean);
+    const elected = users.length > 0 && users.includes(me) && [...users].sort()[0] === me;
     let adopted = 0;
     for (const record of this.room.records()) {
-      if (record.part !== DESIGNING || this.pending.has(record.id)) continue;
-      if (record.by !== this.getUser() && now - (record.t || 0) < ORPHAN_MS) continue;
-      this.queueDesign(record, record.label || "", null);
+      const mine = this.made.has(record.id);
+      if (record.part !== DESIGNING) {
+        const learned = !record.data?.blueprint && !record.data?.unknown && String(record.part).startsWith("custom:") && this.learned.get(String(record.label || "").toLowerCase());
+        if (learned && (mine || elected)) {
+          const { designing, ...rest } = record.data || {};
+          this.send({ t: "set", id: record.id, patch: { data: { ...rest, blueprint: learned } }, uid: makeId("u") });
+        }
+        continue;
+      }
+      if (this.pending.has(record.id)) continue;
+      if (!mine && !(elected && !users.includes(record.by))) continue;
+      this.queueDesign(record, record.label || "");
       adopted++;
     }
     return adopted;
@@ -436,7 +450,7 @@ export class Runner extends Emitter {
     if (!this.busy) this.emit("done", {});
   }
 
-  async designOne(id, name, hint, entry) {
+  async designOne(id, name, hint) {
     if (!this.room.get(id)) return; // removed (or undone) before its turn
     const net = this.getNet();
     let blueprint = null;
@@ -447,7 +461,6 @@ export class Runner extends Emitter {
     const learned = known && this.learned.get(known.name);
     if (learned) blueprint = learned;
     else {
-      this.busy++;
       this.emit("designing", { name });
       try {
         const result = await net.design(name, hint);
@@ -458,15 +471,13 @@ export class Runner extends Emitter {
         } else failure = res.error;
       } catch (err) {
         failure = err.code || err.message || "no answer";
-      } finally {
-        this.idle();
       }
     }
     const current = this.room.get(id);
     if (!current || current.part !== DESIGNING) return;
     if (!blueprint) {
       // Truthful fallback: a labelled crate, and a way to try again.
-      this.replacePlaceholder(current, { part: `custom:${slug(name)}`.slice(0, 80), label: name, data: { unknown: true } }, entry);
+      this.replacePlaceholder(current, { part: `custom:${slug(name)}`.slice(0, 80), label: name, data: { unknown: true } });
       this.reply(`I couldn't design ${withArticle(name)} this time (${failure}). Say it again and I'll try once more.`, "design");
       return;
     }
@@ -476,17 +487,18 @@ export class Runner extends Emitter {
     const swap = { part: `custom:${slug(name)}`.slice(0, 80), label: name, data: { blueprint } };
     if (current.attach && !holdable) {
       // Too big for a hand after all: it lands in front of the player instead.
-      this.replacePlaceholder(current, swap, entry, { detach: true });
+      this.replacePlaceholder(current, swap, { detach: true });
       this.reply(`${capital(withArticle(name))} is too big to hold, so it's in front of you.`, "design");
     } else {
-      this.replacePlaceholder(current, swap, entry);
+      this.replacePlaceholder(current, swap);
       this.reply(line || `${capital(withArticle(name))}, made just for you.`, "design");
     }
   }
 
   // Turns the placeholder into its real thing in place: the same id, so "it", things stacked on it
-  // and undo of edits made to the marker keep working; "undo" removes it with the original spawn.
-  replacePlaceholder(record, swap, entry, { detach = false } = {}) {
+  // and undo of edits made to the marker keep working. The swap itself is not an undo step: "undo"
+  // undoes what the player did (the spawn removes the design; see keepDesign for the edits).
+  replacePlaceholder(record, swap, { detach = false } = {}) {
     const { designing, ...kept } = record.data || {};
     const patch = { part: swap.part, label: swap.label, data: { ...kept, ...swap.data } };
     const after = { ...record, ...patch };
@@ -506,8 +518,9 @@ export class Runner extends Emitter {
       patch.ry = spot.ry;
       if (detach) patch.attach = null;
     }
+    // Things standing on the marker move along and stand on the real thing's top (measured before
+    // the swap: the room updates records in place).
     const ops = [{ t: "set", id: record.id, patch, uid: makeId("u") }];
-    // Things standing on the marker move along and stand on the real thing's top.
     if (!record.attach) {
       const p1 = patch.p || p0;
       const delta = [p1[0] - p0[0], p1[1] + size[1] - (p0[1] + sizeOfRecord(record)[1]), p1[2] - p0[2]];
@@ -522,16 +535,18 @@ export class Runner extends Emitter {
         }
       }
     }
-    const inverse = [];
-    for (const op of ops) {
-      inverse.unshift(...this.room.inverse(op));
-      this.send(op);
-    }
-    if (entry && this.history.includes(entry)) entry.inverse.unshift(...inverse);
-    else {
-      this.history.push({ label: `design ${swap.label}`, inverse });
-      if (this.history.length > HISTORY_LIMIT) this.history.shift();
-    }
+    for (const op of ops) this.send(op);
+  }
+
+  // An undo step recorded while a thing was still a marker restores its data on the design: the
+  // blueprint (or the "couldn't design" crate) stays.
+  keepDesign(op) {
+    if (op.t !== "set" || !op.patch || !("data" in op.patch) || "part" in op.patch) return op;
+    const current = this.room.get(op.id);
+    if (!current || current.part === DESIGNING || !op.patch.data?.designing) return op;
+    const { designing, ...rest } = op.patch.data;
+    const design = current.data?.blueprint ? { blueprint: current.data.blueprint } : current.data?.unknown ? { unknown: true } : {};
+    return { ...op, patch: { ...op.patch, data: { ...rest, ...design } } };
   }
 
   // Sends raw ops with undo support; merge = fold into the previous history entry.
@@ -553,7 +568,7 @@ export class Runner extends Emitter {
     let undone = 0;
     for (let i = 0; i < count && this.history.length; i++) {
       const entry = this.history.pop();
-      for (const op of entry.inverse) this.send({ ...op, uid: makeId("u") });
+      for (const op of entry.inverse) this.send({ ...this.keepDesign(op), uid: makeId("u") });
       undone++;
     }
     this.reply(undone ? `Undid ${undone === 1 ? "that" : `${undone} steps`}.` : "Nothing to undo.", "system", { speak: false });

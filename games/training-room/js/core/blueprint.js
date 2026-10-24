@@ -150,13 +150,14 @@ function partBounds(part, min, max) {
   }
 }
 
-// How a blueprint without its own grip sits in the hand (ARCHITECTURE "Grip"): small things by
-// the middle; tall things like the built-in tools (handle at the bottom, head along the fist);
-// things longest along z like the crossbow (front +z, handle under the back end, aimed with the hand).
+// How a blueprint without its own grip sits in the hand (ARCHITECTURE "Grip"), by its shape:
+// clearly longest along z like the crossbow (front +z, handle under the back end, aimed with the
+// hand: guns, flashlights); clearly tallest like the built-in tools (handle at the bottom, head
+// along the fist: swords, torches, bottles); anything else (balls, boxes, pumpkins) by the middle.
+const LONGER = 1.3;
 export function holdGrip([w, h, d]) {
-  if (Math.max(w, h, d) < 0.3) return { p: [0, round(h / 2), 0], r: [0, 0, 0] };
-  if (d >= h && d >= w) return { p: [0, round(h * 0.3), round(-d * 0.25)], r: [125, 0, 180] };
-  if (h >= w) return { p: [0, round(clamp(h * 0.15, 0.05, 0.25)), 0], r: [-90, 0, 0] };
+  if (d >= LONGER * Math.max(w, h)) return { p: [0, round(h * 0.3), round(-d * 0.25)], r: [125, 0, 180] };
+  if (h >= LONGER * Math.max(w, d)) return { p: [0, round(clamp(h * 0.15, 0.02, 0.25)), 0], r: [-90, 0, 0] };
   return { p: [0, round(h / 2), 0], r: [0, 0, 0] };
 }
 
@@ -194,9 +195,10 @@ export function normalizeBlueprint(bp) {
   const holdable = !!input.holdable && Math.max(...size) <= 2;
   let grip = holdGrip(size);
   if (input.grip && typeof input.grip === "object") {
+    // An author's grip is taken as given: a point without a rotation means no rotation.
     const gp = vec3(input.grip.p ?? input.grip.position);
     const gr = vec3(input.grip.r ?? input.grip.rotation);
-    if (gp) grip = { p: gp.map((n, i) => round(clamp(n + shift[i], -10, 10))), r: grip.r };
+    grip = { p: gp ? gp.map((n, i) => round(clamp(n + shift[i], -10, 10))) : [0, round(size[1] / 2), 0], r: [0, 0, 0] };
     if (gr) grip.r = gr.map((n) => round(wrapDeg(n), 100));
   }
   const blueprint = {

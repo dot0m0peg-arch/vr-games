@@ -18,13 +18,17 @@ test("isChatter: only fillers, nothing asked for", () => {
 
 test("isThing: ideas, plans and hugs are not objects to design", () => {
   for (const label of ["idea", "plan", "list idea", "wish", "hug", "reason"]) assert.equal(isThing(label), false, label);
-  for (const label of ["pirate ship", "machine gun", "go kart", "zombie"]) assert.equal(isThing(label), true, label);
+  for (const label of ["pirate ship", "machine gun", "go kart", "zombie", "hand grenade", "name tag", "question block", "speech bubble", "report card"]) {
+    assert.equal(isThing(label), true, label);
+  }
 });
 
 test("expandCategories: furniture means a few concrete things, catalog parts first", () => {
-  const out = expandCategories([{ do: "spawn", what: { label: "furniture" }, count: 4, place: { rel: "front" } }], "spawn some furniture");
+  const out = expandCategories([{ do: "spawn", what: { label: "furniture" }, place: { rel: "front" } }], "spawn some furniture");
   assert.deepEqual(out.map((i) => i.what.part), CATEGORY_WORDS.furniture, "all of them are catalog parts");
   assert.ok(out.every((i) => i.place.rel === "front" && !("count" in i)));
+  const four = expandCategories([{ do: "spawn", what: { label: "furniture" }, count: 4 }], "spawn four pieces of furniture");
+  assert.equal(four.length, 4, "the number asked for");
   for (const name of CATEGORY_WORDS.furniture) assert.ok(getMeta(name), `${name} is in the catalog`);
 });
 
@@ -38,11 +42,32 @@ test("expandCategories: the parser's singular label, one for 'a weapon', several
   assert.ok(CATEGORY_WORDS.weapon.includes(one[0].what.part || one[0].what.label));
   const decorations = expandCategories([{ do: "spawn", what: { label: "decoration" } }], "spawn decorations");
   assert.ok(decorations.filter((i) => i.what.label).length <= 3, "at most three designs");
+  const two = expandCategories(parseCommand("give me two weapons", { metas }).intents, "give me two weapons");
+  assert.equal(two.length, 2, JSON.stringify(two));
+  const mixed = expandCategories([{ do: "spawn", what: { label: "weapon" } }, { do: "spawn", what: { part: "crate" }, count: 3 }], "give me a weapon and some crates");
+  assert.equal(mixed.length, 2, "'some' belongs to the crates");
 });
 
-test("expandCategories: a model answer { part, label } for a category word expands too", () => {
+test("expandCategories: a model answer { part, label } for a category word expands too, plural or not", () => {
   const out = expandCategories([{ do: "spawn", what: { part: "furniture", label: "furniture" } }], "furnish the room");
   assert.deepEqual(out.map((i) => i.what.part), CATEGORY_WORDS.furniture);
+  const weapons = expandCategories([{ do: "spawn", what: { part: "weapons", label: "weapons" } }], "arm me");
+  assert.ok(weapons.length >= 3 && weapons.every((i) => i.what.label !== "weapons"), JSON.stringify(weapons));
+});
+
+test("expandCategories: an edit of the category applies to each thing; refs land on final positions", () => {
+  const out = expandCategories([
+    { do: "spawn", what: { label: "furniture" } },
+    { do: "color", target: { batch: 0 }, color: "red" },
+    { do: "spawn", what: { part: "card table" } },
+    { do: "spawn", what: { part: "crate" }, place: { rel: "on", ref: { batch: 2 } } },
+  ], "spawn furniture and paint them red, then a card table with a crate on it");
+  const n = CATEGORY_WORDS.furniture.length;
+  const colors = out.filter((i) => i.do === "color");
+  assert.deepEqual(colors.map((i) => i.target.batch), [...Array(n).keys()], "every piece is painted");
+  const table = out.findIndex((i) => i.what?.part === "card table");
+  assert.equal(table, 2 * n);
+  assert.deepEqual(out[table + 1].place.ref, { batch: table }, "the crate still goes on the card table");
 });
 
 test("expandCategories: later { batch } refs still point at what they meant", () => {

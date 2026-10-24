@@ -59,9 +59,11 @@ Everything here is plain ES modules. No build step.
 grip-space origin (center of the fist) and rotated by Euler `grip.r` (degrees, XYZ) relative to
 grip space. Grip space -Z runs along the fist toward the thumb, so a tool built upright (handle
 along +Y, head on top) uses `r: [-90, 0, 0]`. Default grip: `{ p: [0, h/2, 0], r: [0, 0, 0] }`.
-A blueprint without a grip gets one from its shape (`holdGrip` in `js/core/blueprint.js`): under
-0.3 m by the middle; tallest along y like the upright tools (`r: [-90, 0, 0]`, 15 % up); longest
-along z like the crossbow (front +Z, `r: [125, 0, 180]`, under the back end); otherwise the middle.
+A blueprint without a grip gets one from its shape (`holdGrip` in `js/core/blueprint.js`): at
+least 1.3 times longer along z than across, like the crossbow (front +Z, `r: [125, 0, 180]`, under
+the back end: guns, flashlights); at least 1.3 times taller than wide, like the upright tools
+(`r: [-90, 0, 0]`, 15 % up: swords, torches, bottles); anything else by the middle (balls, boxes).
+A grip given with a point but no rotation keeps `r: [0, 0, 0]`.
 
 ### Builders (`js/parts/build/<category>.js` → `export const builders = { name(opts) }`)
 

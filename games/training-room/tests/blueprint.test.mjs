@@ -84,10 +84,17 @@ test("holdable only when small; without a grip it is held by its shape", () => {
   assert.equal(small.holdable, true);
   assert.deepEqual(small.grip, { p: [0, 0.15, 0], r: [-90, 0, 0] }, "tall: like the built-in tools, handle at the bottom");
   const cup = normalizeBlueprint({ holdable: true, parts: [{ shape: "cylinder", s: [0.08, 0.1, 0.08] }] }).blueprint;
-  assert.deepEqual(cup.grip, { p: [0, 0.05, 0], r: [0, 0, 0] }, "small: by the middle");
+  assert.deepEqual(cup.grip, { p: [0, 0.05, 0], r: [0, 0, 0] }, "about as tall as wide: by the middle");
   const gun = normalizeBlueprint({ holdable: true, parts: [{ shape: "box", p: [0, 0.1, 0], s: [0.05, 0.2, 0.6] }] }).blueprint;
   assert.deepEqual(gun.grip, { p: [0, 0.06, -0.15], r: [125, 0, 180] }, "long along z: aimed like the crossbow");
+  assert.deepEqual(holdGrip([0.035, 0.142, 0.23]).r, [125, 0, 180], "a 23 cm pistol aims too");
+  assert.deepEqual(holdGrip([0.02, 0.15, 0.02]).r, [-90, 0, 0], "a small wand points forward");
+  for (const round of [[0.35, 0.3, 0.35], [0.36, 0.03, 0.36], [0.4, 0.4, 0.4], [0.3, 0.2, 0.36]]) {
+    assert.deepEqual(holdGrip(round).r, [0, 0, 0], `${round}: pumpkins, pizzas, balls and boxes are held by the middle`);
+  }
   assert.deepEqual(holdGrip([0.6, 0.1, 0.2]), { p: [0, 0.05, 0], r: [0, 0, 0] }, "wide: by the middle");
+  const pointOnly = normalizeBlueprint({ holdable: true, grip: { p: [0, 0.2, 0] }, parts: [{ shape: "box", p: [0, 0.5, 0], s: [0.1, 1, 0.1] }] }).blueprint;
+  assert.deepEqual(pointOnly.grip.r, [0, 0, 0], "an author's grip point without a rotation keeps no rotation");
   const big = normalizeBlueprint({ holdable: true, parts: [{ shape: "box", s: [3, 1, 1] }] }).blueprint;
   assert.equal(big.holdable, false);
   const notAsked = normalizeBlueprint({ parts: [{ shape: "box", s: [0.1, 0.1, 0.1] }] }).blueprint;
