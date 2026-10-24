@@ -455,6 +455,12 @@ describe("bridge units", () => {
     assert.equal(many.intents.length, MAX_INTENTS, "capped");
     const repeats = normalizeOutput({ intents: Array.from({ length: 30 }, () => ({ do: "spawn", what: { part: "crate" } })) }, { metas });
     assert.equal(repeats.intents.length, 1, "a small model repeating itself spawns one, not thirty");
+    assert.equal(normalizeOutput({ intents: [{ do: "undo" }, { do: "undo" }] }, { metas }).intents.length, 2, "two in a row may be meant");
+    const tables = normalizeOutput({ intents: [
+      { do: "spawn", what: { part: "card table" } }, { do: "spawn", what: { part: "crate" }, place: { rel: "on", ref: { batch: 0 } } },
+      { do: "spawn", what: { part: "card table" } }, { do: "spawn", what: { part: "crate" }, place: { rel: "on", ref: { batch: 2 } } },
+    ] }, { metas }).intents;
+    assert.deepEqual(tables.map((i) => i.place?.ref?.batch ?? null), [null, 0, null, 2], "two tables, each with a crate");
   });
 
   it("the command prompt forbids refusals and made-up names, and spells out category words", () => {
@@ -473,7 +479,8 @@ describe("bridge units", () => {
     assert.ok(schema.required.includes("parts") && schema.required.includes("say"));
     const [system, user] = buildDesignPrompt({ name: "machine gun", hint: "AI give me a machine gun" });
     assert.match(system.content, /Never refuse/);
-    assert.match(system.content, /business end \([^)]*\) along \+z/);
+    assert.match(system.content, /held by a handle stand upright/);
+    assert.match(system.content, /front \(muzzle, lens\) toward \+z/);
     assert.equal(user.content, 'Design: "machine gun"\nThe player said: "AI give me a machine gun"');
     assert.equal(buildDesignPrompt({ name: "lamp", hint: "Lamp" })[1].content, 'Design: "lamp"', "a hint that only repeats the name is left out");
     const parts = [
@@ -499,6 +506,7 @@ describe("bridge units", () => {
     assert.deepEqual(what({ label: "machine gun" }), { part: "machine gun", label: "machine gun" });
     assert.deepEqual(what({ label: "swords" }), { part: "sword", label: "swords" }, "exact catalog names still count");
     assert.deepEqual(what({ part: "dragon statue" }), { part: "statue", label: "dragon statue" }, "a part name may still be fuzzy");
+    assert.deepEqual(what({ part: null, label: "dragon statue" }), { part: "dragon statue", label: "dragon statue" }, "a null part is no part");
   });
 
   it("normalizeOutput keeps { batch: n } targets: the part spawned earlier in this command", () => {

@@ -30,7 +30,7 @@ const MATS = ["matte", "wood", "metal", "glass", "glow", "stone", "fabric", "pla
 export const MAX_INTENTS = 10;
 
 // Answer length per call: a command (things it lacks are designed by their own call), a drawing's guess, one design.
-export const ANSWER_TOKENS = { command: 900, interpret: 1000, design: 1100 };
+export const ANSWER_TOKENS = { command: 900, interpret: 2200, design: 1800 };
 // A design is one thing on the spot: enough shapes to be recognizable, few enough to arrive fast.
 export const DESIGN_PARTS = 24;
 
@@ -450,16 +450,23 @@ export function normalizeOutput(raw, { metas = [], extraNames = [], sceneNames =
   }
   const intents = [];
   const batchMap = new Map(); // original index -> output index (for place.ref.batch)
-  const seen = new Map(); // intent JSON -> output index: repeats of the same intent collapse into one
+  // A small model stuck in a loop repeats one intent many times: a run of three or more identical
+  // intents counts once (two in a row may be meant: "undo, undo").
+  const repeatOf = new Map(); // index -> first index of its run
+  for (let i = 0; i < list.length;) {
+    const key = JSON.stringify(list[i]);
+    let j = i + 1;
+    while (j < list.length && JSON.stringify(list[j]) === key) j++;
+    if (j - i >= 3) for (let k = i + 1; k < j; k++) repeatOf.set(k, i);
+    i = j;
+  }
   for (let i = 0; i < list.length && intents.length < MAX_INTENTS; i++) {
-    const intent = normIntent(list[i], { match, sceneNames, batchMap, index: intents.length });
-    if (!intent) continue;
-    const key = JSON.stringify(intent);
-    if (seen.has(key)) {
-      batchMap.set(i, seen.get(key));
+    if (repeatOf.has(i)) {
+      if (batchMap.has(repeatOf.get(i))) batchMap.set(i, batchMap.get(repeatOf.get(i)));
       continue;
     }
-    seen.set(key, intents.length);
+    const intent = normIntent(list[i], { match, sceneNames, batchMap, index: intents.length });
+    if (!intent) continue;
     batchMap.set(i, intents.length);
     intents.push(intent);
   }
@@ -598,7 +605,7 @@ function normWhat(item, match) {
   const hit = match(raw);
   if (hit?.exact) return label && label.toLowerCase() !== hit.name ? { part: hit.name, label } : { part: hit.name };
   // A label alone is something the catalog lacks: it is designed, so "dragon statue" is not a statue.
-  const labelOnly = what.part === undefined && what.name === undefined;
+  const labelOnly = what.part == null && what.name == null;
   // Fuzzy or unknown: keep the spoken name as the label so "dragon statue" is not just "statue".
   if (hit && !labelOnly) return { part: hit.name, label: label || raw };
   return { part: raw, label: label || raw };
@@ -732,7 +739,7 @@ Reply with JSON only: {"name","desc","holdable","parts","say"}
 - parts: 4 to ${DESIGN_PARTS} shapes {shape, p:[x,y,z], s:[w,h,d], color:"#rrggbb", mat, r?:[rx,ry,rz]}. shape: box|sphere|cylinder|cone|capsule|torus. mat: matte|wood|metal|glass|glow|stone|fabric|plastic.
 - Meters, y up, the lowest point at y=0, the front faces +z. p is the center of a shape, s its size, r a rotation in degrees. Cylinders, cones and capsules stand along y; r [90,0,0] lays one along z.
 - Real sizes: a pistol is 0.2 m long, a rifle 1 m, a chair 0.9 m tall, a bed 2 m long, a car 4.5 m long, a house 8 m wide.
-- holdable: true for things one hand can hold (under 1.5 m). Hand-held things point their business end (barrel, blade, head, spout) along +z.
+- holdable: true for things one hand can hold (under 1.5 m). Swords, axes, hammers, torches, wands, bottles and other things held by a handle stand upright: handle at the bottom, head or blade on top. Guns, flashlights, cameras, hoses and other things you aim lie along z: the front (muzzle, lens) toward +z, the handle under the back end.
 - say: one short, fun line about it.
 EXAMPLE for "pistol": ${JSON.stringify(PISTOL)}`;
 

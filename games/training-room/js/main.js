@@ -105,9 +105,11 @@ function playerPose() {
     hands[hand] = pose ? { p: pose.p.toArray(), q: pose.q.toArray() } : null;
   }
   const pose = { user: me.id, ...head, hands };
-  // "right here" / "over there" land where the right hand (or the view) points at the ground.
+  // "over there" lands where the right hand (or the view) points at the ground; in Kingdom mode
+  // "right here" does too (place.js).
   const aim = aimPoint();
   if (aim) pose.aim = aim;
+  if (settings().kingdom) pose.aimHere = true;
   return pose;
 }
 
@@ -662,6 +664,8 @@ async function refreshBridgeInfo() {
   }
 }
 setInterval(refreshBridgeInfo, 30000);
+// Markers whose design was lost (undo of "clear", a device that reloaded mid-design) get designed again.
+setInterval(() => runner.adoptDesigns(), 15000);
 
 function joinUrl() {
   const lan = bridgeInfo?.lan?.[0];

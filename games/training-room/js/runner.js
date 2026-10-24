@@ -8,13 +8,13 @@ import { planIntents } from "./core/execute.js";
 import { summarize } from "./core/room-state.js";
 import { resolvePlacement } from "./core/place.js";
 import { allMeta, getMeta, registerMeta } from "./parts/meta/index.js";
-import { metaOfRecord, sizeOfRecord, registerBuilder } from "./parts/build/index.js";
+import { metaOfRecord, sizeOfRecord, registerBuilder, DESIGNING } from "./parts/build/index.js";
 import { buildBlueprint } from "./parts/build/blueprint.js";
 import { normalizeBlueprint, slug } from "./core/blueprint.js";
 import { matchPart, normalizeText } from "./core/lexicon.js";
 import { classifySketch, projectStrokes, sketchBounds } from "./core/sketch.js";
 import { WAKE_WORDS } from "./config.js";
-import { isChatter, expandCategories } from "./core/asks.js";
+import { isChatter, isThing, expandCategories } from "./core/asks.js";
 import { addressAdvisor, kingdomQuery, kingdomReport, kingdomStats, advisorAck, getAdvisor } from "./core/kingdom.js";
 
 // Intents that need the drawing and maybe the model, handled here instead of in planIntents.
@@ -51,6 +51,8 @@ function withArticle(noun) {
 }
 
 const HISTORY_LIMIT = 60;
+// A marker nobody is designing (its device reloaded or closed mid-design) is taken over after this.
+const ORPHAN_MS = 6 * 60 * 1000;
 
 
 export class Runner extends Emitter {
@@ -74,6 +76,7 @@ export class Runner extends Emitter {
     this.inflight = null; // the model command in progress; a newer command replaces it
     this.learned = new Map(); // name -> blueprint designed in this session
     this.designs = Promise.resolve(); // designs run one at a time (the laptop model is one at a time)
+    this.pending = new Set(); // placeholder ids queued for a design on this device
     this.busy = 0;
   }
 
@@ -122,8 +125,8 @@ export class Runner extends Emitter {
     const parserFirst = this.parserFirst || this.settings().fast;
     // "give me a machine gun": the parser understood everything but the thing itself, so the thing
     // is designed on the spot instead of asking the model to read the whole command first.
-    const designOnly = online && typeof net.design === "function" && parsed.unknown?.length > 0 && parsed.intents.length > 0
-      && parsed.intents.every((intent) => intent.do === "spawn");
+    const designOnly = online && typeof net.design === "function" && parsed.unknown?.length > 0 && parsed.unknown.every(isThing)
+      && parsed.intents.length > 0 && parsed.intents.every((intent) => intent.do === "spawn");
     const useModel = online && !designOnly && !(parserFirst && parsed.confidence >= 0.8);
 
     let intents = parsed.intents;
@@ -142,6 +145,7 @@ export class Runner extends Emitter {
           scene: summarize(this.room.state, player),
           parts: allMeta().filter((m) => m.source !== "builtin").map((m) => m.name),
         }, { signal: inflight.signal });
+        if (inflight.signal.aborted) return { brain: "replaced", ops: [], say: [], errors: [] }; // answered, but a newer command took over
         intents = Array.isArray(response.intents) ? response.intents : [];
         say = response.say ? [response.say] : [];
         brain = response.model ? `model:${response.model}` : "model";
@@ -157,11 +161,10 @@ export class Runner extends Emitter {
         if (!parsed.intents.length) say.push(`The local model did not answer (${err.code || err.message}).`);
       } finally {
         if (this.inflight === inflight) this.inflight = null;
-        this.busy--;
-        this.emit("done", {});
+        this.idle();
       }
     }
-    intents = expandCategories(intents);
+    intents = expandCategories(intents, command);
     if (!intents.length && !say.length) {
       say.push(parsed.unknown?.length
         ? `I don't know "${parsed.unknown.join(", ")}" yet. Try: spawn a crate in front of me.`
@@ -255,8 +258,7 @@ export class Runner extends Emitter {
         } catch (err) {
           console.warn("[runner] interpret failed, using the offline guesser", err);
         } finally {
-          this.busy--;
-          this.emit("done", {});
+          this.idle();
         }
       }
       if (!guess) guess = classifySketch(projectStrokes(drawing.data?.strokes || [])) || { guess: "", part: "", confidence: 0, behavior: "none" };
@@ -339,6 +341,7 @@ export class Runner extends Emitter {
     } else {
       const net = this.getNet();
       if (this.modelAvailable && net?.connected) {
+        this.busy++;
         this.emit("thinking", { text: name });
         try {
           const response = await net.command(`spawn ${withArticle(name)}`, { player: this.getPlayer(), scene: [], parts: [] });
@@ -347,12 +350,14 @@ export class Runner extends Emitter {
         } catch (err) {
           console.warn("[runner] correction model call failed", err);
         } finally {
-          this.emit("done", {});
+          this.idle();
         }
       }
       if (!spawn) spawn = { do: "spawn", what: { label: name }, place: at };
     }
-    const result = this.exec([{ do: "remove", target: { id: prev.id } }, spawn], { label: `it's ${name}`, source: "correction", decorate });
+    const net = this.getNet();
+    const design = this.modelAvailable && !!net?.connected && typeof net.design === "function";
+    const result = this.exec([{ do: "remove", target: { id: prev.id } }, spawn], { label: `it's ${name}`, source: "correction", decorate, design, hint: `it's ${name}` });
     const added = result.ops.find((op) => op.t === "add");
     if (added) this.lastRealized = { ...this.lastRealized, id: added.obj.id, guess: name };
     // Without the model, unknown names become a labelled crate; say so instead of pretending.
@@ -363,8 +368,33 @@ export class Runner extends Emitter {
   // A missing thing: the placeholder is already in the room; the design replaces it when it arrives.
   queueDesign(record, hint, entry) {
     const name = String(record.data?.designing || record.label || "thing");
-    this.designs = this.designs.then(() => this.designOne(record.id, name, hint, entry)).catch((err) => console.warn("[runner] design failed", err));
+    this.pending.add(record.id);
+    this.designs = this.designs
+      .then(() => this.designOne(record.id, name, hint, entry))
+      .catch((err) => console.warn("[runner] design failed", err))
+      .finally(() => this.pending.delete(record.id));
     return this.designs;
+  }
+
+  // Markers nobody is designing (undo of "clear", or the device that asked reloaded or closed
+  // mid-design): this device takes over its own at once, anyone's after ORPHAN_MS. → how many.
+  adoptDesigns(now = Date.now()) {
+    const net = this.getNet();
+    if (!this.modelAvailable || !net?.connected || typeof net.design !== "function") return 0;
+    let adopted = 0;
+    for (const record of this.room.records()) {
+      if (record.part !== DESIGNING || this.pending.has(record.id)) continue;
+      if (record.by !== this.getUser() && now - (record.t || 0) < ORPHAN_MS) continue;
+      this.queueDesign(record, record.label || "", null);
+      adopted++;
+    }
+    return adopted;
+  }
+
+  // One model call finished: the "thinking" effect stops when none is left.
+  idle() {
+    this.busy = Math.max(0, this.busy - 1);
+    if (!this.busy) this.emit("done", {});
   }
 
   async designOne(id, name, hint, entry) {
@@ -390,12 +420,11 @@ export class Runner extends Emitter {
       } catch (err) {
         failure = err.code || err.message || "no answer";
       } finally {
-        this.busy--;
-        this.emit("done", {});
+        this.idle();
       }
     }
     const current = this.room.get(id);
-    if (!current || current.part !== "designing") return;
+    if (!current || current.part !== DESIGNING) return;
     if (!blueprint) {
       // Truthful fallback: a labelled crate, and a way to try again.
       this.replacePlaceholder(current, { part: `custom:${slug(name)}`.slice(0, 80), label: name, data: { unknown: true } }, entry);
@@ -416,26 +445,44 @@ export class Runner extends Emitter {
     }
   }
 
-  // Swaps the placeholder for its real thing in one step that "undo" removes with the original spawn.
+  // Turns the placeholder into its real thing in place: the same id, so "it", things stacked on it
+  // and undo of edits made to the marker keep working; "undo" removes it with the original spawn.
   replacePlaceholder(record, swap, entry, { detach = false } = {}) {
-    const obj = { ...record, ...swap, id: makeId("o"), t: Date.now() };
-    const size = swap.data?.blueprint ? sizeOfRecord(obj) : null;
+    const { designing, ...kept } = record.data || {};
+    const patch = { part: swap.part, label: swap.label, data: { ...kept, ...swap.data } };
+    const after = { ...record, ...patch };
+    const size = sizeOfRecord(after);
     const pose = this.getPlayer();
     const head = Array.isArray(pose.p) ? pose.p : [0, 1.6, 0];
-    const near = Array.isArray(record.p) && Math.hypot(record.p[0] - head[0], record.p[2] - head[2]) < 100;
-    if (detach || (size && near && !record.attach && !record.onto)) {
+    const p0 = Array.isArray(record.p) ? record.p : [0, 0, 0];
+    const onGround = (p0[1] || 0) < 0.05 && Math.hypot(p0[0] - head[0], p0[2] - head[2]) < 100;
+    if (detach || (onGround && !record.attach && !record.onto)) {
       // The real thing is bigger than its 0.4 m marker: the same spot, but never on top of the
       // player or other things (a pirate ship asked for "in front of me").
-      delete obj.attach;
-      const place = detach ? { rel: "front" } : { rel: "here" };
-      const spot = resolvePlacement(place, {
-        player: detach ? pose : { ...pose, aim: record.p }, size: size || [1, 1, 1],
+      const spot = resolvePlacement(detach ? { rel: "front" } : { rel: "here" }, {
+        player: detach ? pose : { ...pose, aim: p0, aimHere: true }, size,
         records: this.room.records(), sizeOf: (r) => sizeOfRecord(r), exclude: [record.id],
       });
-      obj.p = spot.p;
-      obj.ry = spot.ry;
+      patch.p = spot.p;
+      patch.ry = spot.ry;
+      if (detach) patch.attach = null;
     }
-    const ops = [{ t: "del", ids: [record.id], uid: makeId("u") }, { t: "add", obj, uid: makeId("u") }];
+    const ops = [{ t: "set", id: record.id, patch, uid: makeId("u") }];
+    // Things standing on the marker move along and stand on the real thing's top.
+    if (!record.attach) {
+      const p1 = patch.p || p0;
+      const delta = [p1[0] - p0[0], p1[1] + size[1] - (p0[1] + sizeOfRecord(record)[1]), p1[2] - p0[2]];
+      const above = new Set([record.id]);
+      for (let grew = true; grew;) {
+        grew = false;
+        for (const r of this.room.records()) {
+          if (above.has(r.id) || !r.onto || !above.has(r.onto) || r.attach || !Array.isArray(r.p)) continue;
+          above.add(r.id);
+          grew = true;
+          ops.push({ t: "set", id: r.id, patch: { p: r.p.map((n, i) => Math.round((n + delta[i]) * 1000) / 1000) }, uid: makeId("u") });
+        }
+      }
+    }
     const inverse = [];
     for (const op of ops) {
       inverse.unshift(...this.room.inverse(op));
@@ -446,7 +493,6 @@ export class Runner extends Emitter {
       this.history.push({ label: `design ${swap.label}`, inverse });
       if (this.history.length > HISTORY_LIMIT) this.history.shift();
     }
-    this.lastIds = [obj.id, ...this.lastIds.filter((x) => x !== record.id)].slice(0, 20);
   }
 
   // Sends raw ops with undo support; merge = fold into the previous history entry.

@@ -1,7 +1,7 @@
 // Blueprint sanitizing: loose model output → clamped, re-centered primitive lists.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeBlueprint, SHAPES, MATS, MAX_PARTS, slug } from "../js/core/blueprint.js";
+import { normalizeBlueprint, holdGrip, SHAPES, MATS, MAX_PARTS, slug } from "../js/core/blueprint.js";
 import { COLORS } from "../js/core/lexicon.js";
 
 const near = (a, b, eps = 1e-3) => Math.abs(a - b) <= eps;
@@ -79,10 +79,15 @@ test("clamps sizes, positions, angles and part count", () => {
   assert.ok(Math.abs(huge.parts[0].p[0]) <= 100);
 });
 
-test("holdable only when small, grip defaults to the middle", () => {
+test("holdable only when small; without a grip it is held by its shape", () => {
   const small = normalizeBlueprint({ holdable: true, parts: [{ shape: "cylinder", s: [0.1, 1, 0.1] }] }).blueprint;
   assert.equal(small.holdable, true);
-  assert.deepEqual(small.grip, { p: [0, 0.5, 0], r: [0, 0, 0] });
+  assert.deepEqual(small.grip, { p: [0, 0.15, 0], r: [-90, 0, 0] }, "tall: like the built-in tools, handle at the bottom");
+  const cup = normalizeBlueprint({ holdable: true, parts: [{ shape: "cylinder", s: [0.08, 0.1, 0.08] }] }).blueprint;
+  assert.deepEqual(cup.grip, { p: [0, 0.05, 0], r: [0, 0, 0] }, "small: by the middle");
+  const gun = normalizeBlueprint({ holdable: true, parts: [{ shape: "box", p: [0, 0.1, 0], s: [0.05, 0.2, 0.6] }] }).blueprint;
+  assert.deepEqual(gun.grip, { p: [0, 0.06, -0.15], r: [125, 0, 180] }, "long along z: aimed like the crossbow");
+  assert.deepEqual(holdGrip([0.6, 0.1, 0.2]), { p: [0, 0.05, 0], r: [0, 0, 0] }, "wide: by the middle");
   const big = normalizeBlueprint({ holdable: true, parts: [{ shape: "box", s: [3, 1, 1] }] }).blueprint;
   assert.equal(big.holdable, false);
   const notAsked = normalizeBlueprint({ parts: [{ shape: "box", s: [0.1, 0.1, 0.1] }] }).blueprint;
