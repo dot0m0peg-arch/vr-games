@@ -12,6 +12,7 @@ import { getMeta } from "../meta/index.js";
 import { sketchBounds } from "../../core/sketch.js";
 
 const registry = new Map(Object.entries({ ...structures, ...nature, ...office, ...leisure, ...combat, ...kingdom, ...sketch }));
+registry.set("designing", (opts) => designing(opts));
 
 export function registerBuilder(name, fn) {
   registry.set(String(name).toLowerCase(), fn);
@@ -31,6 +32,8 @@ export function metaOfRecord(record) {
       fixed: record.part === "drawing" || Math.max(...size) > 3, origin: "frame",
     };
   }
+  // A thing the AI is designing right now: small, holdable, replaced when the design arrives.
+  if (record.part === DESIGNING) return { ...DESIGNING_META };
   const meta = getMeta(record.part);
   if (meta) return meta;
   const bp = record.data?.blueprint;
@@ -47,6 +50,40 @@ export function sizeOfRecord(record) {
   const size = metaOfRecord(record).size || [1, 1, 1];
   const s = record.s || 1;
   return [size[0] * s, size[1] * s, size[2] * s];
+}
+
+export const DESIGNING = "designing";
+export const DESIGNING_META = {
+  name: DESIGNING, aliases: [], category: "custom", desc: "being designed", size: [0.4, 0.4, 0.4], holdable: true,
+  grip: { p: [0, 0.2, 0], r: [0, 0, 0] },
+};
+
+// While the AI designs a missing thing: a glowing wire shape that spins and pulses, with its name.
+// On the ground it floats up to chest height so it is seen above the grass; in a hand or on a
+// table it stays where it is.
+const designingAt = new THREE.Vector3();
+function designing(opts) {
+  const name = String(opts.data?.designing || "something").slice(0, 40);
+  const wire = new THREE.Mesh(new THREE.IcosahedronGeometry(0.16, 1), new THREE.MeshBasicMaterial({ color: "#9b6bff", wireframe: true, transparent: true, opacity: 0.9 }));
+  wire.position.y = 0.2;
+  const core = new THREE.Mesh(new THREE.SphereGeometry(0.07, 16, 12), kit.mat("#d5fb6a", "glow"));
+  core.position.y = 0.2;
+  const ring = kit.torus([0.2, 0.008], kit.mat("#9b6bff", "glow"), { p: [0, 0.2, 0], r: [90, 0, 0] });
+  const label = kit.textPanel([0.6, 0.12], { text: `designing ${name}...`, size: 30, align: "center", valign: "middle", bg: "#101412", color: "#d5fb6a" }, { p: [0, 0.48, 0] });
+  const lift = kit.group([wire, core, ring, label]);
+  const root = kit.group([lift]);
+  root.userData.update = (dt, t) => {
+    wire.rotation.y = t * 1.6;
+    wire.rotation.x = t * 0.9;
+    ring.rotation.z = -t * 2.2;
+    const pulse = 0.85 + Math.sin(t * 5) * 0.15;
+    core.scale.setScalar(pulse);
+    wire.material.opacity = 0.55 + Math.sin(t * 3) * 0.35;
+    root.getWorldPosition(designingAt);
+    const target = designingAt.y < 0.4 ? 0.9 + Math.sin(t * 2) * 0.05 : 0;
+    lift.position.y += (target - lift.position.y) * Math.min(1, dt * 4);
+  };
+  return kit.finish(root, DESIGNING);
 }
 
 // Unknown parts become a labelled "mystery crate" so the player still sees something truthful.

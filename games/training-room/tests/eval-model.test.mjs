@@ -116,6 +116,10 @@ describe("eval CLI", () => {
     // Commands reached the model with the scene the fixture describes.
     const remove = ollama.requests.find((r) => r.messages.at(-1).content.includes('Command: "remove the crate on my left"'));
     assert.match(remove.messages.at(-1).content, /Scene: .*crate id o-crate-l 4\.2 m front-left; crate id o-crate-r 4\.2 m front-right/);
+    // What the catalog lacks was designed by its own call, like in the game.
+    const design = ollama.requests.find((r) => r.messages.at(-1).content.startsWith('Design: "dragon statue"'));
+    assert.ok(design, "the dragon statue was designed");
+    assert.match(design.messages.at(-1).content, /The player said: "spawn a dragon statue"/);
     const drop = ollama.requests.find((r) => r.messages.at(-1).content.includes('Command: "drop the axe"'));
     assert.match(drop.messages.at(-1).content, /right hand: axe/);
   });

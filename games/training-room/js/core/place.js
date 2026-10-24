@@ -197,9 +197,11 @@ export function resolvePlacement(place, ctx = {}) {
   const userDist = typeof pl.dist === "number" && Number.isFinite(pl.dist) && pl.dist > 0 ? Math.min(pl.dist, 2000) : null;
   const rel = pl.rel || "front";
 
-  // Kingdom mode sends the ground point under the player's pointer ("build a house right here").
+  // The ground point under the player's pointer: "over there" (point: true) goes where they point;
+  // "right here" too when player.aimHere (Kingdom mode: "build a house right here"). Elsewhere
+  // "here" stays next to the player ("bring the crate to me").
   const aim = aimPoint(player.aim, head);
-  if (aim && (rel === "here" || (rel === "front" && pl.point === true))) {
+  if (aim && ((rel === "here" && player.aimHere === true) || (rel === "front" && pl.point === true))) {
     const dx = aim[0] - head[0];
     const dz = aim[2] - head[2];
     const len = Math.hypot(dx, dz);

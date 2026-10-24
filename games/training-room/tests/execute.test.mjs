@@ -329,6 +329,20 @@ test("write on writable things or sticky notes", () => {
   assert.ok(room.find("sticky note").some((n) => n.text === "call Sam at 5"));
 });
 
+test("with a design path, unknown things become a designing placeholder instead of a crate", () => {
+  const room = makeRoom();
+  const plan = room.run("spawn a machine gun in my hand", { design: true });
+  const obj = plan.ops[0].obj;
+  assert.equal(obj.part, "designing");
+  assert.equal(obj.label, "machine gun");
+  assert.deepEqual(obj.data, { designing: "machine gun" });
+  assert.deepEqual(plan.say, [], "no \"I don't have\" while it is being designed");
+  assert.equal(obj.attach?.hand, "right", "the placeholder is holdable, so it goes in the hand");
+  assert.equal(validateOp(plan.ops[0]).ok, true);
+  const known = room.run("spawn a crate", { design: true });
+  assert.equal(known.ops[0].obj.part, "crate", "catalog parts are not designed");
+});
+
 test("unknown parts and custom blueprints", () => {
   const room = makeRoom();
   const plan = room.run("spawn a dragon statue");

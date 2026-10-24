@@ -7,6 +7,8 @@ import { newDeck, shuffle, cardName, isCard, RANKS, SUITS } from "./cards.js";
 import { matchColor, matchPart, normalizeText, singularize } from "./lexicon.js";
 
 const PLACEHOLDER = { name: "thing", size: [0.8, 0.8, 0.8], placeholder: true };
+// ctx.design: unknown names become a "designing" placeholder the runner replaces with the AI's design.
+const DESIGNING = { name: "designing", size: [0.4, 0.4, 0.4], holdable: true, placeholder: true };
 const MAX_COUNT = 30;
 const NEAR_REF = 10;
 const WRITE_RANGE = 15;
@@ -362,10 +364,16 @@ export function planIntents(intents, ctx = {}) {
         label = cleanLabel(what.label) || name;
       } else {
         label = cleanLabel(what.label || what.part || "thing") || "thing";
-        part = partId(label);
-        data = { unknown: true };
-        meta = PLACEHOLDER;
-        say(`I don't have ${an(label)} ${label} in the parts bin yet.`);
+        if (ctx.design) {
+          part = "designing";
+          data = { designing: label };
+          meta = DESIGNING;
+        } else {
+          part = partId(label);
+          data = { unknown: true };
+          meta = PLACEHOLDER;
+          say(`I don't have ${an(label)} ${label} in the parts bin yet.`);
+        }
       }
     }
     const count = clamp(Math.round(Number(intent.count) || 1), 1, MAX_COUNT);

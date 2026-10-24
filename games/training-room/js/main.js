@@ -10,6 +10,7 @@ import * as build from "./parts/build/index.js";
 import { buildBlueprint } from "./parts/build/blueprint.js";
 import { allMeta, registerMeta } from "./parts/meta/index.js";
 import { loadRemoteParts } from "./parts/remote.js";
+import { loadLibrary, takenNames } from "./parts/library/index.js";
 import { XR } from "./xr/xr.js";
 import { Interact } from "./play/interact.js";
 import { DesktopControls, TouchControls } from "./play/desktop.js";
@@ -105,15 +106,16 @@ function playerPose() {
     hands[hand] = pose ? { p: pose.p.toArray(), q: pose.q.toArray() } : null;
   }
   const pose = { user: me.id, ...head, hands };
-  if (settings().kingdom) {
-    const aim = aimPoint();
-    if (aim) pose.aim = aim;
-  }
+  // "over there" lands where the right hand (or the view) points at the ground; in Kingdom mode
+  // "right here" does too (place.js).
+  const aim = aimPoint();
+  if (aim) pose.aim = aim;
+  if (settings().kingdom) pose.aimHere = true;
   return pose;
 }
 
-// Kingdom mode: the ground spot under the right-hand laser (VR) or the view center (flat screen),
-// so "build a house right here" lands where the player points.
+// The ground spot under the right-hand laser (VR) or the view center (flat screen), so "put a bed
+// right there" lands where the player points.
 const aimRay = new THREE.Raycaster();
 const AIM_RANGE = 120;
 function aimPoint() {
@@ -285,6 +287,14 @@ runner.on("reply", ({ text, source, speak: spoken }) => {
   }
 });
 runner.on("parts-changed", () => ui.setParts(allMeta()));
+runner.on("designing", ({ name }) => {
+  ui.setReply(`Designing ${name}…`, { source: "model" });
+  hud.setReply(`Designing ${name}…`, { source: "model" });
+});
+runner.on("ignored", ({ text }) => {
+  ui.setReply(`Heard "${text}" (not a request).`, { source: "system" });
+  hud.setReply(`Heard "${text}"`, { source: "system" });
+});
 runner.on("advisor", ({ id }) => kingdom.speak(id));
 
 // ---------- voice ----------
@@ -571,10 +581,10 @@ async function connectBridge(key = null) {
   const roomKey = key || PARAMS.get("key") || loadJSON(KEY_KEY, null);
   ui.setConnection({ state: "connecting" });
   let probe;
-  try {
-    probe = await Net.probe(base, roomKey);
-  } catch {
-    probe = { bridge: false };
+  // A laptop busy with its model can miss the first short probe: ask again, waiting longer.
+  for (const timeout of [2500, 8000, 15000]) {
+    probe = await Net.probe(base, roomKey, { timeout });
+    if (probe.bridge || !probe.timeout) break;
   }
   if (!probe.bridge) {
     ui.setConnection({ state: "standalone" });
@@ -620,6 +630,28 @@ function loadLaptopParts(announce = false) {
     .catch((err) => console.warn("[parts] could not load the laptop parts bin", err));
 }
 
+// The built-in library (js/parts/library): thousands of everyday things as blueprints. Never throws.
+async function loadLibraryParts() {
+  const read = async (file) => {
+    const res = await fetch(new URL(`./parts/library/${file}.json`, import.meta.url));
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  };
+  try {
+    const { parts, errors } = await loadLibrary(read, { taken: takenNames(allMeta()) });
+    for (const { meta, blueprint } of parts) {
+      registerMeta(meta);
+      build.registerBuilder(meta.name, (opts) => buildBlueprint(blueprint, opts));
+    }
+    if (errors.length) console.warn(`[library] ${errors.length} problem(s)`, errors.slice(0, 10));
+    ui.setParts(allMeta());
+    return parts.length;
+  } catch (err) {
+    console.warn("[library] could not load", err);
+    return 0;
+  }
+}
+
 // Devices in one room start on different spots around the center, facing it.
 function placeAtSpawn() {
   const spots = { headset: [0, 0], desktop: [2.5, 3], phone: [-2.5, 3] };
@@ -635,6 +667,7 @@ function applyBridgeInfo(info) {
   bridgeInfo = info;
   runner.modelAvailable = !!info.model?.available;
   runner.parserFirst = !!info.parserFirst;
+  runner.indexedParts = Number(info.parts?.indexed) || 0;
   // A slow laptop model may take longer than the default request timeouts: wait a little past the bridge.
   if (info.timeouts?.model > 0) net.timeouts.command = Math.max(30000, info.timeouts.model + 5000);
   if (info.timeouts?.vision > 0) net.timeouts.interpret = Math.max(50000, Math.max(info.timeouts.vision, info.timeouts.model || 0) + 5000);
@@ -655,6 +688,8 @@ async function refreshBridgeInfo() {
   }
 }
 setInterval(refreshBridgeInfo, 30000);
+// Markers whose design was lost (undo of "clear", a device that reloaded mid-design) get designed again.
+setInterval(() => runner.adoptDesigns(), 15000);
 
 function joinUrl() {
   const lan = bridgeInfo?.lan?.[0];
@@ -752,6 +787,9 @@ async function start() {
   // Compile first-use shaders now (HUD, controllers, teleport arc, marker ink, stars) to avoid hitches in VR.
   warmUp(renderer, scene, camera, [inkMaterial(), haloMaterial()]);
   xrSupported = await xr.isSupported().catch(() => false);
+  // The library first, so things in the room's state can be built; a slow network does not hold the game.
+  ui.setLoading("Filling the parts bin…");
+  await Promise.race([loadLibraryParts(), new Promise((resolve) => setTimeout(resolve, 8000))]);
   const online = await connectBridge().catch((err) => {
     console.warn("[net] bridge connection failed", err);
     ui.setConnection({ state: "standalone" });
