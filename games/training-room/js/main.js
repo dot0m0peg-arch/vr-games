@@ -10,6 +10,7 @@ import * as build from "./parts/build/index.js";
 import { buildBlueprint } from "./parts/build/blueprint.js";
 import { allMeta, registerMeta } from "./parts/meta/index.js";
 import { loadRemoteParts } from "./parts/remote.js";
+import { loadLibrary, takenNames } from "./parts/library/index.js";
 import { XR } from "./xr/xr.js";
 import { Interact } from "./play/interact.js";
 import { DesktopControls, TouchControls } from "./play/desktop.js";
@@ -629,6 +630,28 @@ function loadLaptopParts(announce = false) {
     .catch((err) => console.warn("[parts] could not load the laptop parts bin", err));
 }
 
+// The built-in library (js/parts/library): thousands of everyday things as blueprints. Never throws.
+async function loadLibraryParts() {
+  const read = async (file) => {
+    const res = await fetch(new URL(`./parts/library/${file}.json`, import.meta.url));
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  };
+  try {
+    const { parts, errors } = await loadLibrary(read, { taken: takenNames(allMeta()) });
+    for (const { meta, blueprint } of parts) {
+      registerMeta(meta);
+      build.registerBuilder(meta.name, (opts) => buildBlueprint(blueprint, opts));
+    }
+    if (errors.length) console.warn(`[library] ${errors.length} problem(s)`, errors.slice(0, 10));
+    ui.setParts(allMeta());
+    return parts.length;
+  } catch (err) {
+    console.warn("[library] could not load", err);
+    return 0;
+  }
+}
+
 // Devices in one room start on different spots around the center, facing it.
 function placeAtSpawn() {
   const spots = { headset: [0, 0], desktop: [2.5, 3], phone: [-2.5, 3] };
@@ -644,6 +667,7 @@ function applyBridgeInfo(info) {
   bridgeInfo = info;
   runner.modelAvailable = !!info.model?.available;
   runner.parserFirst = !!info.parserFirst;
+  runner.indexedParts = Number(info.parts?.indexed) || 0;
   // A slow laptop model may take longer than the default request timeouts: wait a little past the bridge.
   if (info.timeouts?.model > 0) net.timeouts.command = Math.max(30000, info.timeouts.model + 5000);
   if (info.timeouts?.vision > 0) net.timeouts.interpret = Math.max(50000, Math.max(info.timeouts.vision, info.timeouts.model || 0) + 5000);
@@ -763,6 +787,9 @@ async function start() {
   // Compile first-use shaders now (HUD, controllers, teleport arc, marker ink, stars) to avoid hitches in VR.
   warmUp(renderer, scene, camera, [inkMaterial(), haloMaterial()]);
   xrSupported = await xr.isSupported().catch(() => false);
+  // The library first, so things in the room's state can be built; a slow network does not hold the game.
+  ui.setLoading("Filling the parts bin…");
+  await Promise.race([loadLibraryParts(), new Promise((resolve) => setTimeout(resolve, 8000))]);
   const online = await connectBridge().catch((err) => {
     console.warn("[net] bridge connection failed", err);
     ui.setConnection({ state: "standalone" });

@@ -142,6 +142,19 @@ the bridge's `Parts:` line shows it), or add your own folders to `partsDirs` in 
 - `*.glb` / `*.gltf` models, with an optional `<name>.part.json` sidecar (`aliases`, `size`, `holdable`, `grip`, `desc`)
 - `*.js` modules exporting `default { name, aliases, size, holdable, desc, build(THREE, opts) }`.
   These run as code in your browser, so only put your own trusted code there.
+- Many blueprints in one `*.json` file: `{ "category": "zombie stuff", "parts": [ <blueprint>, ... ] }`
+  (or `*.catalog.json` with `{ "blueprints": [...] }`, up to 32 MB). These batches stay on the
+  laptop and a thing is sent to a device only when someone asks for it by name, so even 100,000 of
+  them never slow down the headset. [PARTS-PROMPT.md](PARTS-PROMPT.md) has a prompt that makes any
+  chat thread write such a batch.
+
+### Library
+
+Besides the hand-built catalog, the game ships a library of everyday things as blueprints, one
+file per category in `js/parts/library/` (kitchen, food, furniture, tools, weapons, vehicles,
+animals, toys, and more). Every device loads it at start, so "spawn a toaster" or "give me a fire
+hydrant" appears at once, without the model. The library stays out of the model's prompt: the
+model names what it wants, and the game finds it by name.
 
 ## Laptop checks
 

@@ -306,6 +306,19 @@ export class Net extends Emitter {
     return manifest && Array.isArray(manifest.parts) ? manifest : { parts: [] };
   }
 
+  // One indexed laptop part (batch files stay on the laptop): { name } exact or { q } a spoken
+  // command → { name, aliases, category, desc, size, holdable, grip, blueprint } or null.
+  async resolvePart({ name = "", q = "" } = {}) {
+    const query = name ? `name=${encodeURIComponent(String(name).slice(0, 120))}` : `q=${encodeURIComponent(String(q).slice(0, 500))}`;
+    try {
+      const found = await this._json(`parts/resolve?${query}`);
+      return found && found.blueprint && Array.isArray(found.blueprint.parts) ? found : null;
+    } catch (err) {
+      if (err.status === 404) return null;
+      throw err;
+    }
+  }
+
   async saveBlueprint(blueprint) {
     return this._json("parts/save", { method: "POST", json: { blueprint } });
   }

@@ -1193,6 +1193,33 @@ describe("bridge server", () => {
       }
     });
 
+    it("batch files stay on the laptop: hello counts them, parts/resolve sends one by name", async () => {
+      const file = path.join(partsDir, "props-01.catalog.json");
+      const box = { shape: "box", p: [0, 0.1, 0], s: [0.2, 0.2, 0.2], color: "#ff0000" };
+      fs.writeFileSync(file, JSON.stringify({ blueprints: [{ name: "Flare Pistol", aliases: ["signal gun"], holdable: true, parts: [box, box] }, { name: "toy drum", parts: [box, box, box] }] }));
+      try {
+        await bridge.bin.scan();
+        const hello = await raw(hp, "/api/hello", { headers: { "x-room-key": key } });
+        assert.equal(hello.json.parts.indexed, 2);
+        const listed = (await raw(hp, "/api/parts", { headers: { "x-room-key": key } })).json;
+        assert.ok(!listed.parts.some((p) => p.name === "flare pistol"), "not in the manifest every device downloads");
+        const byName = await raw(hp, "/api/parts/resolve?name=signal%20gun", { headers: { "x-room-key": key } });
+        assert.equal(byName.status, 200, byName.text);
+        assert.equal(byName.json.name, "flare pistol");
+        assert.equal(byName.json.blueprint.parts.length, 2);
+        const inSentence = await raw(hp, `/api/parts/resolve?q=${encodeURIComponent("AI, give me a toy drum please")}`, { headers: { "x-room-key": key } });
+        assert.equal(inSentence.json.name, "toy drum");
+        assert.equal((await raw(hp, "/api/parts/resolve?q=spawn%20a%20crate", { headers: { "x-room-key": key } })).status, 404);
+        assert.equal((await raw(hp, "/api/parts/resolve?name=toy%20drum")).status, 401, "needs the room key");
+        const net = new Net({ base: `http://127.0.0.1:${hp}/api/`, key, EventSourceImpl: null });
+        assert.equal((await net.resolvePart({ q: "spawn a flare pistol" })).name, "flare pistol");
+        assert.equal(await net.resolvePart({ name: "no such thing" }), null);
+      } finally {
+        fs.rmSync(file, { force: true });
+        await bridge.bin.scan();
+      }
+    });
+
     it("saves AI blueprints to generated/ without overwriting", async () => {
       const bp = { name: "Robot Butler", desc: "tall robot", parts: [{ shape: "box", p: [0, 1, 0], s: [0.6, 1, 0.4], color: "gray", mat: "metal" }, { shape: "sphere", p: [0, 1.7, 0], s: [0.4, 0.4, 0.4] }] };
       const saved = await post("parts/save", { blueprint: bp });

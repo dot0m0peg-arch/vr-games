@@ -77,6 +77,8 @@ export class Runner extends Emitter {
     this.learned = new Map(); // name -> blueprint designed in this session
     this.designs = Promise.resolve(); // designs run one at a time (the laptop model is one at a time)
     this.pending = new Set(); // placeholder ids queued for a design on this device
+    this.indexedParts = 0; // the laptop's indexed (batch) parts, fetched by name when asked for (hello)
+    this.fetched = new Map(); // indexed part name -> blueprint, spawned with the blueprint inline
     this.busy = 0;
   }
 
@@ -112,10 +114,15 @@ export class Runner extends Emitter {
       return null;
     }
     const hand = this.settings().hand || "right";
-    const parsed = parseCommand(command, { metas: allMeta(), hand });
+    let parsed = parseCommand(command, { metas: allMeta(), hand });
+    const net = this.getNet();
+    // Something the parser does not know may be one of the laptop's indexed batch parts.
+    if (parsed.unknown?.length && this.indexedParts > 0 && net?.connected && typeof net.resolvePart === "function") {
+      const found = await net.resolvePart({ q: command }).catch(() => null);
+      if (found && this.adoptPart(found)) parsed = parseCommand(command, { metas: allMeta(), hand });
+    }
     const marker = parsed.intents.find((intent) => MARKER_INTENTS.has(intent.do));
     if (marker && parsed.confidence >= 0.8) return this.markerFlow(marker, command);
-    const net = this.getNet();
     const online = this.modelAvailable && !!net?.connected;
     // Chatter goes nowhere instead of queueing for the model.
     if (online && isChatter(command, parsed)) {
@@ -143,7 +150,7 @@ export class Runner extends Emitter {
         const response = await net.command(command, {
           player,
           scene: summarize(this.room.state, player),
-          parts: allMeta().filter((m) => m.source !== "builtin").map((m) => m.name),
+          parts: allMeta().filter((m) => m.source !== "builtin" && m.source !== "library").map((m) => m.name),
         }, { signal: inflight.signal });
         if (inflight.signal.aborted) return { brain: "replaced", ops: [], say: [], errors: [] }; // answered, but a newer command took over
         intents = Array.isArray(response.intents) ? response.intents : [];
@@ -165,6 +172,7 @@ export class Runner extends Emitter {
       }
     }
     intents = expandCategories(intents, command);
+    intents = await this.inlineFetched(intents);
     if (!intents.length && !say.length) {
       say.push(parsed.unknown?.length
         ? `I don't know "${parsed.unknown.join(", ")}" yet. Try: spawn a crate in front of me.`
@@ -253,7 +261,7 @@ export class Runner extends Emitter {
         this.emit("thinking", { text: spoken });
         try {
           const stats = draw.statsFor(drawing);
-          guess = await net.interpret({ image: draw.snapshotPNG(drawing), ascii: draw.asciiFor(drawing), stats, size: [stats.width, stats.height], hint: spoken, parts: allMeta().filter((m) => m.source !== "builtin").map((m) => m.name) });
+          guess = await net.interpret({ image: draw.snapshotPNG(drawing), ascii: draw.asciiFor(drawing), stats, size: [stats.width, stats.height], hint: spoken, parts: allMeta().filter((m) => m.source !== "builtin" && m.source !== "library").map((m) => m.name) });
           source = guess.model ? `model:${guess.model}` : "model";
         } catch (err) {
           console.warn("[runner] interpret failed, using the offline guesser", err);
@@ -363,6 +371,37 @@ export class Runner extends Emitter {
     // Without the model, unknown names become a labelled crate; say so instead of pretending.
     this.reply(result.say.length ? result.say.join(" ") : `Oh, ${withArticle(name)}! My mistake.`, "correction");
     return result;
+  }
+
+  // A laptop indexed part, registered here so the parser and the menus know it. → true when usable.
+  adoptPart(found) {
+    const res = normalizeBlueprint({ ...found.blueprint, name: found.name });
+    if (!res.ok) return false;
+    const name = res.blueprint.name;
+    this.fetched.set(name, res.blueprint);
+    if (!getMeta(name)) {
+      registerMeta({ name, aliases: found.aliases || res.blueprint.aliases, desc: found.desc || res.blueprint.desc, size: res.blueprint.size, holdable: res.blueprint.holdable, grip: res.blueprint.grip, category: found.category || "custom", source: "indexed" });
+      registerBuilder(name, (opts) => buildBlueprint(res.blueprint, opts));
+      this.emit("parts-changed");
+    }
+    return true;
+  }
+
+  // Spawns of fetched indexed parts carry their blueprint, so every device can build them; names
+  // only the bridge knew (the model's answer) are fetched first.
+  async inlineFetched(intents) {
+    const net = this.getNet();
+    const ask = intents.filter((i) => i?.do === "spawn" && i.what?.part && !i.what.custom && !getMeta(i.what.part) && !this.fetched.has(i.what.part));
+    if (ask.length && this.indexedParts > 0 && net?.connected && typeof net.resolvePart === "function") {
+      const names = [...new Set(ask.map((i) => i.what.part))].slice(0, 6);
+      const found = await Promise.all(names.map((name) => net.resolvePart({ name }).catch(() => null)));
+      for (const hit of found) if (hit) this.adoptPart(hit);
+    }
+    return intents.map((intent) => {
+      const name = intent?.do === "spawn" && intent.what?.part && !intent.what.custom ? intent.what.part : null;
+      const blueprint = name && this.fetched.get(name);
+      return blueprint ? { ...intent, what: { custom: blueprint, label: intent.what.label || name } } : intent;
+    });
   }
 
   // A missing thing: the placeholder is already in the room; the design replaces it when it arrives.

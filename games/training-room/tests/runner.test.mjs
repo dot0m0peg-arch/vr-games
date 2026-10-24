@@ -168,3 +168,30 @@ test("'done' fires when the last model call ends, not when a replaced one does",
   assert.equal(h.events.length, 1);
   assert.ok(h.replies.includes("Dragons are great.") && !h.replies.includes("late"));
 });
+
+test("a laptop indexed part is fetched by name and spawned with its blueprint inline", async () => {
+  const stock = { "flare pistol": bp("flare pistol", 0.25, true), "signal drum": bp("signal drum", 0.6) };
+  const h = harness({ command: async () => ({ intents: [{ do: "spawn", what: { part: "signal drum" } }], say: "" }) });
+  const asked = [];
+  h.net.resolvePart = async ({ name, q }) => {
+    asked.push(name || q);
+    const key = name || Object.keys(stock).find((n) => String(q).toLowerCase().includes(n));
+    return key && stock[key] ? { name: key, category: "weapons", aliases: [], blueprint: stock[key] } : null;
+  };
+  h.runner.indexedParts = 2;
+  h.runner.parserFirst = true; // as on the laptop: what the parser understands skips the model
+  await h.runner.run("give me a flare pistol");
+  const [pistol] = h.room.records();
+  assert.equal(pistol.part, "custom:flare-pistol");
+  assert.ok(pistol.data.blueprint, "other devices can build it without the laptop index");
+  assert.equal(h.designs.length, 0, "found, so not designed");
+  assert.equal(h.commands.length, 0);
+  await h.runner.run("spawn another flare pistol");
+  assert.ok(!asked.slice(1).includes("flare pistol"), "the second one is not fetched by name again");
+  assert.equal(h.byPart("custom:flare-pistol").length, 2);
+  // A name only the bridge knew (the model's answer) is fetched before the spawn.
+  h.runner.parserFirst = false;
+  await h.runner.run("could you make me something loud to bang on");
+  assert.equal(h.byPart("custom:signal-drum").length, 1, JSON.stringify(h.room.records().map((r) => r.part)));
+  assert.equal(h.designs.length, 0);
+});

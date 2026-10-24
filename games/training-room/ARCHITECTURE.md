@@ -216,7 +216,7 @@ work). `GET /?k=KEY` sets an HttpOnly cookie `tr_key`; API calls may instead sen
 
 | Method & path | Body → response |
 | --- | --- |
-| `GET api/hello` | → `{ bridge: true, auth, version, model: { available, name, provider, vision /* vision model name or null */ }, stt: { available, kind }, tts: { available, kind }, parts: { count }, lan: [urls], parserFirst /* devices use their parser first */, timeouts: { model, vision } /* ms the bridge waits for the model */ }` |
+| `GET api/hello` | → `{ bridge: true, auth, version, model: { available, name, provider, vision /* vision model name or null */ }, stt: { available, kind }, tts: { available, kind }, parts: { count, indexed /* batch parts kept on the laptop */ }, lan: [urls], parserFirst /* devices use their parser first */, timeouts: { model, vision } /* ms the bridge waits for the model */ }` |
 | `POST api/join` | `{ name, device, color? }` → `{ user, users, state, seq }` |
 | `GET api/events?user=ID` | SSE: `op` `{ seq, op }`, `state` `{ seq, state }` (full snapshot when missed ops cannot be replayed), `users` `[...]`, `poses` `{ id: pose }`, `fx` `{ user, fx }`, `share` `{ stream, user, active, n }`, `say` `{ user, text }`, `parts` `{ count }` (laptop parts bin changed) |
 | `POST api/op` | `{ user, op }` → `{ seq }` (410 if user unknown → re-join) |
@@ -230,6 +230,7 @@ work). `GET /?k=KEY` sets an HttpOnly cookie `tr_key`; API calls may instead sen
 | `POST api/tts` | `{ text }` (≤ 400 chars) → audio bytes (`audio/wav`, or the voice server's audio type); 503 `{ error: "no-tts" }` (off or unreachable), 504 `tts-timeout`, 502 `tts-failed` |
 | `POST api/report` | `{ kind: "headset"\|"client", user?, report: { … } }` (≤ 128 KB) → `{ saved: "<kind>-<YYYYMMDD-HHMMSS>-<user or ip>.json" }`, written owner-only to `<data>/reports/` and never overwritten (`bridge/check-headset-report.mjs` reads the headset ones); 400 `bad-kind`/`bad-report`, 413 `too-large` |
 | `GET api/parts` | → `{ parts: [ { name, aliases, category, desc, size, holdable, grip?, kind: "blueprint"\|"gltf"\|"module", url?, blueprint? } ] }` |
+| `GET api/parts/resolve?name=` or `?q=` | one indexed (batch-file) part by exact name or alias, or the longest name inside a spoken command → `{ name, aliases, category, desc, size, holdable, grip, blueprint }`; 404 `not-found` |
 | `GET api/parts/file/<path>` | parts-bin file (glb, gltf, bin, png, jpg, js, mjs, json) |
 | `POST api/parts/save` | `{ blueprint }` → `{ name }` (saved to `<parts>/generated/`) |
 | `POST api/share/<stream>` | `image/jpeg` body → 204, broadcasts `share` |
@@ -314,6 +315,24 @@ Uses a vision model when one is installed (Ollama `/api/show` capabilities inclu
   "Send", "Make it real"); the sketch appears 2 m wide in front of the acting player (the headset
   player when one is connected).
 - The live stroke is drawn locally every frame; the bridge receives one op per finished stroke.
+
+## Library
+
+`js/parts/library/<category>.json` holds `{ "category", "parts": [Blueprint, …] }`, one file per
+name in `LIBRARY_FILES` (`js/parts/library/index.js`). `loadLibrary(read, { taken })` normalizes
+every entry with `normalizeBlueprint` and returns `{ parts: [{ meta, blueprint }], errors }`; a
+name or alias already in the catalog (`takenNames`) is never replaced. The game (`main.js`, before
+connecting to the bridge, at most 8 s) registers each meta (`source: "library"`, the file's
+category) and a blueprint builder; the bridge (`loadLibraryParts`) registers the metas, so its
+matcher finds `{ label: "toaster" }` exactly. `catalogText` leaves library parts out of the prompt
+(one line counts them), and devices do not send them as "also available parts".
+
+The laptop parts bin also reads batch files: this format, `*.catalog.json` with
+`{ "blueprints": [...] }` (up to 32 MB), or a plain list. Their entries are **indexed**: they stay
+on the laptop (out of `GET api/parts`, which every device downloads; hello reports how many) and
+the bridge's matcher knows their names. When the parser meets an unknown word, or the model names
+a part this device lacks, the runner asks `GET api/parts/resolve`, registers what comes back and
+spawns it as `{ custom: blueprint }`, so other devices build it from the record itself.
 
 ## Designs on the spot
 

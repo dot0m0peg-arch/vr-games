@@ -150,7 +150,13 @@ export function catalogText(metas, { compact = false, maxCustom = 120 } = {}) {
   const groups = new Map();
   let skipped = 0;
   let listed = 0;
+  let library = 0;
   for (const meta of metas) {
+    // The library's and the laptop's indexed batches stay out of the prompt: they are found by name.
+    if (meta.source === "library" || meta.indexed) {
+      library++;
+      continue;
+    }
     const category = meta.category || "custom";
     if (!groups.has(category)) groups.set(category, []);
     if (compact && (category === "custom" || meta.source === "laptop")) {
@@ -169,7 +175,8 @@ export function catalogText(metas, { compact = false, maxCustom = 120 } = {}) {
     groups.get(category).push(line);
   }
   const text = [...groups.keys()].sort((a, b) => rank(a) - rank(b)).filter((name) => groups.get(name).length).map((name) => `${name}:\n${groups.get(name).join("\n")}`).join("\n");
-  return skipped ? `${text}\n(and ${skipped} more saved parts: use the name the player says)` : text;
+  const more = skipped ? `${text}\n(and ${skipped} more saved parts: use the name the player says)` : text;
+  return library ? `${more}\n(and ${library} everyday things known by name, from apples to zebras: spawn what:{label:"<the name the player says>"})` : more;
 }
 
 const EMPTY = "Player: at (0, 0) facing yaw 0; hands empty.\nScene: nothing nearby.";
