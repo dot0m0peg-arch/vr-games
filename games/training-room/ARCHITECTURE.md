@@ -59,6 +59,11 @@ Everything here is plain ES modules. No build step.
 grip-space origin (center of the fist) and rotated by Euler `grip.r` (degrees, XYZ) relative to
 grip space. Grip space -Z runs along the fist toward the thumb, so a tool built upright (handle
 along +Y, head on top) uses `r: [-90, 0, 0]`. Default grip: `{ p: [0, h/2, 0], r: [0, 0, 0] }`.
+A blueprint without a grip gets one from its shape (`holdGrip` in `js/core/blueprint.js`): at
+least 1.3 times longer along z than across, like the crossbow (front +Z, `r: [125, 0, 180]`, under
+the back end: guns, flashlights); at least 1.3 times taller than wide, like the upright tools
+(`r: [-90, 0, 0]`, 15 % up: swords, torches, bottles); anything else by the middle (balls, boxes).
+A grip given with a point but no rotation keeps `r: [0, 0, 0]`.
 
 ### Builders (`js/parts/build/<category>.js` → `export const builders = { name(opts) }`)
 
@@ -89,7 +94,7 @@ the returned root's `userData`:
 
 ```js
 { t: "add", obj: Record }
-{ t: "set", id, patch: { p?, ry?, s?, color?, text?, data?, attach?, onto?, label? }, fly?: { vel: [x,y,z], spin } }
+{ t: "set", id, patch: { part?, p?, ry?, s?, color?, text?, data?, attach?, onto?, label? }, fly?: { vel: [x,y,z], spin } }
 { t: "del", ids: ["o…"] }
 { t: "clear" }
 { t: "env", time: "day" | "sunset" | "night" | "dawn" }
@@ -103,7 +108,9 @@ then sends a normal `set` with the resting pose.
 ### Intents (output of the rule parser and of the model)
 
 ```js
-{ do: "spawn", what: { part: "villa" } | { custom: Blueprint, label }, count?, place?, color?, scale?, text? }
+{ do: "spawn", what: { part: "villa" } | { label: "machine gun" } | { custom: Blueprint, label }, count?, place?, color?, scale?, text? }
+// { label } alone: not in the catalog, designed on the spot (see "Designs on the spot"). The model
+// answers commands this way; { custom } comes from drawings, saved designs and older replies.
 { do: "remove", target }        { do: "move", target, place }
 { do: "scale", target, factor } { do: "color", target, color }
 { do: "hold", target, hand }    { do: "drop", hand? }            // hand: "left" | "right"
@@ -211,7 +218,7 @@ work). `GET /?k=KEY` sets an HttpOnly cookie `tr_key`; API calls may instead sen
 
 | Method & path | Body → response |
 | --- | --- |
-| `GET api/hello` | → `{ bridge: true, auth, version, model: { available, name, provider, vision /* vision model name or null */ }, stt: { available, kind }, tts: { available, kind }, parts: { count }, lan: [urls], parserFirst /* devices use their parser first */, timeouts: { model, vision } /* ms the bridge waits for the model */ }` |
+| `GET api/hello` | → `{ bridge: true, auth, version, model: { available, name, provider, vision /* vision model name or null */ }, stt: { available, kind }, tts: { available, kind }, parts: { count, indexed /* batch parts kept on the laptop */ }, lan: [urls], parserFirst /* devices use their parser first */, timeouts: { model, vision } /* ms the bridge waits for the model */ }` |
 | `POST api/join` | `{ name, device, color? }` → `{ user, users, state, seq }` |
 | `GET api/events?user=ID` | SSE: `op` `{ seq, op }`, `state` `{ seq, state }` (full snapshot when missed ops cannot be replayed), `users` `[...]`, `poses` `{ id: pose }`, `fx` `{ user, fx }`, `share` `{ stream, user, active, n }`, `say` `{ user, text }`, `parts` `{ count }` (laptop parts bin changed) |
 | `POST api/op` | `{ user, op }` → `{ seq }` (410 if user unknown → re-join) |
@@ -219,11 +226,13 @@ work). `GET /?k=KEY` sets an HttpOnly cookie `tr_key`; API calls may instead sen
 | `POST api/fx` | `{ user, fx }` → 204 |
 | `POST api/say` | `{ user, text }` → 204, broadcasts `say` |
 | `POST api/command` | `{ user, text, ctx: { player, scene, parts } }` → `{ intents, say, source: "model", model, ms }`; 503 `{ error: "no-model" }` |
+| `POST api/design` | `{ user?, name (≤ 80), hint? (≤ 300, the player's words) }` → `{ blueprint, say, source: "model", model, ms }` (see "Designs on the spot"); 400 `no-name`, 503 `no-model`, 502 `bad-output`, 504 `timeout` |
 | `POST api/interpret` | `{ user?, image?, ascii, stats, size, hint?, parts? }` (≤ 600 KB) → `{ guess, confidence, part, blueprint?, behavior, say, source: "model", model, vision, ms }`; 503 `no-model`, 502 `bad-output`, 504 `timeout`, 400 `no-sketch`/`bad-image` (see "Magic marker") |
 | `POST api/transcribe` | `audio/wav` body → `{ text, ms }`; 503 `{ error: "no-stt" }` |
 | `POST api/tts` | `{ text }` (≤ 400 chars) → audio bytes (`audio/wav`, or the voice server's audio type); 503 `{ error: "no-tts" }` (off or unreachable), 504 `tts-timeout`, 502 `tts-failed` |
 | `POST api/report` | `{ kind: "headset"\|"client", user?, report: { … } }` (≤ 128 KB) → `{ saved: "<kind>-<YYYYMMDD-HHMMSS>-<user or ip>.json" }`, written owner-only to `<data>/reports/` and never overwritten (`bridge/check-headset-report.mjs` reads the headset ones); 400 `bad-kind`/`bad-report`, 413 `too-large` |
 | `GET api/parts` | → `{ parts: [ { name, aliases, category, desc, size, holdable, grip?, kind: "blueprint"\|"gltf"\|"module", url?, blueprint? } ] }` |
+| `GET api/parts/resolve?name=` or `?q=` | one indexed (batch-file) part by exact name or alias, or the longest name inside a spoken command → `{ name, aliases, category, desc, size, holdable, grip, blueprint }`; 404 `not-found` |
 | `GET api/parts/file/<path>` | parts-bin file (glb, gltf, bin, png, jpg, js, mjs, json) |
 | `POST api/parts/save` | `{ blueprint }` → `{ name }` (saved to `<parts>/generated/`) |
 | `POST api/share/<stream>` | `image/jpeg` body → 204, broadcasts `share` |
@@ -308,6 +317,67 @@ Uses a vision model when one is installed (Ollama `/api/show` capabilities inclu
   "Send", "Make it real"); the sketch appears 2 m wide in front of the acting player (the headset
   player when one is connected).
 - The live stroke is drawn locally every frame; the bridge receives one op per finished stroke.
+
+## Library
+
+`js/parts/library/<category>.json` holds `{ "category", "parts": [Blueprint, …] }`, one file per
+name in `LIBRARY_FILES` (`js/parts/library/index.js`). `loadLibrary(read, { taken })` normalizes
+every entry with `normalizeBlueprint` and returns `{ parts: [{ meta, blueprint }], errors }`; a
+name or alias already in the catalog (`takenNames`) is never replaced. The game (`main.js`, before
+connecting to the bridge, at most 8 s) registers each meta (`source: "library"`, the file's
+category) and a blueprint builder; the bridge (`loadLibraryParts`) registers the metas, so its
+matcher finds `{ label: "toaster" }` exactly. `catalogText` leaves library parts out of the prompt
+(one line counts them), and devices do not send them as "also available parts".
+
+The laptop parts bin also reads batch files: this format, `*.catalog.json` with
+`{ "blueprints": [...] }` (up to 32 MB), or a plain list. Their entries are **indexed**: they stay
+on the laptop (out of `GET api/parts`, which every device downloads; hello reports how many) and
+the bridge's matcher knows their names. When the parser meets an unknown word, or the model names
+a part this device lacks, the runner asks `GET api/parts/resolve`, registers what comes back and
+spawns it as `{ custom: blueprint }`, so other devices build it from the record itself.
+
+## Designs on the spot
+
+Nothing a player asks for ends as "I don't have that". With the laptop model online, the runner
+plans unknown spawns with `ctx.design`, so `planIntents` adds a `designing` record (part
+`designing`, `data: { designing: name }`, holdable, 0.4 m, an animated wire marker) instead of a
+labelled crate. For each one the runner calls `net.design(name, hint)` (`POST api/design`), one at
+a time, then turns the placeholder into `custom:<slug>` with `data.blueprint` in place: one `set`
+op that patches `part`, `label` and `data` (other data such as a behavior stays) and keeps the id,
+so "it", things stacked on it and undo of edits made to the marker keep working. The swap joins
+the original spawn's undo entry. A marker on the ground keeps its spot unless the real thing is
+bigger: then `resolvePlacement` (rel `here`, the marker as the aim point) moves it out until it
+clears the player and other things, and whatever stands on it moves along onto its top. A marker
+in the air keeps its height; a design too big for a hand lands in front instead. On the ground the
+marker floats up to chest height so it shows above the grass. If the design fails, the placeholder
+becomes the old labelled crate with a "say it again" line. Designed blueprints are learned
+(`registerMeta` + builder) and saved to the laptop parts bin, so the next request is a catalog
+hit. Every 15 s `adoptDesigns` re-queues markers nobody is designing: this device's own at once
+(undo of "clear"), anyone's after 6 minutes (the asking device reloaded or closed).
+
+When the parser understood the whole sentence except the thing ("give me a machine gun in my
+hand"), only the design call goes to the model (not for ideas, plans, wishes and other non-objects,
+`isThing`); its prompt (`buildDesignPrompt`) is a few hundred
+tokens instead of the command prompt's catalog. When the model reads the command, it names what the
+catalog lacks as `{ label }` instead of writing the blueprint inline (the command schema has no
+`custom`), so command answers stay short and every design takes the same path. A label alone
+counts only as an exact catalog name, so "dragon statue" is designed rather than spawned as the
+catalog's plain statue. `bridge/eval-model.mjs` runs designs the same way. Other model rules that
+serve the same goal:
+
+- The command and design prompts say weapons, tools and every other object are harmless props and
+  forbid refusals; a design with no shapes counts as a failure (502), never an empty thing.
+- Category words (`js/core/asks.js`: furniture, weapon, tool, decoration, toy, food, from the
+  parser or the model) expand to concrete catalog parts: one for "a weapon", several for "some
+  weapons" or "furniture", at most three of them designed; later `{ batch }` refs are remapped.
+- `isChatter` drops up to six words that are all filler ("bye bye", "my hand", "okay cool"), so
+  they never hold the one model slot; any real word ("dragon", "bigger") still goes to the model.
+- A newer model command aborts the one still waiting (`net.command(text, ctx, { signal })` → error
+  code `aborted`, runner result `brain: "replaced"`; an answer that lands after it was replaced is
+  dropped). "Thinking" ends when the last model call ends.
+- Answers are capped: `ANSWER_TOKENS` (Ollama `num_predict`, OpenAI `max_tokens`), at most
+  `MAX_INTENTS` (10) intents, a run of three or more identical intents counts once (two in a row
+  may be meant), designs at most `DESIGN_PARTS` (24) shapes.
 
 ## Additions after review
 

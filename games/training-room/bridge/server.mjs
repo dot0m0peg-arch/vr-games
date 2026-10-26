@@ -58,7 +58,8 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
-import { allMeta } from "../js/parts/meta/index.js";
+import { allMeta, registerMeta } from "../js/parts/meta/index.js";
+import { loadLibrary, takenNames } from "../js/parts/library/index.js";
 import { summarize } from "../js/core/room-state.js";
 import { qrcode } from "../vendor/qrcode.mjs";
 import { ensureCert, lanIPs } from "./cert.mjs";
@@ -229,8 +230,23 @@ function openBrowser(url) {
 // options: { dataDir, port, httpPort, https, partsDir, model, ollamaUrl, verbose, quiet, log,
 //            root, host, store: { RoomStore options }, scanMs, modelTimeoutMs, visionTimeoutMs,
 //            ttsTimeoutMs, fetchImpl, configOverrides }
+// The built-in library (js/parts/library/*.json), read once per process into the catalog, so the
+// model's { label: "toaster" } is a catalog hit. → how many parts.
+const LIBRARY_DIR = fileURLToPath(new URL("../js/parts/library/", import.meta.url));
+let library = null;
+export function loadLibraryParts(log = console) {
+  library = library || loadLibrary((file) => JSON.parse(fs.readFileSync(path.join(LIBRARY_DIR, `${file}.json`), "utf8")), { taken: takenNames(allMeta()) })
+    .then(({ parts, errors }) => {
+      for (const { meta } of parts) registerMeta(meta);
+      if (errors.length) log.warn?.(`[library] ${errors.length} problem(s), e.g. ${errors.slice(0, 3).join("; ")}`);
+      return parts.length;
+    });
+  return library;
+}
+
 export async function createBridge(options = {}) {
   const log = options.log || console;
+  await loadLibraryParts(log);
   const dataDir = path.resolve(options.dataDir || defaultDataDir());
   if (isInside(REPO_ROOT, dataDir)) throw new Error(`The data folder ${dataDir} is inside the game repository; choose a folder outside it (--data).`);
   const { config, file: configFile } = loadConfig(dataDir, { log });
@@ -342,7 +358,7 @@ export async function createBridge(options = {}) {
         model: { ...(authed ? model.status() : { available: model.available, name: model.name, provider: model.provider }), vision: model.vision },
         stt: authed ? stt0 : { available: stt0.available, kind: stt0.kind },
         tts: authed ? tts0 : { available: tts0.available, kind: tts0.kind },
-        parts: { count: bin.count },
+        parts: { count: bin.count, indexed: bin.indexedCount },
         lan: lanUrls(),
         // Devices skip the model for commands their parser understands and wait as long as the model may take.
         parserFirst: config.parserFirst,
@@ -429,6 +445,8 @@ export async function createBridge(options = {}) {
         return command(req, res, ctx);
       case "POST interpret":
         return interpret(req, res, ctx);
+      case "POST design":
+        return design(req, res, ctx);
       case "POST transcribe":
         return transcribe(req, res, ctx);
       case "POST tts":
@@ -437,6 +455,12 @@ export async function createBridge(options = {}) {
         return saveDeviceReport(req, res, ctx);
       case "GET parts":
         return sendJSON(res, 200, bin.manifest(apiBaseOf(req)));
+      case "GET parts/resolve": {
+        // One indexed (batch) thing: ?name= exact, or ?q= the longest name in a spoken command.
+        const found = bin.resolve({ name: (url.searchParams.get("name") || "").slice(0, 120), text: (url.searchParams.get("q") || "").slice(0, 500) });
+        ctx.note = found ? `"${found.name}"` : "no match";
+        return found ? sendJSON(res, 200, found) : sendJSON(res, 404, { error: "not-found" });
+      }
       case "POST parts/save": {
         const body = await readJSON(req);
         const saved = await bin.save(body.blueprint ?? body);
@@ -515,6 +539,20 @@ export async function createBridge(options = {}) {
     });
     return abort.signal;
   };
+
+  // A missing thing designed on the spot: { name, hint? } → { blueprint, say, model, ms } (ARCHITECTURE "Designs on the spot").
+  async function design(req, res, ctx) {
+    const body = await readJSON(req);
+    const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
+    if (!name) return sendJSON(res, 400, { error: "no-name", detail: "send the name of the thing to design" });
+    const hint = typeof body.hint === "string" ? body.hint.trim().slice(0, 300) : "";
+    const caller = typeof body.user === "string" ? store.users.get(body.user) : null;
+    if (caller) caller.lastSeen = Date.now();
+    ctx.note = JSON.stringify(name);
+    const result = await model.design({ name, hint, signal: abortOnClose(res) });
+    ctx.note += ` → ${result.blueprint.parts.length} shapes (${result.model}, ${result.ms} ms)`;
+    return sendJSON(res, 200, result);
+  }
 
   // Magic marker: { image?, ascii, stats, size, hint?, parts? } → the model's guess (ARCHITECTURE "Magic marker").
   async function interpret(req, res, ctx) {

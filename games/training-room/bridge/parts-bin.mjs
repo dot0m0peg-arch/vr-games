@@ -10,6 +10,7 @@ import { safeSegments, mimeOf } from "./static.mjs";
 
 export const FILE_TYPES = new Set(["glb", "gltf", "bin", "png", "jpg", "jpeg", "webp", "ktx2", "js", "mjs", "json"]);
 const MAX_JSON = 2 * 1024 * 1024;
+const MAX_CATALOG_JSON = 32 * 1024 * 1024; // *.catalog.json: big checked batches rather than thousands of files
 
 export const PARTS_README = `Training Room laptop parts bin
 ==============================
@@ -27,6 +28,9 @@ every few seconds; reload the game to pick up new parts. Spoken names are the fi
    p: center in meters (y up, ground at 0), s: bounding size in meters, r: rotation in degrees
    mat: matte | wood | metal | glass | glow | stone | fabric | plastic
    Designs the AI makes are saved to the generated/ subfolder in this format.
+   Many in one file: { "category": "zombie stuff", "parts": [ <blueprint>, <blueprint>, ... ] }
+   (or a plain list [ <blueprint>, ... ]). Every entry needs its own "name". This is the format a
+   chat thread can write in bulk: see PARTS-PROMPT.md next to the game.
 
 2. Models: <name>.glb or <name>.gltf (+ its .bin and textures next to it)
    Optional sidecar <name>.part.json:
@@ -76,6 +80,19 @@ export function normalizeBp(input) {
   }
 }
 
+// [bp, …], { blueprints | things | items: [bp, …] } or { parts: [bp, …] } where every entry has
+// its own parts. Entries of a batch are indexed: kept on the laptop and sent only when asked for.
+function batchOf(raw) {
+  const isBp = (v) => v && typeof v === "object" && !Array.isArray(v) && Array.isArray(v.parts);
+  const list = Array.isArray(raw) ? raw
+    : Array.isArray(raw?.blueprints) ? raw.blueprints : Array.isArray(raw?.things) ? raw.things : Array.isArray(raw?.items) ? raw.items
+      : Array.isArray(raw?.parts) && raw.parts.length && raw.parts.every(isBp) ? raw.parts : null;
+  return list && list.length && list.some(isBp) ? list : null;
+}
+
+// Lowercase words, apostrophes kept: how indexed names are looked up in a spoken command.
+const words = (text) => String(text || "").toLowerCase().replace(/[^a-z0-9' -]+/g, " ").split(/[\s-]+/).filter(Boolean);
+
 export class PartsBin extends Emitter {
   // dirs[0] is the primary folder (generated/ designs are saved there).
   constructor({ dirs, roomKey = "", scanMs = 10000, log = console } = {}) {
@@ -85,6 +102,7 @@ export class PartsBin extends Emitter {
     this.scanMs = scanMs;
     this.log = log;
     this.entries = [];
+    this.index = new Map(); // indexed (batch) name or alias -> entry
     this.cache = new Map(); // file path -> { stamp, result }
     this.warned = new Set();
     this.signature = "";
@@ -145,8 +163,9 @@ export class PartsBin extends Emitter {
 
   async doScan() {
     const entries = [];
-    const seen = new Set();
+    const seen = new Map(); // name -> index in entries
     const live = new Set();
+    const read = []; // { file, found } in scan order
     for (let index = 0; index < this.dirs.length; index++) {
       const dir = this.dirs[index];
       for (const sub of ["", "generated"]) {
@@ -166,19 +185,40 @@ export class PartsBin extends Emitter {
           if (!["json", "glb", "gltf", "js", "mjs"].includes(ext)) continue;
           const file = path.join(folder, name);
           live.add(file);
-          const entry = await this.readEntry(file, ext, set, index, sub ? `${sub}/${name}` : name);
-          if (!entry) continue;
-          if (seen.has(entry.name)) {
-            this.warnOnce(`dup:${file}`, `[parts] ${file}: "${entry.name}" already exists in the parts bin; skipped`);
-            continue;
-          }
-          seen.add(entry.name);
-          entries.push(entry);
+          const found = await this.readEntry(file, ext, set, index, sub ? `${sub}/${name}` : name);
+          read.push({ file, found });
         }
       }
     }
+    // Nothing changed on disk (the usual rescan): skip rebuilding a big bin's lists and index.
+    const filesKey = read.map(({ file }) => `${file}\n${this.cache.get(file)?.stamp ?? ""}`).join("\n");
+    if (filesKey === this.filesKey) return { count: this.entries.length, changed: false };
+    this.filesKey = filesKey;
+    for (const { file, found } of read) {
+      for (const entry of Array.isArray(found) ? found : found ? [found] : []) {
+        if (seen.has(entry.name)) {
+          // A real model replaces a primitive blueprint of the same name, wherever each was found
+          // (free or owner-made models in an extra partsDirs folder upgrade the items they match).
+          const at = seen.get(entry.name);
+          if (entry.kind === "gltf" && entries[at].kind === "blueprint") {
+            entries[at] = entry;
+            continue;
+          }
+          this.warnOnce(`dup:${file}:${entry.name}`, `[parts] ${file}: "${entry.name}" already exists in the parts bin; skipped`);
+          continue;
+        }
+        seen.set(entry.name, entries.length);
+        entries.push(entry);
+      }
+    }
     for (const key of this.cache.keys()) if (!live.has(key)) this.cache.delete(key);
-    const signature = JSON.stringify(entries.map((e) => [e.name, e.kind, e.stamp]));
+    const index = new Map();
+    for (const entry of entries) {
+      if (!entry.indexed) continue;
+      for (const key of [entry.name, ...(entry.aliases || [])].map((k) => words(k).join(" "))) if (key && !index.has(key)) index.set(key, entry);
+    }
+    this.index = index;
+    const signature = JSON.stringify(entries.filter((e) => !e.indexed).map((e) => [e.name, e.kind, e.stamp]).concat([[index.size, [...new Set(entries.filter((e) => e.indexed).map((e) => e.stamp))]]]));
     const changed = signature !== this.signature;
     this.signature = signature;
     this.entries = entries;
@@ -246,14 +286,15 @@ export class PartsBin extends Emitter {
       };
       if (!result.name) result = null;
     }
-    if (result) result.stamp = stamp;
+    for (const entry of Array.isArray(result) ? result : result ? [result] : []) entry.stamp = stamp;
     this.cache.set(file, { stamp, result });
     return result;
   }
 
   async readBlueprint(file, stat) {
-    if (stat.size > MAX_JSON) {
-      this.warnOnce(`big:${file}:${stat.mtimeMs}`, `[parts] ${file}: larger than 2 MB; skipped`);
+    const maxBytes = file.toLowerCase().endsWith(".catalog.json") ? MAX_CATALOG_JSON : MAX_JSON;
+    if (stat.size > maxBytes) {
+      this.warnOnce(`big:${file}:${stat.mtimeMs}`, `[parts] ${file}: larger than ${Math.round(maxBytes / 1048576)} MB; skipped`);
       return null;
     }
     let raw;
@@ -263,25 +304,44 @@ export class PartsBin extends Emitter {
       this.warnOnce(`json:${file}:${stat.mtimeMs}`, `[parts] ${file}: not valid JSON (${err.message}); skipped`);
       return null;
     }
+    // Many things in one file (a free chat's batch, or a library file): every entry is a blueprint.
+    const batch = batchOf(raw);
+    if (batch) {
+      const category = typeof raw.category === "string" && raw.category.trim() ? raw.category.trim().toLowerCase().slice(0, 32) : "custom";
+      const out = [];
+      batch.forEach((item, i) => {
+        if (!item?.name) {
+          this.warnOnce(`bp:${file}:${stat.mtimeMs}:${i}`, `[parts] ${file}: entry ${i + 1} has no name; skipped`);
+          return;
+        }
+        const entry = this.blueprintEntry(item, { category });
+        if (entry) out.push({ ...entry, indexed: true });
+        else this.warnOnce(`bp:${file}:${stat.mtimeMs}:${i}`, `[parts] ${file}: "${item.name}" is not a valid blueprint; skipped`);
+      });
+      return out;
+    }
     if (!raw || typeof raw !== "object" || !Array.isArray(raw.parts)) {
       this.warnOnce(`bp:${file}:${stat.mtimeMs}`, `[parts] ${file}: not a blueprint (needs a "parts" list); skipped`);
       return null;
     }
     if (!raw.name) raw.name = nameFromFile(file);
+    const entry = this.blueprintEntry(raw);
+    if (!entry) this.warnOnce(`bp:${file}:${stat.mtimeMs}`, `[parts] ${file}: invalid blueprint (${normalizeBp(raw).error}); skipped`);
+    return entry;
+  }
+
+  blueprintEntry(raw, { category = "custom" } = {}) {
     const normalized = normalizeBp(raw);
-    if (!normalized.ok) {
-      this.warnOnce(`bp:${file}:${stat.mtimeMs}`, `[parts] ${file}: invalid blueprint (${normalized.error}); skipped`);
-      return null;
-    }
+    if (!normalized.ok) return null;
     const bp = normalized.blueprint;
     const meta = cleanMeta({ ...raw, ...bp });
+    if (!meta.name) return null;
     return {
-      category: "custom",
+      category,
       aliases: [],
       desc: "design from the laptop parts bin",
       holdable: false,
       ...meta,
-      name: meta.name || nameFromFile(file),
       size: Array.isArray(bp.size) ? bp.size : meta.size,
       kind: "blueprint",
       blueprint: bp,
@@ -295,9 +355,11 @@ export class PartsBin extends Emitter {
 
   // apiBase: absolute API URL (e.g. "https://192.168.1.5:8787/vr-games/games/training-room/api/"),
   // so file URLs work whichever base the client resolves them against.
+  // Indexed (batch) entries stay out: thousands of them would not fit a headset; see resolve().
   manifest(apiBase = "") {
     return {
-      parts: this.entries.map(({ name, aliases, category, desc, size, holdable, grip, kind, url, blueprint, color }) => {
+      indexed: this.index.size ? this.indexedCount : 0,
+      parts: this.entries.filter((e) => !e.indexed).map(({ name, aliases, category, desc, size, holdable, grip, kind, url, blueprint, color }) => {
         const part = { name, aliases: aliases || [], category: category || "custom", desc: desc || "", size: size || null, holdable: !!holdable, kind };
         if (grip) part.grip = grip;
         if (color) part.color = color;
@@ -310,13 +372,36 @@ export class PartsBin extends Emitter {
 
   // Catalog entries for the model prompt and name matching.
   metas() {
-    return this.entries.map(({ name, aliases, category, desc, size, holdable, grip }) => ({
+    return this.entries.map(({ name, aliases, category, desc, size, holdable, grip, indexed }) => ({
       name, aliases: aliases || [], category: category || "custom", desc: desc || "", size: size || [1, 1, 1], holdable: !!holdable, grip, source: "laptop",
+      ...(indexed ? { indexed: true } : {}),
     }));
   }
 
   get count() {
     return this.entries.length;
+  }
+
+  get indexedCount() {
+    return this.entries.reduce((n, e) => n + (e.indexed ? 1 : 0), 0);
+  }
+
+  // An indexed thing by exact name or alias, or the longest name found in a spoken command
+  // ("AI, give me a flare pistol please" → "flare pistol"). → part with its blueprint, or null.
+  resolve({ name = "", text = "" } = {}) {
+    const out = (entry) => entry && {
+      name: entry.name, aliases: entry.aliases || [], category: entry.category || "custom", desc: entry.desc || "",
+      size: entry.size, holdable: !!entry.holdable, grip: entry.grip, blueprint: entry.blueprint,
+    };
+    if (name) return out(this.index.get(words(name).join(" "))) || null;
+    const list = words(text).slice(0, 60);
+    for (let len = Math.min(8, list.length); len >= 1; len--) {
+      for (let i = 0; i + len <= list.length; i++) {
+        const hit = this.index.get(list.slice(i, i + len).join(" "));
+        if (hit) return out(hit);
+      }
+    }
+    return null;
   }
 
   // True when a parts/file path starts with this bin's capability segment (no room key needed).

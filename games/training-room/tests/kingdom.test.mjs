@@ -74,7 +74,7 @@ const sizeOf = (r) => SIZES[r.part];
 const ctx = (player, part, records = []) => ({ player, size: SIZES[part], records, sizeOf, metaOf: () => null, batch: [], hand: "right" });
 
 test("'here' and 'over there' land on the pointed ground spot when the player points", () => {
-  const player = { user: "u1", p: [0, 1.6, 0], yaw: 0, aim: [12, 0, -20] };
+  const player = { user: "u1", p: [0, 1.6, 0], yaw: 0, aimHere: true, aim: [12, 0, -20] };
   const here = resolvePlacement({ rel: "here" }, ctx(player, "house"));
   assert.deepEqual(here.p, [12, 0, -20]);
   const there = resolvePlacement(parseCommand("build a house over there", { metas: allMeta() }).intents[0].place, ctx(player, "house"));
@@ -85,16 +85,24 @@ test("'here' and 'over there' land on the pointed ground spot when the player po
 });
 
 test("a pointed spot too close to the player or inside a building is pushed clear", () => {
-  const near = resolvePlacement({ rel: "here" }, ctx({ user: "u1", p: [0, 1.6, 0], yaw: 0, aim: [0, 0, -1] }, "castle"));
+  const near = resolvePlacement({ rel: "here" }, ctx({ user: "u1", p: [0, 1.6, 0], yaw: 0, aimHere: true, aim: [0, 0, -1] }, "castle"));
   assert.ok(Math.hypot(near.p[0], near.p[2]) > 8, `castle center ${near.p} too close to the player`);
   const records = [{ id: "h1", part: "house", p: [0, 0, -20], ry: 0, s: 1 }];
-  const busy = resolvePlacement({ rel: "here" }, ctx({ user: "u1", p: [0, 1.6, 0], yaw: 0, aim: [0, 0, -20] }, "house", records));
+  const busy = resolvePlacement({ rel: "here" }, ctx({ user: "u1", p: [0, 1.6, 0], yaw: 0, aimHere: true, aim: [0, 0, -20] }, "house", records));
   assert.ok(Math.hypot(busy.p[0], busy.p[2] + 20) > 5, "second house overlaps the first");
+});
+
+test("outside Kingdom mode 'here' stays next to the player; 'over there' follows the pointer", () => {
+  const pose = { user: "u1", p: [0, 1.6, 0], yaw: 0, aim: [0, 0, -40] };
+  const here = resolvePlacement({ rel: "here" }, ctx(pose, "crate"));
+  assert.ok(Math.hypot(here.p[0], here.p[2]) < 3, `"bring the crate to me" went to ${here.p}`);
+  const there = resolvePlacement({ rel: "front", dist: 6, point: true }, ctx(pose, "crate"));
+  assert.deepEqual(there.p, [0, 0, -40]);
 });
 
 test("without a pointer, or pointing too far away, 'here' keeps its old meaning", () => {
   const plain = resolvePlacement({ rel: "here" }, ctx({ user: "u1", p: [0, 1.6, 0], yaw: 0 }, "house"));
-  const far = resolvePlacement({ rel: "here" }, ctx({ user: "u1", p: [0, 1.6, 0], yaw: 0, aim: [0, 0, -500] }, "house"));
+  const far = resolvePlacement({ rel: "here" }, ctx({ user: "u1", p: [0, 1.6, 0], yaw: 0, aimHere: true, aim: [0, 0, -500] }, "house"));
   assert.deepEqual(far.p, plain.p);
   assert.ok(plain.p[2] < 0 && plain.p[2] > -8);
 });

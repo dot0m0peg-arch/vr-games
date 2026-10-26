@@ -7,7 +7,8 @@ export const LIMITS = { pos: 5000, minScale: 0.02, maxScale: 50, label: 80, text
 const ID_RE = /^[a-z0-9:_-]{1,40}$/;
 const PART_RE = /^[\p{L}\p{N}][\p{L}\p{N} :'_.-]{0,79}$/u;
 const COLOR_RE = /^#[0-9a-f]{6}$/;
-const PATCH_KEYS = ["p", "ry", "s", "color", "text", "data", "attach", "onto", "label"];
+// part: a placeholder becomes its real thing in place (same id, so undo, "it" and stacks keep working).
+const PATCH_KEYS = ["part", "p", "ry", "s", "color", "text", "data", "attach", "onto", "label"];
 const NULLABLE = new Set(["color", "text", "data", "attach", "onto"]);
 
 const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
@@ -272,6 +273,7 @@ export function validateRecord(record) {
 function patchOf(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) fail("bad patch");
   const out = {};
+  if (v.part !== undefined && v.part !== null) out.part = part(v.part);
   if (v.p !== undefined && v.p !== null) out.p = vec(v.p, 3, LIMITS.pos, "p");
   if (v.ry !== undefined && v.ry !== null) out.ry = yaw(v.ry);
   if (v.s !== undefined && v.s !== null) out.s = clampNum(finite(v.s, "s"), LIMITS.minScale, LIMITS.maxScale);

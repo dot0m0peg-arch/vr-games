@@ -6,12 +6,15 @@ import { stripWake } from "./core/wake.js";
 import { parseCommand } from "./core/parse.js";
 import { planIntents } from "./core/execute.js";
 import { summarize } from "./core/room-state.js";
+import { resolvePlacement } from "./core/place.js";
 import { allMeta, getMeta, registerMeta } from "./parts/meta/index.js";
-import { metaOfRecord, sizeOfRecord, registerBuilder } from "./parts/build/index.js";
+import { metaOfRecord, sizeOfRecord, registerBuilder, DESIGNING } from "./parts/build/index.js";
 import { buildBlueprint } from "./parts/build/blueprint.js";
+import { normalizeBlueprint, slug } from "./core/blueprint.js";
 import { matchPart, normalizeText } from "./core/lexicon.js";
 import { classifySketch, projectStrokes, sketchBounds } from "./core/sketch.js";
 import { WAKE_WORDS } from "./config.js";
+import { isChatter, isThing, expandCategories } from "./core/asks.js";
 import { addressAdvisor, kingdomQuery, kingdomReport, kingdomStats, advisorAck, getAdvisor } from "./core/kingdom.js";
 
 // Intents that need the drawing and maybe the model, handled here instead of in planIntents.
@@ -49,6 +52,7 @@ function withArticle(noun) {
 
 const HISTORY_LIMIT = 60;
 
+
 export class Runner extends Emitter {
   // send(op): applies locally and forwards to the bridge. getPlayer(): pose of whoever commands act for.
   constructor({ room, send, getNet, getPlayer, getUser, settings, getDraw = () => null }) {
@@ -67,6 +71,13 @@ export class Runner extends Emitter {
     this.modelName = "";
     // The bridge can ask for the parser first (a slow laptop model): set from its hello.
     this.parserFirst = false;
+    this.inflight = null; // the model command in progress; a newer command replaces it
+    this.learned = new Map(); // name -> blueprint designed in this session
+    this.designs = Promise.resolve(); // designs run one at a time (the laptop model is one at a time)
+    this.pending = new Set(); // placeholder ids queued for a design on this device
+    this.made = new Set(); // placeholder ids this device spawned (or took over)
+    this.indexedParts = 0; // the laptop's indexed (batch) parts, fetched by name when asked for (hello)
+    this.fetched = new Map(); // indexed part name -> blueprint, spawned with the blueprint inline
     this.busy = 0;
   }
 
@@ -102,17 +113,35 @@ export class Runner extends Emitter {
       return null;
     }
     const hand = this.settings().hand || "right";
-    const parsed = parseCommand(command, { metas: allMeta(), hand });
+    let parsed = parseCommand(command, { metas: allMeta(), hand });
+    const net = this.getNet();
+    // Something the parser does not know may be one of the laptop's indexed batch parts.
+    if (parsed.unknown?.length && this.indexedParts > 0 && net?.connected && typeof net.resolvePart === "function") {
+      const found = await net.resolvePart({ q: command }).catch(() => null);
+      if (found && this.adoptPart(found)) parsed = parseCommand(command, { metas: allMeta(), hand });
+    }
     const marker = parsed.intents.find((intent) => MARKER_INTENTS.has(intent.do));
     if (marker && parsed.confidence >= 0.8) return this.markerFlow(marker, command);
-    const net = this.getNet();
+    const online = this.modelAvailable && !!net?.connected;
+    // Chatter goes nowhere instead of queueing for the model.
+    if (online && isChatter(command, parsed)) {
+      this.emit("ignored", { text: command });
+      return { brain: "ignored", ops: [], say: [], errors: [] };
+    }
     const parserFirst = this.parserFirst || this.settings().fast;
-    const useModel = this.modelAvailable && net?.connected && !(parserFirst && parsed.confidence >= 0.8);
+    // "give me a machine gun": the parser understood everything but the thing itself, so the thing
+    // is designed on the spot instead of asking the model to read the whole command first.
+    const designOnly = online && typeof net.design === "function" && parsed.unknown?.length > 0 && parsed.unknown.every(isThing)
+      && parsed.intents.length > 0 && parsed.intents.every((intent) => intent.do === "spawn");
+    const useModel = online && !designOnly && !(parserFirst && parsed.confidence >= 0.8);
 
     let intents = parsed.intents;
     let say = parsed.say ? [parsed.say] : [];
     let brain = "parser";
     if (useModel) {
+      this.inflight?.abort();
+      const inflight = new AbortController();
+      this.inflight = inflight;
       this.busy++;
       this.emit("thinking", { text: command });
       try {
@@ -120,8 +149,9 @@ export class Runner extends Emitter {
         const response = await net.command(command, {
           player,
           scene: summarize(this.room.state, player),
-          parts: allMeta().filter((m) => m.source !== "builtin").map((m) => m.name),
-        });
+          parts: allMeta().filter((m) => m.source !== "builtin" && m.source !== "library").map((m) => m.name),
+        }, { signal: inflight.signal });
+        if (inflight.signal.aborted) return { brain: "replaced", ops: [], say: [], errors: [] }; // answered, but a newer command took over
         intents = Array.isArray(response.intents) ? response.intents : [];
         say = response.say ? [response.say] : [];
         brain = response.model ? `model:${response.model}` : "model";
@@ -131,14 +161,17 @@ export class Runner extends Emitter {
           brain = "parser";
         }
       } catch (err) {
+        if (err.code === "aborted") return { brain: "replaced", ops: [], say: [], errors: [] }; // a newer command took over
         console.warn("[runner] model failed, using parser", err);
         say = parsed.say ? [parsed.say] : [];
         if (!parsed.intents.length) say.push(`The local model did not answer (${err.code || err.message}).`);
       } finally {
-        this.busy--;
-        this.emit("done", {});
+        if (this.inflight === inflight) this.inflight = null;
+        this.idle();
       }
     }
+    intents = expandCategories(intents, command);
+    intents = await this.inlineFetched(intents);
     if (!intents.length && !say.length) {
       say.push(parsed.unknown?.length
         ? `I don't know "${parsed.unknown.join(", ")}" yet. Try: spawn a crate in front of me.`
@@ -146,7 +179,7 @@ export class Runner extends Emitter {
     }
     const markerIntent = intents.find((intent) => MARKER_INTENTS.has(intent.do));
     if (markerIntent) return this.markerFlow(markerIntent, command);
-    const result = this.exec(intents, { label: command, source: brain });
+    const result = this.exec(intents, { label: command, source: brain, design: online && typeof net.design === "function", hint: command });
     const replies = [...say, ...result.say].filter(Boolean);
     if (advisor) {
       const ack = result.ops.length ? advisorAck(advisor, this.history.length) : "";
@@ -158,7 +191,7 @@ export class Runner extends Emitter {
   }
 
   // Executes intents directly (UI buttons, HUD menu, model output). Returns { ops, say, errors }.
-  exec(intents, { label = "", source = "ui", player = null, decorate = null } = {}) {
+  exec(intents, { label = "", source = "ui", player = null, decorate = null, design = false, hint = "" } = {}) {
     const pose = player || this.getPlayer();
     const user = pose.user || this.getUser();
     // "it" after a spawn in the same command means that new thing, not the previous command's.
@@ -180,6 +213,7 @@ export class Runner extends Emitter {
       sizeOf: (record) => sizeOfRecord(record),
       newId: (prefix = "o") => makeId(prefix),
       rng: rng(),
+      design,
     });
     if (plan.undo) {
       this.undo(plan.undo);
@@ -196,8 +230,10 @@ export class Runner extends Emitter {
       if (op.t === "add" && op.obj.data?.blueprint) this.learnBlueprint(op.obj.data.blueprint);
     }
     if (plan.ops.length) {
-      this.history.push({ label, inverse });
+      const entry = { label, inverse };
+      this.history.push(entry);
       if (this.history.length > HISTORY_LIMIT) this.history.shift();
+      for (const op of plan.ops) if (op.t === "add" && op.obj.part === DESIGNING) this.queueDesign(op.obj, hint || label);
     }
     if (touched.length) this.lastIds = touched;
     return { ops: plan.ops, say: plan.say || [], errors: plan.errors || [], source };
@@ -224,13 +260,12 @@ export class Runner extends Emitter {
         this.emit("thinking", { text: spoken });
         try {
           const stats = draw.statsFor(drawing);
-          guess = await net.interpret({ image: draw.snapshotPNG(drawing), ascii: draw.asciiFor(drawing), stats, size: [stats.width, stats.height], hint: spoken, parts: allMeta().filter((m) => m.source !== "builtin").map((m) => m.name) });
+          guess = await net.interpret({ image: draw.snapshotPNG(drawing), ascii: draw.asciiFor(drawing), stats, size: [stats.width, stats.height], hint: spoken, parts: allMeta().filter((m) => m.source !== "builtin" && m.source !== "library").map((m) => m.name) });
           source = guess.model ? `model:${guess.model}` : "model";
         } catch (err) {
           console.warn("[runner] interpret failed, using the offline guesser", err);
         } finally {
-          this.busy--;
-          this.emit("done", {});
+          this.idle();
         }
       }
       if (!guess) guess = classifySketch(projectStrokes(drawing.data?.strokes || [])) || { guess: "", part: "", confidence: 0, behavior: "none" };
@@ -313,6 +348,7 @@ export class Runner extends Emitter {
     } else {
       const net = this.getNet();
       if (this.modelAvailable && net?.connected) {
+        this.busy++;
         this.emit("thinking", { text: name });
         try {
           const response = await net.command(`spawn ${withArticle(name)}`, { player: this.getPlayer(), scene: [], parts: [] });
@@ -321,17 +357,196 @@ export class Runner extends Emitter {
         } catch (err) {
           console.warn("[runner] correction model call failed", err);
         } finally {
-          this.emit("done", {});
+          this.idle();
         }
       }
       if (!spawn) spawn = { do: "spawn", what: { label: name }, place: at };
     }
-    const result = this.exec([{ do: "remove", target: { id: prev.id } }, spawn], { label: `it's ${name}`, source: "correction", decorate });
+    const net = this.getNet();
+    const design = this.modelAvailable && !!net?.connected && typeof net.design === "function";
+    const result = this.exec([{ do: "remove", target: { id: prev.id } }, spawn], { label: `it's ${name}`, source: "correction", decorate, design, hint: `it's ${name}` });
     const added = result.ops.find((op) => op.t === "add");
     if (added) this.lastRealized = { ...this.lastRealized, id: added.obj.id, guess: name };
     // Without the model, unknown names become a labelled crate; say so instead of pretending.
     this.reply(result.say.length ? result.say.join(" ") : `Oh, ${withArticle(name)}! My mistake.`, "correction");
     return result;
+  }
+
+  // A laptop indexed part, registered here so the parser and the menus know it. → true when usable.
+  adoptPart(found) {
+    const res = normalizeBlueprint({ ...found.blueprint, name: found.name });
+    if (!res.ok) return false;
+    const name = res.blueprint.name;
+    this.fetched.set(name, res.blueprint);
+    if (!getMeta(name)) {
+      registerMeta({ name, aliases: found.aliases || res.blueprint.aliases, desc: found.desc || res.blueprint.desc, size: res.blueprint.size, holdable: res.blueprint.holdable, grip: res.blueprint.grip, category: found.category || "custom", source: "indexed" });
+      registerBuilder(name, (opts) => buildBlueprint(res.blueprint, opts));
+      this.emit("parts-changed");
+    }
+    return true;
+  }
+
+  // Spawns of fetched indexed parts carry their blueprint, so every device can build them; names
+  // only the bridge knew (the model's answer) are fetched first.
+  async inlineFetched(intents) {
+    const net = this.getNet();
+    const ask = intents.filter((i) => i?.do === "spawn" && i.what?.part && !i.what.custom && !getMeta(i.what.part) && !this.fetched.has(i.what.part));
+    if (ask.length && this.indexedParts > 0 && net?.connected && typeof net.resolvePart === "function") {
+      const names = [...new Set(ask.map((i) => i.what.part))].slice(0, 6);
+      const found = await Promise.all(names.map((name) => net.resolvePart({ name }).catch(() => null)));
+      for (const hit of found) if (hit) this.adoptPart(hit);
+    }
+    return intents.map((intent) => {
+      const name = intent?.do === "spawn" && intent.what?.part && !intent.what.custom ? intent.what.part : null;
+      const blueprint = name && this.fetched.get(name);
+      return blueprint ? { ...intent, what: { custom: blueprint, label: intent.what.label || name } } : intent;
+    });
+  }
+
+  // A missing thing: the placeholder is already in the room; the design replaces it when it arrives.
+  queueDesign(record, hint) {
+    const name = String(record.data?.designing || record.label || "thing");
+    this.pending.add(record.id);
+    this.made.add(record.id);
+    this.designs = this.designs
+      .then(() => this.designOne(record.id, name, hint))
+      .catch((err) => console.warn("[runner] design failed", err))
+      .finally(() => this.pending.delete(record.id));
+    return this.designs;
+  }
+
+  // Markers nobody is designing, run every few seconds: this device's own whose design was lost
+  // (undo of "clear" while it was being designed), and markers whose maker left the room (reloaded
+  // or closed mid-design). Those only on one device, the connected user with the lowest id, so each
+  // is designed once. Also puts back a blueprint a late edit from another device replaced. → how many.
+  adoptDesigns() {
+    const net = this.getNet();
+    if (!this.modelAvailable || !net?.connected || typeof net.design !== "function") return 0;
+    const me = this.getUser();
+    const users = (Array.isArray(net.users) ? net.users : []).map((u) => u?.id).filter(Boolean);
+    const elected = users.length > 0 && users.includes(me) && [...users].sort()[0] === me;
+    let adopted = 0;
+    for (const record of this.room.records()) {
+      const mine = this.made.has(record.id);
+      if (record.part !== DESIGNING) {
+        const learned = !record.data?.blueprint && !record.data?.unknown && String(record.part).startsWith("custom:") && this.learned.get(String(record.label || "").toLowerCase());
+        if (learned && (mine || elected)) {
+          const { designing, ...rest } = record.data || {};
+          this.send({ t: "set", id: record.id, patch: { data: { ...rest, blueprint: learned } }, uid: makeId("u") });
+        }
+        continue;
+      }
+      if (this.pending.has(record.id)) continue;
+      if (!mine && !(elected && !users.includes(record.by))) continue;
+      this.queueDesign(record, record.label || "");
+      adopted++;
+    }
+    return adopted;
+  }
+
+  // One model call finished: the "thinking" effect stops when none is left.
+  idle() {
+    this.busy = Math.max(0, this.busy - 1);
+    if (!this.busy) this.emit("done", {});
+  }
+
+  async designOne(id, name, hint) {
+    if (!this.room.get(id)) return; // removed (or undone) before its turn
+    const net = this.getNet();
+    let blueprint = null;
+    let line = "";
+    let failure = "";
+    const known = getMeta(name);
+    // Designed meanwhile (same thing asked twice): reuse it instead of asking again.
+    const learned = known && this.learned.get(known.name);
+    if (learned) blueprint = learned;
+    else {
+      this.emit("designing", { name });
+      try {
+        const result = await net.design(name, hint);
+        const res = normalizeBlueprint({ ...result.blueprint, name });
+        if (res.ok) {
+          blueprint = res.blueprint;
+          line = String(result.say || "");
+        } else failure = res.error;
+      } catch (err) {
+        failure = err.code || err.message || "no answer";
+      }
+    }
+    const current = this.room.get(id);
+    if (!current || current.part !== DESIGNING) return;
+    if (!blueprint) {
+      // Truthful fallback: a labelled crate, and a way to try again.
+      this.replacePlaceholder(current, { part: `custom:${slug(name)}`.slice(0, 80), label: name, data: { unknown: true } });
+      this.reply(`I couldn't design ${withArticle(name)} this time (${failure}). Say it again and I'll try once more.`, "design");
+      return;
+    }
+    this.learnBlueprint(blueprint);
+    this.learned.set(blueprint.name, blueprint);
+    const holdable = blueprint.holdable && Math.max(...blueprint.size) <= 2;
+    const swap = { part: `custom:${slug(name)}`.slice(0, 80), label: name, data: { blueprint } };
+    if (current.attach && !holdable) {
+      // Too big for a hand after all: it lands in front of the player instead.
+      this.replacePlaceholder(current, swap, { detach: true });
+      this.reply(`${capital(withArticle(name))} is too big to hold, so it's in front of you.`, "design");
+    } else {
+      this.replacePlaceholder(current, swap);
+      this.reply(line || `${capital(withArticle(name))}, made just for you.`, "design");
+    }
+  }
+
+  // Turns the placeholder into its real thing in place: the same id, so "it", things stacked on it
+  // and undo of edits made to the marker keep working. The swap itself is not an undo step: "undo"
+  // undoes what the player did (the spawn removes the design; see keepDesign for the edits).
+  replacePlaceholder(record, swap, { detach = false } = {}) {
+    const { designing, ...kept } = record.data || {};
+    const patch = { part: swap.part, label: swap.label, data: { ...kept, ...swap.data } };
+    const after = { ...record, ...patch };
+    const size = sizeOfRecord(after);
+    const pose = this.getPlayer();
+    const head = Array.isArray(pose.p) ? pose.p : [0, 1.6, 0];
+    const p0 = Array.isArray(record.p) ? record.p : [0, 0, 0];
+    const onGround = (p0[1] || 0) < 0.05 && Math.hypot(p0[0] - head[0], p0[2] - head[2]) < 100;
+    if (detach || (onGround && !record.attach && !record.onto)) {
+      // The real thing is bigger than its 0.4 m marker: the same spot, but never on top of the
+      // player or other things (a pirate ship asked for "in front of me").
+      const spot = resolvePlacement(detach ? { rel: "front" } : { rel: "here" }, {
+        player: detach ? pose : { ...pose, aim: p0, aimHere: true }, size,
+        records: this.room.records(), sizeOf: (r) => sizeOfRecord(r), exclude: [record.id],
+      });
+      patch.p = spot.p;
+      patch.ry = spot.ry;
+      if (detach) patch.attach = null;
+    }
+    // Things standing on the marker move along and stand on the real thing's top (measured before
+    // the swap: the room updates records in place).
+    const ops = [{ t: "set", id: record.id, patch, uid: makeId("u") }];
+    if (!record.attach) {
+      const p1 = patch.p || p0;
+      const delta = [p1[0] - p0[0], p1[1] + size[1] - (p0[1] + sizeOfRecord(record)[1]), p1[2] - p0[2]];
+      const above = new Set([record.id]);
+      for (let grew = true; grew;) {
+        grew = false;
+        for (const r of this.room.records()) {
+          if (above.has(r.id) || !r.onto || !above.has(r.onto) || r.attach || !Array.isArray(r.p)) continue;
+          above.add(r.id);
+          grew = true;
+          ops.push({ t: "set", id: r.id, patch: { p: r.p.map((n, i) => Math.round((n + delta[i]) * 1000) / 1000) }, uid: makeId("u") });
+        }
+      }
+    }
+    for (const op of ops) this.send(op);
+  }
+
+  // An undo step recorded while a thing was still a marker restores its data on the design: the
+  // blueprint (or the "couldn't design" crate) stays.
+  keepDesign(op) {
+    if (op.t !== "set" || !op.patch || !("data" in op.patch) || "part" in op.patch) return op;
+    const current = this.room.get(op.id);
+    if (!current || current.part === DESIGNING || !op.patch.data?.designing) return op;
+    const { designing, ...rest } = op.patch.data;
+    const design = current.data?.blueprint ? { blueprint: current.data.blueprint } : current.data?.unknown ? { unknown: true } : {};
+    return { ...op, patch: { ...op.patch, data: { ...rest, ...design } } };
   }
 
   // Sends raw ops with undo support; merge = fold into the previous history entry.
@@ -353,7 +568,7 @@ export class Runner extends Emitter {
     let undone = 0;
     for (let i = 0; i < count && this.history.length; i++) {
       const entry = this.history.pop();
-      for (const op of entry.inverse) this.send({ ...op, uid: makeId("u") });
+      for (const op of entry.inverse) this.send({ ...this.keepDesign(op), uid: makeId("u") });
       undone++;
     }
     this.reply(undone ? `Undid ${undone === 1 ? "that" : `${undone} steps`}.` : "Nothing to undo.", "system", { speak: false });
@@ -390,6 +605,11 @@ export class Runner extends Emitter {
   reply(text, source, { speak = true } = {}) {
     this.emit("reply", { text, source, speak });
   }
+}
+
+function capital(text) {
+  const t = String(text || "");
+  return t ? t[0].toUpperCase() + t.slice(1) : t;
 }
 
 function describe(ops) {

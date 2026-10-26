@@ -69,6 +69,26 @@ function lastUser(body) {
   return { text, image };
 }
 
+// Canned on-the-spot designs: a pistol, a refusal, junk, or a design wrapped in { blueprint }.
+const PISTOL = {
+  name: "Pistol", desc: "black toy pistol", holdable: true,
+  parts: [
+    { shape: "box", p: [0, 0.12, 0.05], s: [0.04, 0.05, 0.22], color: "#222222", mat: "metal" },
+    { shape: "box", p: [0, 0.05, -0.03], s: [0.035, 0.11, 0.05], color: "#3a2a1a", mat: "plastic", r: [-15, 0, 0] },
+    { shape: "cylinder", p: [0, 0.13, 0.18], s: [0.02, 0.02, 0.06], color: "#111111", mat: "metal", r: [90, 0, 0] },
+    { shape: "torus", p: [0, 0.07, 0.03], s: [0.04, 0.04, 0.01], color: "#222222", mat: "metal", r: [0, 90, 0] },
+  ],
+};
+function designReply(body) {
+  const { text } = lastUser(body);
+  const name = (text.match(/^Design: "(.*)"$/m) || [])[1] || "";
+  if (name.includes("refuse")) return { content: JSON.stringify({ name, parts: [], say: "I can't help with that." }) };
+  if (name.includes("junk")) return { content: "not json at all" };
+  if (name.includes("wrapped")) return { content: JSON.stringify({ blueprint: PISTOL, say: "" }) };
+  if (name.includes("ship") || name.includes("blimp")) return { content: JSON.stringify({ name, desc: "big ship", holdable: false, parts: [{ shape: "box", p: [0, 1.5, 0], s: [4, 3, 12], color: "#6b4a2a", mat: "wood" }], say: "Ahoy!" }) };
+  return { content: JSON.stringify({ ...PISTOL, say: "A pistol, pew pew." }) };
+}
+
 // Canned magic-marker answers: an image is "clearly a fish", round ASCII art is the catalog ball.
 function interpretReply(body) {
   const { text, image } = lastUser(body);
@@ -145,6 +165,11 @@ export async function startFakeOllama({ models = ["llama3.2:3b", "nomic-embed-te
       requests.push(parsed);
       if (!models.includes(parsed.model)) return json(res, 404, { error: `model "${parsed.model}" not found, try pulling it first` });
       const marker = !!parsed.format?.properties?.guess;
+      if (parsed.format?.properties?.parts && !marker) {
+        const designDelay = delays[`design:${parsed.model}`] || 0;
+        if (designDelay) await new Promise((resolve) => setTimeout(resolve, designDelay));
+        return json(res, 200, { model: parsed.model, message: { role: "assistant", content: designReply(parsed).content }, done: true });
+      }
       const { text: last, image } = lastUser(parsed);
       if (image && refuseImages.includes(parsed.model)) return json(res, 500, { error: `${parsed.model} does not support images` });
       const command = marker ? (last.match(/^Player's words: "(.*)"$/m) || [])[1] || "" : (last.match(/Command: "(.*)"$/m) || [])[1] || "";
@@ -308,7 +333,7 @@ export const EVAL_ANSWERS = {
   "undo the last two things": one({ do: "undo", count: 2 }),
   "make it night": one({ do: "time", value: "night" }),
   "AI, change the time to sunset": one({ do: "time", value: "sunset" }),
-  "spawn a dragon statue": one({ do: "spawn", what: { custom: TINY_DRAGON, label: "dragon statue" }, place: { rel: "front", dist: 6 } }),
+  "spawn a dragon statue": one({ do: "spawn", what: { label: "dragon statue" }, place: { rel: "front", dist: 6 } }),
   "AI, make it real": one({ do: "realize" }),
   "no, it's a gun": one({ do: "correct", label: "gun" }),
   "make it fly": one({ do: "animate", target: { ref: "it" }, behavior: "fly" }),

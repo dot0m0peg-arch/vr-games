@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Training Room model eval: runs the canonical voice commands in tests/fixtures/model-eval.json through
-// the bridge's model path (LocalModel.command, then the game's planner) for one or more installed
-// models and scores each: accuracy, latency (mean, median, p95) and every miss with what came back.
+// the bridge's model path (LocalModel.command, the game's planner, then LocalModel.design for what the
+// catalog lacks) for one or more installed models and scores each: accuracy, latency (mean, median,
+// p95) and every miss with what came back.
 // It uses the built-in parts catalog (not the laptop parts bin), so runs compare across laptops.
 // Saves reports/model-eval-<YYYYMMDD-HHMMSS>.json and .md in the bridge data folder.
 //
@@ -35,6 +36,7 @@ import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { allMeta } from "../js/parts/meta/index.js";
 import { planIntents } from "../js/core/execute.js";
+import { slug } from "../js/core/blueprint.js";
 import { createState, applyOp, snapshot, summarize } from "../js/core/room-state.js";
 import { forwardOf, rightOf } from "../js/core/place.js";
 import { LocalModel, catalogText, createMatcher } from "./llm.mjs";
@@ -201,7 +203,20 @@ async function runCase(model, item, fixture, catalog) {
     return { id: item.id, text: item.text, pass: false, ms: Date.now() - started, reasons: [errorText(err)] };
   }
   let n = 0;
-  const plan = planIntents(result.intents, { user: player.user, player, metas: catalog.metas, state, rng: seeded(), newId: (prefix) => `${prefix}eval${++n}`, now: () => 1700000000000 });
+  const plan = planIntents(result.intents, { user: player.user, player, metas: catalog.metas, state, rng: seeded(), newId: (prefix) => `${prefix}eval${++n}`, now: () => 1700000000000, design: true });
+  // Like the game: what the catalog lacks is designed by its own call and replaces its placeholder.
+  let ms = result.ms;
+  for (const op of plan.ops) {
+    if (op.t !== "add" || op.obj.part !== "designing") continue;
+    const name = op.obj.data?.designing || op.obj.label;
+    try {
+      const made = await model.design({ name, hint: item.text });
+      op.obj = { ...op.obj, part: `custom:${slug(name)}`.slice(0, 80), data: { blueprint: made.blueprint } };
+      ms += made.ms;
+    } catch (err) {
+      return { id: item.id, text: item.text, pass: false, ms: Date.now() - started, reasons: [`design of "${name}": ${errorText(err)}`] };
+    }
+  }
   const got = { intents: result.intents, say: result.say, ops: opViews(plan.ops, state, player), undo: plan.undo, errors: plan.errors };
   const alternatives = item.anyOf || [item.expect];
   const misses = [];
@@ -212,10 +227,10 @@ async function runCase(model, item, fixture, catalog) {
     } catch (err) {
       reasons = [`bad expectation: ${err.message}`];
     }
-    if (!reasons.length) return { id: item.id, text: item.text, pass: true, ms: result.ms };
+    if (!reasons.length) return { id: item.id, text: item.text, pass: true, ms };
     misses.push(alternatives.length > 1 ? `option ${misses.length + 1}: ${reasons.join("; ")}` : reasons.join("; "));
   }
-  return { id: item.id, text: item.text, pass: false, ms: result.ms, reasons: misses, got: { intents: describeIntents(result.intents), say: result.say, ops: got.ops, errors: got.errors } };
+  return { id: item.id, text: item.text, pass: false, ms, reasons: misses, got: { intents: describeIntents(result.intents), say: result.say, ops: got.ops, errors: got.errors } };
 }
 
 // Exact ratio: the rounded accuracy is only for reading.
