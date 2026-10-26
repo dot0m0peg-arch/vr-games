@@ -3,6 +3,7 @@
 // The game and the bridge load it at start. It comes after the hand-built catalog: an entry never
 // replaces a built-in part or alias. Pure data handling (no three.js), shared by browser and Node.
 import { normalizeBlueprint } from "../../core/blueprint.js";
+import { singularize } from "../../core/lexicon.js";
 
 export const LIBRARY_FILES = [
   "kitchen", "food", "furniture", "household", "tools", "weapons", "vehicles", "animals",
@@ -18,6 +19,12 @@ export function takenNames(metas) {
     for (const alias of meta?.aliases || []) taken.add(String(alias).toLowerCase());
   }
   return taken;
+}
+
+// A name is taken as said or with its last word made singular ("swords" is the catalog's sword).
+function isTaken(taken, name) {
+  const words = String(name).split(" ");
+  return taken.has(name) || taken.has([...words.slice(0, -1), singularize(words[words.length - 1])].join(" "));
 }
 
 // One category file → { parts: [{ meta, blueprint }], errors }. Adds the names it uses to taken.
@@ -36,12 +43,13 @@ export function readLibraryFile(doc, file, taken = new Set()) {
     const bp = res.blueprint;
     // Small things can be picked up unless the entry says otherwise (a phone, an apple, a mug).
     if (raw.holdable === undefined && Math.max(...bp.size) <= 0.5) bp.holdable = true;
-    if (taken.has(bp.name)) {
+    if (isTaken(taken, bp.name)) {
       errors.push(`${file}: "${bp.name}" is already taken`);
       continue;
     }
     taken.add(bp.name);
-    bp.aliases = bp.aliases.filter((alias) => !taken.has(alias));
+    // An alias may not shadow a catalog name either, plural included ("crates" means crate).
+    bp.aliases = bp.aliases.filter((alias) => !isTaken(taken, alias));
     for (const alias of bp.aliases) taken.add(alias);
     const meta = { name: bp.name, aliases: bp.aliases, desc: bp.desc, size: bp.size, holdable: bp.holdable, grip: bp.grip, category, source: "library" };
     parts.push({ meta, blueprint: bp });

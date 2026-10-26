@@ -163,7 +163,7 @@ export class PartsBin extends Emitter {
 
   async doScan() {
     const entries = [];
-    const seen = new Set();
+    const seen = new Map(); // name -> index in entries
     const live = new Set();
     const read = []; // { file, found } in scan order
     for (let index = 0; index < this.dirs.length; index++) {
@@ -197,10 +197,17 @@ export class PartsBin extends Emitter {
     for (const { file, found } of read) {
       for (const entry of Array.isArray(found) ? found : found ? [found] : []) {
         if (seen.has(entry.name)) {
+          // A real model replaces a primitive blueprint of the same name, wherever each was found
+          // (free or owner-made models in an extra partsDirs folder upgrade the items they match).
+          const at = seen.get(entry.name);
+          if (entry.kind === "gltf" && entries[at].kind === "blueprint") {
+            entries[at] = entry;
+            continue;
+          }
           this.warnOnce(`dup:${file}:${entry.name}`, `[parts] ${file}: "${entry.name}" already exists in the parts bin; skipped`);
           continue;
         }
-        seen.add(entry.name);
+        seen.set(entry.name, entries.length);
         entries.push(entry);
       }
     }
