@@ -7,6 +7,9 @@
 <meta name="theme-color" content="#5aaee8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Miner</title>
+<style>@font-face{font-family:'Fredoka';font-weight:500;src:url(fonts/fredoka-latin-500-normal.woff2) format('woff2')}@font-face{font-family:'Fredoka';font-weight:600;src:url(fonts/fredoka-latin-600-normal.woff2) format('woff2')}@font-face{font-family:'Fredoka';font-weight:700;src:url(fonts/fredoka-latin-700-normal.woff2) format('woff2')}@font-face{font-family:'Alfa Slab One';font-weight:400;src:url(fonts/alfa-slab-one-latin-400-normal.woff2) format('woff2')}</style>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#5aaee8">
 <style>@font-face{font-family:'Fredoka';font-style:normal;font-weight:300 700;font-display:swap;src:url('fredoka-latin.woff2') format('woff2');}</style>
 <style>
 /* Layout: full-bleed 3D canvas; HUD pills pinned to safe-area corners; bottom sheets for menus. One cozy light look on purpose. */
@@ -37,6 +40,7 @@ svg { display: block; }
 @keyframes bump { 40% { transform: scale(1.18); } }
 #hudC { top: calc(env(safe-area-inset-top, 0px) + 12px); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .clock { font-size: 15px; font-weight: 600; color: var(--muted); padding: 5px 14px 5px 8px; font-variant-numeric: tabular-nums; }
+.wx { margin-left: 6px; font-size: 15px; color: var(--ink); }
 .sun { width: 20px; height: 20px; border-radius: 50%; background: radial-gradient(circle at 40% 40%, #fff3a8, #ffc93c); box-shadow: 0 0 10px rgba(255, 201, 60, .7); }
 .sun.moon { background: #e6ecf8; box-shadow: inset -6px -3px 0 #9aa8c8, 0 0 8px rgba(200, 215, 255, .6); }
 .stars { display: flex; gap: 3px; background: rgba(60, 20, 18, .88); border-radius: 999px; padding: 5px 10px; box-shadow: var(--shadow); }
@@ -179,6 +183,16 @@ body.inroom #acts, body.inroom #bView, body.inroom #world, body.inroom #guide, b
 .item .tx span { color: var(--muted); font-size: 14px; }
 .item.cur { box-shadow: inset 0 0 0 2px var(--teal); }
 .item.dim { opacity: .55; }
+.item.decide { flex-wrap: wrap; box-shadow: inset 0 0 0 2px var(--gold, #e7b83d); }
+.item.decide .tx { flex-basis: 100%; }
+.mkt .r { gap: 8px; flex-wrap: wrap; }
+.mkt .r .px { min-width: 66px; text-align: right; font-weight: 700; }
+.mkt .r .ch { min-width: 54px; text-align: right; font-size: 13px; font-weight: 600; color: var(--muted); }
+.mkt .r .ch.up { color: var(--teal-d); } .mkt .r .ch.dn { color: var(--red); }
+.mkt svg.sp { width: 64px; height: 22px; flex: none; }
+.mkt .btn.sm { padding: 6px 12px; min-height: 36px; }
+.mkt .btn.hold { background: var(--gold) !important; box-shadow: none; }
+.beats p { margin: 6px 0; font-size: 14px; line-height: 1.4; }
 .pips { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: middle; }
 .pips i { width: 9px; height: 9px; border-radius: 3px; background: #e5d8c6; }
 .pips i.on { background: var(--orange); }
@@ -249,6 +263,8 @@ input[type=range] { width: 160px; accent-color: var(--orange); pointer-events: a
   .viewbtn { padding: 0 12px; }
   #hudC { left: max(14px, env(safe-area-inset-left, 0px)); transform: none; top: calc(env(safe-area-inset-top, 0px) + 166px); align-items: flex-start; }
   #toasts { top: calc(env(safe-area-inset-top, 0px) + 214px); }
+  #ui.questOn #hudC { top: calc(env(safe-area-inset-top, 0px) + 214px); }
+  #ui.questOn #toasts { top: calc(env(safe-area-inset-top, 0px) + 262px); }
 }
 @media (prefers-reduced-motion: reduce) { .toast, #banner.show, #sheet, .hint > div, .badge.full > div, #joyHint .dot { animation: none !important; } }
 /* v3.1 ease pass, written by Claude (Anthropic): bag, pads, guide arrow, attack button */
@@ -305,8 +321,59 @@ input[type=range] { width: 160px; accent-color: var(--orange); pointer-events: a
 .goal.ready { background: var(--gold); animation: hop 1.1s ease-in-out infinite; }
 .goal.ready small, .goal.ready em { color: var(--ink); }
 .goal.ready .gbar { background: rgba(61, 47, 41, .18); } .goal.ready .gbar i { background: var(--ink); }
+#questPill { pointer-events: auto; cursor: pointer; }
 #vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, rgba(0, 0, 0, 0) 55%, rgba(40, 20, 10, .22) 100%); mix-blend-mode: multiply; }
 @media (max-width: 600px), (max-height: 500px) { .gbar { width: 46px; } .goal b { font-size: 12px; } }
+/* puzzle beasts and locks, written by Claude (Command) */
+#pzWrap { position: absolute; inset: 0; pointer-events: auto; display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: calc(env(safe-area-inset-top, 0px) + 10px) 10px calc(env(safe-area-inset-bottom, 0px) + 10px); background: radial-gradient(ellipse at 50% 40%, rgba(60, 30, 70, .35), rgba(25, 12, 30, .72)); }
+#pzWrap[hidden] { display: none; }
+#pz { --bs: min(340px, 82vw, 46vh); width: min(560px, 100%); min-width: 0; box-sizing: border-box; max-height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; background: var(--paper); border-radius: 26px; padding: 14px 16px 16px; box-shadow: 0 18px 50px rgba(20, 8, 24, .5); animation: pzin .45s cubic-bezier(.2, 1.5, .4, 1); }
+@keyframes pzin { from { transform: scale(.6) rotate(-4deg); opacity: 0; } }
+.pzhead { display: flex; gap: 12px; align-items: center; }
+.pzart { width: 64px; height: 64px; flex: 0 0 auto; border-radius: 18px; background: var(--cream); display: grid; place-items: center; animation: hop 1.2s ease-in-out infinite; }
+.pzart svg { width: 54px; height: 54px; }
+.pzhead small { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--orange-d); }
+.pzhead h3 { margin: 0; font-size: 23px; line-height: 1.1; }
+.pzhead p { margin: 2px 0 0; color: var(--muted); font-size: 14px; line-height: 1.3; }
+.pzmain { display: grid; place-items: center; }
+.pzb { width: var(--bs); height: var(--bs); position: relative; border-radius: 16px; }
+.pzb.maze { background: linear-gradient(135deg, #dff4ff, #b9e0f5); box-shadow: inset 0 0 0 3px #8ec3dd; overflow: hidden; touch-action: none; }
+.pzb.maze i { position: absolute; display: block; }
+.pzb.maze .rk { background: radial-gradient(circle at 35% 30%, #9b8f86, #6e625b); border-radius: 22%; transform: scale(.94); box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .18); }
+.pzb.maze .hole { background: radial-gradient(circle, #3d2f29 0 42%, #7a5a3a 44% 60%, transparent 62%); }
+.pzb.maze .puck { background: radial-gradient(circle at 38% 32%, #fff 0 16%, #9fdcff 30%, #4aa8e0 70%); border-radius: 50%; transform: scale(.72); box-shadow: 0 4px 6px rgba(20, 60, 90, .35); transition: left .2s cubic-bezier(.3, 0, .2, 1), top .2s cubic-bezier(.3, 0, .2, 1); }
+.pzb.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 6px; background: #8a5a3a; box-sizing: border-box; }
+.pzb.tiles button { border-radius: 12px; background: linear-gradient(#ffe7b8, #ffd283) !important; box-shadow: 0 4px 0 #c9944a; font-size: calc(var(--bs) / 7) !important; font-weight: 700 !important; color: #7a3a20 !important; }
+.pzb.tiles button.ok { background: linear-gradient(#d8f5ea, #a8e6d0) !important; box-shadow: 0 4px 0 var(--teal-d); color: var(--teal-d) !important; }
+.pzb.fold { display: grid; gap: 6px; padding: 6px; background: #efe6d3; box-sizing: border-box; }
+.pzb.fold button { border-radius: 10px; background: #fffaf1 !important; box-shadow: 0 3px 0 #d8c9b4; transition: background .15s, transform .15s; }
+.pzb.fold button.on { background: linear-gradient(135deg, #3e3746 0 50%, #241f2b 50%) !important; box-shadow: 0 3px 0 #120e16; transform: rotate(-3deg); }
+.pzb.lockb svg { width: 100%; height: 100%; }
+#pzCyl { transition: transform .45s cubic-bezier(.3, 1.4, .5, 1); }
+.pzside { display: flex; flex-direction: column; gap: 8px; }
+.pzrule { margin: 0; font-size: 14px; color: var(--muted); }
+.pzstat { margin: 0; font-size: 15px; color: var(--ink); }
+.pzpad { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.pzpad .btn, .pzlock .btn { justify-content: center; min-height: 52px; }
+.pzlock { display: flex; gap: 8px; align-items: center; }
+.pzlock input { flex: 1; width: auto; min-width: 80px; height: 40px; }
+.pzfoot { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.pzfoot span { color: var(--muted); font-size: 14px; flex: 1; min-width: 160px; }
+.pzfoot .btn { white-space: normal; text-align: center; max-width: 100%; }
+#pz > * { flex-shrink: 0; min-width: 0; }
+.pzres { display: flex; flex-direction: column; gap: 6px; border-radius: 18px; padding: 12px 14px; background: var(--cream); }
+.pzres b { font-size: 20px; }
+.pzres span { color: var(--muted); font-size: 15px; }
+.pzres .btn { align-self: flex-start; }
+.pzres.win { box-shadow: inset 0 0 0 3px var(--gold); }
+.pzres.lose { box-shadow: inset 0 0 0 3px var(--red); }
+@media (max-height: 520px) and (min-width: 560px) {
+  #pz { --bs: min(300px, 62vh); width: min(820px, 100%); display: grid; grid-template-columns: 1fr auto; grid-template-areas: "head main" "side main"; align-items: start; }
+  .pzhead { grid-area: head; } .pzmain { grid-area: main; align-self: center; } .pzside { grid-area: side; }
+  .pzart { width: 48px; height: 48px; } .pzart svg { width: 40px; height: 40px; }
+  .pzhead h3 { font-size: 19px; } .pzhead p { font-size: 13px; }
+}
+@media (prefers-reduced-motion: reduce) { #pz, .pzart { animation: none !important; } }
 
 </style>
 </head>
@@ -319,9 +386,10 @@ input[type=range] { width: 160px; accent-color: var(--orange); pointer-events: a
     <div class="pill money" id="moneyPill"><i class="coin"></i><b id="money">$0</b></div>
     <div class="pill bag empty" id="bagPill"><i class="bagic"></i><span class="bbar"><i id="bagFill"></i></span><b id="bagN">0/40</b></div>
     <div class="pill goal" id="goalPill" hidden><span class="gtx"><small>Saving for</small><b id="goalName"></b></span><span class="gbar"><i id="goalFill"></i></span><em id="goalPct"></em></div>
+    <div class="pill goal quest" id="questPill" role="button" hidden><span class="gtx"><small>Job</small><b id="questName"></b></span><span class="gbar"><i id="questFill"></i></span><em id="questPct"></em></div>
   </div>
   <div id="hudC" class="hud">
-    <div class="pill clock"><i id="sun" class="sun"></i><span id="clock">Day 1</span></div>
+    <div class="pill clock"><i id="sun" class="sun"></i><span id="clock">Day 1</span><span id="wx" class="wx"></span></div>
     <div class="pill sup" id="supPill" hidden><svg viewBox="0 0 24 24"><path d="M12 22V9" stroke="#c9a64a" stroke-width="2"/><path d="M12 9c-3-1-4-4-3-7 3 1 4 4 3 7zm0 0c3-1 4-4 3-7-3 1-4 4-3 7zM12 15c-3-1-4-4-3-7 3 1 4 4 3 7zm0 0c3-1 4-4 3-7-3 1-4 4-3 7z" fill="#e8c25a"/></svg><b id="supF">0</b><svg viewBox="0 0 24 24"><path d="M12 2.5c3.5 5 6.5 8.6 6.5 12a6.5 6.5 0 01-13 0c0-3.4 3-7 6.5-12z" fill="#5aaee8"/></svg><b id="supW">0</b></div>
     <div id="stars" class="stars" hidden></div>
   </div>
@@ -351,6 +419,7 @@ input[type=range] { width: 160px; accent-color: var(--orange); pointer-events: a
   <div id="sel" hidden></div>
   <div id="sheetWrap" hidden><div id="sheet" role="dialog" aria-modal="true"><div class="grab"></div><header><h2 id="sheetTitle"></h2><button id="sheetClose" class="round sm" aria-label="Close"></button></header><nav id="sheetTabs"></nav><div id="sheetBody"></div></div></div>
   <div id="vignette"></div>
+  <div id="pzWrap" hidden><div id="pz" role="dialog" aria-modal="true" aria-label="Puzzle"></div></div>
   <div id="fade"></div>
   <button id="bVR" class="big soft" hidden style="position:fixed;left:12px;top:calc(env(safe-area-inset-top,0px) + 96px);z-index:6;padding:8px 14px;font-size:15px">Enter VR</button>
   <div id="nogl" hidden><div class="tbox"><h2>Miner</h2><p>This device could not start 3D graphics. Try updating your browser or Android System WebView, then open Miner again.</p></div></div>
@@ -762,9 +831,9 @@ int matAt(vec3 p, float h0, float sand, float vol, float clay, float fb) {
   }
   return base;
 }
-struct TSurf { vec3 col; float rough; float metal; vec3 glow; };
+struct TSurf { vec3 col; float rough; float metal; vec3 glow; vec3 fac; };
 TSurf terrainSurface(vec3 p, float h0, vec3 info, vec3 aVolClay, vec3 n) {
-  TSurf s; s.rough = 0.9; s.metal = 0.0; s.glow = vec3(0.0);
+  TSurf s; s.rough = 0.9; s.metal = 0.0; s.glow = vec3(0.0); s.fac = vec3(0.0);
   float d = h0 - p.y;
   float n2 = noise3(vec3(p.x * 0.33, 0.5, p.z * 0.33));
   float grassK = d < 0.05 ? smoothstep(0.42, 0.62, n.y) : 0.0;
@@ -817,13 +886,16 @@ TSurf terrainSurface(vec3 p, float h0, vec3 info, vec3 aVolClay, vec3 n) {
       float sp = step(0.95, hash3i(ivec3(floor(p * 9.0))));
       float tw = 0.5 + 0.5 * sin(uTime * 3.0 + cell * 40.0);
       s.glow = MCOL[m] * (sp * tw * 0.9 * k + MGLOW[m] * uNight * k * (0.22 + 0.1 * sin(uTime * 1.7 + cell * 9.0)));
+      // each crystal is a little facet tipped its own way, so the vein catches the light in specks as you move
+      ivec3 fc = ivec3(floor(p * 2.6));
+      s.fac = (vec3(hash3i(fc + ivec3(5, 0, 0)), hash3i(fc + ivec3(0, 7, 0)), hash3i(fc + ivec3(0, 0, 11))) - 0.5) * 0.9 * k;
     }
     if (m == ${M.RELIC}) { c = mix(c, ${c('#d8c49a')}, step(0.5, fract((p.x + p.z) * 2.5))); s.glow = c * 0.15 * (0.5 + 0.5 * sin(uTime * 2.0)); }
     // a darker lip where the grass was cut
     if (d > 0.05 && d < 0.3) c *= mix(0.8, 1.0, smoothstep(0.05, 0.3, d));
     s.col = c;
   }
-  if (grassK > 0.0) { s.col = mix(s.col, groundC, grassK); s.rough = mix(s.rough, 0.92, grassK); s.metal *= 1.0 - grassK; s.glow *= 1.0 - grassK; }
+  if (grassK > 0.0) { s.col = mix(s.col, groundC, grassK); s.rough = mix(s.rough, 0.92, grassK); s.metal *= 1.0 - grassK; s.glow *= 1.0 - grassK; s.fac *= 1.0 - grassK; }
   // slow cloud shadows drift over the valley by day
   float cl = smoothstep(0.56, 0.8, noise3(vec3(p.x * 0.011 + uTime * 0.006, 11.0, p.z * 0.011 + uTime * 0.004)));
   s.col *= 1.0 - cl * 0.22 * (1.0 - uNight);
@@ -991,11 +1063,27 @@ function syncTerrainUniforms() {
   for (let k = 0; k < 4; k++) { const m = meteors[k]; if (m) TU.uMet.value[k].set(m.x, m.y, m.z, m.r); else TU.uMet.value[k].set(0, 0, 0, 0); }
   for (let k = 0; k < 12; k++) { const f = fossils[k]; if (f && !f.found) TU.uFos.value[k].set(f.x, f.y, f.z, 1); else TU.uFos.value[k].set(0, 0, 0, 0); }
 }
+// ---------- shine: the sky reflected in anything glossy ----------
+// three.js gives a glossy surface no reflection without an environment map, so metal, ore and water read dull.
+// Instead of rendering one, each glossy pixel looks up the sky dome's own colors along its reflection: no extra
+// pass, nothing to rebuild, and it follows the hour and the weather because it reads the sky's uniforms.
+const SHINE_K = { value: 1 };
+const SHINE_GLSL = `
+uniform vec3 uSkyTop; uniform vec3 uSkyHor; uniform vec3 uSkyGnd; uniform float uShineK;
+vec3 skyShine(vec3 nV, vec3 vV, vec3 base, float rough, float metal) {
+  vec3 r = inverseTransformDirection(reflect(-vV, nV), viewMatrix);
+  vec3 env = r.y > 0.0 ? mix(uSkyHor, uSkyTop, smoothstep(0.0, 0.55, r.y)) : mix(uSkyHor, uSkyGnd * 0.55, smoothstep(0.0, -0.3, r.y));
+  float gloss = 1.0 - rough; gloss *= gloss;
+  float fres = pow(1.0 - saturate(dot(nV, vV)), 5.0);
+  vec3 F0 = mix(vec3(0.04), base, metal);
+  return env * (F0 + (vec3(1.0) - F0) * fres) * gloss * uShineK;
+}`;
+function shineUniforms(sh) { sh.uniforms.uSkyTop = skyU.uTop; sh.uniforms.uSkyHor = skyU.uHor; sh.uniforms.uSkyGnd = skyU.uGround; sh.uniforms.uShineK = SHINE_K; }
 function makeTerrainMaterial() {
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .9, metalness: 0 });
   const GL = terrainGLSL();
   mat.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, TU);
+    Object.assign(sh.uniforms, TU); shineUniforms(sh);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
 attribute float aH0; attribute vec3 aInfo; attribute vec3 aVC; attribute float aAO;
@@ -1005,7 +1093,8 @@ vWP = (modelMatrix * vec4(transformed, 1.0)).xyz; vH0 = aH0; vInfo = aInfo; vVC 
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
 varying vec3 vWP; varying float vH0; varying vec3 vInfo; varying vec3 vVC; varying float vAO; varying vec3 vWN;
-${GL}`)
+${GL}
+${SHINE_GLSL}`)
       .replace('vec4 diffuseColor = vec4( diffuse, opacity );', `vec4 diffuseColor = vec4( diffuse, opacity );
 TSurf ts = terrainSurface(vWP, vH0, vInfo, vVC, normalize(vWN));
 diffuseColor.rgb = ts.col * mix(0.45, 1.0, vAO);`)
@@ -1013,10 +1102,16 @@ diffuseColor.rgb = ts.col * mix(0.45, 1.0, vAO);`)
 roughnessFactor = ts.rough;`)
       .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
 metalnessFactor = ts.metal;`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+normal = normalize(normal + mat3(viewMatrix) * ts.fac);`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-totalEmissiveRadiance += ts.glow;`);
+totalEmissiveRadiance += ts.glow;`)
+      .replace('#include <opaque_fragment>', `// deep pits and hollows see less sky
+// only glossy rock (ore, crystal) pays for it: grass, dirt and stone skip the lookup
+if (roughnessFactor < 0.5) outgoingLight += skyShine(normal, normalize(vViewPosition), diffuseColor.rgb, roughnessFactor, metalnessFactor) * mix(0.3, 1.0, vAO) * mix(1.0, 0.4, smoothstep(2.0, 12.0, vH0 - vWP.y));
+#include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'miner-terrain-v3';
+  mat.customProgramCacheKey = () => 'miner-terrain-v4';
   return mat;
 }
 function makeIndex(n) {
@@ -1165,23 +1260,80 @@ function initScene(canvas) {
   scene.fog = new THREE.Fog('#cfeaf6', 160, 560);
   playerLight = new THREE.PointLight('#ffd9a0', 0, 18, 1.6); scene.add(playerLight);
   for (let k = 0; k < 4; k++) { const l = new THREE.PointLight('#ffc36b', 0, 20, 1.7); scene.add(l); lampLights.push(l); }
-  initMaterials(); initFX(scene); initWater();
+  initMaterials(); initFX(scene); initWater(); initHalos();
 }
 function initWater() {
   const mat = new THREE.MeshStandardMaterial({ color: '#4aa6cc', transparent: true, opacity: .8, roughness: .1, metalness: .05 });
   mat.onBeforeCompile = sh => {
-    sh.uniforms.uTime = TU.uTime;
+    sh.uniforms.uTime = TU.uTime; shineUniforms(sh);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = (modelMatrix * vec4(transformed,1.0)).xyz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP; uniform float uTime;')
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP; uniform float uTime;\n' + SHINE_GLSL)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         vec2 q = vWP.xz; float t = uTime;
         vec3 rip = vec3(sin(q.x * 1.3 + t * 1.7) + sin(q.y * 1.9 - t * 1.2) * .6 + sin((q.x + q.y) * .7 + t * .8) * .5, 0.0,
                         cos(q.y * 1.1 + t * 1.5) + cos(q.x * 2.1 - t * 1.1) * .6 + cos((q.x - q.y) * .8 - t) * .5) * 0.05;
-        normal = normalize(normal + (viewMatrix * vec4(rip, 0.0)).xyz);`);
+        normal = normalize(normal + (viewMatrix * vec4(rip, 0.0)).xyz);`)
+      .replace('#include <opaque_fragment>', `outgoingLight += skyShine(normal, normalize(vViewPosition), diffuseColor.rgb, roughnessFactor, 0.0) * 0.9;
+        #include <opaque_fragment>`);
   };
   waterMesh = new THREE.Mesh(new THREE.PlaneGeometry(180, WS + 60, 1, 1), mat);
   waterMesh.rotation.x = -Math.PI / 2; waterMesh.position.set(80, WATER, WS / 2); waterMesh.receiveShadow = true;
   scene.add(waterMesh);
+}
+// ---------- glow: a soft halo round every lit lamp, forge and saloon door, and round cave crystals ----------
+// One additive point cloud, one draw call. Halos are sized in the world and capped on screen so a lamp
+// right in front of the camera cannot flood the frame; they fade in with dusk and are hidden in VR.
+const HALO = { max: 48, pts: null, t: 0, src: [] };
+function initHalos() {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(HALO.max * 3), 3));
+  g.setAttribute('aCol', new THREE.BufferAttribute(new Float32Array(HALO.max * 4), 4));
+  g.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(HALO.max), 1));
+  g.setDrawRange(0, 0);
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+    uniforms: { uScale: { value: 300 }, uNight: TU.uNight, uTime: TU.uTime },
+    vertexShader: `attribute vec4 aCol; attribute float aSize; uniform float uScale; uniform float uNight; uniform float uTime;
+      varying vec3 vC;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        mv.z += 0.7;   // sit just in front of the lamp glass, so the lamp's own head does not cut it
+        float k = mix(aCol.w, 1.0, uNight) * (0.92 + 0.08 * sin(uTime * 2.3 + position.x * 1.7));
+        vC = aCol.rgb * k;
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = k < 0.01 ? 0.0 : min(aSize * uScale / max(-mv.z, 0.5), 220.0);
+      }`,
+    fragmentShader: `varying vec3 vC;
+      void main() {
+        vec2 q = gl_PointCoord * 2.0 - 1.0; float r = dot(q, q);
+        if (r > 1.0) discard;
+        gl_FragColor = vec4(vC * (exp(-r * 5.0) * (1.0 - r) + 0.35 * exp(-r * 40.0)), 1.0);
+      }`,
+  });
+  HALO.pts = new THREE.Points(g, mat); HALO.pts.frustumCulled = false; HALO.pts.renderOrder = 5;
+  scene.add(HALO.pts);
+}
+// sources are gathered twice a second; brightness follows the hour every frame (uNight) in the shader
+function updHalos(dt) {
+  if (!HALO.pts) return;
+  HALO.pts.visible = !XR.on;
+  if (XR.on) return;
+  HALO.mat = HALO.pts.material;
+  HALO.mat.uniforms.uScale.value = renderer.getDrawingBufferSize(_v).y * .5 / Math.tan(camera.fov * Math.PI / 360);
+  HALO.t -= dt; if (HALO.t > 0) return; HALO.t = .5;
+  const src = [];
+  for (const b of G.buildings) {
+    if (b.type === 'lamp') src.push([b.x, b.y + 2.8, b.z, '#ffc36b', 0, 3.4]);
+    else if (b.type === 'smelter' || b.type === 'saloon') src.push([b.x, b.y + 1.6, b.z1 + .8, b.type === 'smelter' ? '#ff9a4a' : '#ffd08a', b.type === 'smelter' ? .25 : 0, 3]);
+  }
+  for (const c of CAVES) if (c.open) for (const gem of c.gems) if (gem.alive && gem.mesh) src.push([gem.x, gem.mesh.position.y + .55 * gem.s, gem.z, CRYSTAL_COL[gem.kind], .4, 1.9 * gem.s]);
+  src.sort((a, b) => Math.hypot(a[0] - rig.x, a[2] - rig.z) - Math.hypot(b[0] - rig.x, b[2] - rig.z));
+  const g = HALO.pts.geometry, pos = g.attributes.position, col = g.attributes.aCol, size = g.attributes.aSize, n = Math.min(HALO.max, src.length);
+  for (let k = 0; k < n; k++) {
+    const [x, y, z, hex, day, s] = src[k], c = _c1.set(hex).convertLinearToSRGB();   // the halo shader writes display colors
+    pos.setXYZ(k, x, y, z); col.setXYZW(k, c.r * .55, c.g * .55, c.b * .55, day); size.setX(k, s);
+  }
+  pos.needsUpdate = col.needsUpdate = size.needsUpdate = true; g.setDrawRange(0, n);
 }
 function resizeScene() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -1262,15 +1414,18 @@ function TM(x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = s
 }
 // merge [geometry, color, matrix] parts into one vertex-colored geometry (one draw call)
 function mergeParts(parts) {
-  const prep = parts.map(([g, c, m]) => { let gg = g.index ? g : g; gg = gg.clone(); if (m) gg.applyMatrix4(m); return [gg, typeof c === 'string' ? COL(c) : c]; });
+  // seams (aEdge): a box gets them on every face edge, a drum or cylinder round its two rims; nothing else
+  const seamKind = g => g.type === 'BoxGeometry' ? [3, Infinity] : g.type === 'CylinderGeometry' ? [5, (g.parameters.radialSegments + 1) * (g.parameters.heightSegments + 1)] : [0, 0];
+  const prep = parts.map(([g, c, m]) => { const sk = seamKind(g); const gg = g.clone(); if (m) gg.applyMatrix4(m); return [gg, typeof c === 'string' ? COL(c) : c, sk]; });
   let vc = 0, ic = 0;
   for (const [g] of prep) { vc += g.attributes.position.count; ic += g.index ? g.index.count : g.attributes.position.count; }
-  const pos = new Float32Array(vc * 3), nrm = new Float32Array(vc * 3), col = new Float32Array(vc * 3), idx = vc < 65535 ? new Uint16Array(ic) : new Uint32Array(ic);
+  const pos = new Float32Array(vc * 3), nrm = new Float32Array(vc * 3), col = new Float32Array(vc * 3), edge = new Float32Array(vc * 3), idx = vc < 65535 ? new Uint16Array(ic) : new Uint32Array(ic);
   let vo = 0, io = 0;
-  for (const [g, c] of prep) {
-    const p = g.attributes.position, n = g.attributes.normal;
+  for (const [g, c, [kind, upTo]] of prep) {
+    const p = g.attributes.position, n = g.attributes.normal, uv = g.attributes.uv;
     pos.set(p.array, vo * 3); nrm.set(n.array, vo * 3);
     for (let k = 0; k < p.count; k++) { col[(vo + k) * 3] = c.r; col[(vo + k) * 3 + 1] = c.g; col[(vo + k) * 3 + 2] = c.b; }
+    if (kind && uv) for (let k = 0; k < Math.min(p.count, upTo); k++) { edge[(vo + k) * 3] = uv.getX(k); edge[(vo + k) * 3 + 1] = uv.getY(k); edge[(vo + k) * 3 + 2] = kind; }
     if (g.index) { const a = g.index.array; for (let k = 0; k < a.length; k++) idx[io + k] = a[k] + vo; io += a.length; }
     else { for (let k = 0; k < p.count; k++) idx[io + k] = vo + k; io += p.count; }
     vo += p.count; g.dispose();
@@ -1279,6 +1434,7 @@ function mergeParts(parts) {
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('aEdge', new THREE.BufferAttribute(edge, 3));
   geo.setIndex(new THREE.BufferAttribute(idx, 1));
   geo.computeBoundingSphere();
   return geo;
@@ -1299,16 +1455,37 @@ function prism(w, d, rh, ov) { // gable roof, ridge along x
 }
 const MATS3 = {};
 function initMaterials() {
-  MATS3.toy = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .72, metalness: 0 });
-  MATS3.toyFlat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .8, metalness: 0, flatShading: true });
-  MATS3.metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .35, metalness: .55 });
-  // a soft rim of light around every toy so things lift off the ground and read as little objects
-  for (const m of [MATS3.toy, MATS3.toyFlat, MATS3.metal]) m.onBeforeCompile = sh => {
-    sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
-      float rimK = pow(1.0 - saturate(dot(normalize(normal), normalize(vViewPosition))), 3.2);
+  MATS3.toy = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .6, metalness: 0 });   // a little satin, like painted tin toys
+  MATS3.toyFlat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .7, metalness: 0, flatShading: true });
+  MATS3.metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .3, metalness: .65 });
+  // a soft rim of light around every toy so things lift off the ground and read as little objects,
+  // the sky caught in anything glossy, and a fine pressed seam along the edges of blocks and the rims of
+  // drums (aEdge from mergeParts: the face's own uv and a kind; the seam is ~1 px wide at any distance and
+  // fades out once a face is too small on screen to carry it)
+  for (const m of [MATS3.toy, MATS3.toyFlat, MATS3.metal]) {
+    m.onBeforeCompile = sh => {
+      shineUniforms(sh);
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aEdge; varying vec3 vEdge;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvEdge = aEdge;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vEdge;\n' + SHINE_GLSL)
+        .replace('#include <opaque_fragment>', `
+      vec3 nn = normalize(normal), vv = normalize(vViewPosition);
+      float rimK = pow(1.0 - saturate(dot(nn, vv)), 3.2);
       outgoingLight += (diffuseColor.rgb * 0.55 + vec3(0.10, 0.08, 0.05)) * rimK * 0.5;
+      #ifdef MINER_SHINE
+      outgoingLight += skyShine(nn, vv, diffuseColor.rgb, roughnessFactor, metalnessFactor);
+      #endif
+      vec2 fw = max(fwidth(vEdge.xy), vec2(1e-5));
+      vec2 ed = min(vEdge.xy, 1.0 - vEdge.xy) / fw;
+      // kinds are 3 (box) and 5 (drum) so a geometry without aEdge (reads 0 or 1) never gets a seam
+      float isBox = 1.0 - step(0.5, abs(vEdge.z - 3.0)), isDrum = 1.0 - step(0.5, abs(vEdge.z - 5.0));
+      float seam = isDrum > 0.5 ? ed.y : min(ed.x, ed.y), tiny = isDrum > 0.5 ? fw.y : max(fw.x, fw.y);
+      outgoingLight *= 1.0 - (isBox + isDrum) * (1.0 - smoothstep(0.6, 1.7, seam)) * (1.0 - smoothstep(0.07, 0.18, tiny)) * 0.4;
       #include <opaque_fragment>`);
-  };
+    };
+    m.customProgramCacheKey = () => 'miner-toy-v2';
+  }
+  MATS3.metal.defines = { MINER_SHINE: '' };   // painted toys stay satin; only metal pays for the sky lookup
   MATS3.window = new THREE.MeshStandardMaterial({ color: '#33465a', roughness: .3, emissive: '#ffcf7a', emissiveIntensity: 0 });
   MATS3.glow = new THREE.MeshStandardMaterial({ color: '#fff1c4', emissive: '#ffcc66', emissiveIntensity: .2, roughness: .4 });
   MATS3.silhouette = new THREE.MeshBasicMaterial({ color: '#ffc94d', depthFunc: THREE.GreaterDepth, depthWrite: false });
@@ -1317,7 +1494,7 @@ function initMaterials() {
 // ---------- people ----------
 const personCache = {};
 function personGeo(o) {
-  const key = [o.shirt, o.pants, o.skin, o.hat, o.hatCol, o.hair].join('|');
+  const key = [o.shirt, o.pants, o.skin, o.hat, o.hatCol, o.hair, o.noHead ? 'nh' : ''].join('|');
   if (personCache[key]) return personCache[key];
   const P = [
     [sph(.12, 10, 6), '#3a2c26', TM(-.14, .06, .05, 0, 0, 0, 1, .6, 1.35)],
@@ -1333,6 +1510,7 @@ function personGeo(o) {
     [sph(.05, 8, 6), '#2b2024', TM(.11, 1.41, .285)],
     [sph(.055, 8, 6), o.skin === '#9a6643' ? '#7d5136' : '#e9a585', TM(0, 1.33, .31)],
   ];
+  if (o.noHead) { P.splice(8, 4); return (personCache[key] = mergeParts(P)); } // VR first person: body and legs, no head to sit inside
   if (o.hat === 'miner') {
     P.push([new THREE.SphereGeometry(.345, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), o.hatCol, TM(0, 1.42, 0)]);
     P.push([cyl(.43, .43, .05, 20), o.hatCol, TM(0, 1.43, .02)]);
@@ -2026,7 +2204,7 @@ const doorOf = b => ({ x: b.x, z: b.z1 + 1.3 });
 
 // ---------- player ----------
 const PSINK = { acc: [] };
-let hardMsgT = 0, lastDigAt = null;
+let digSoundT = 0, hardMsgT = 0, lastDigAt = null;
 const toolDef = () => TOOLS.find(t => t.id === G.tool) || TOOLS[0];
 function makePlayer(x, z) {
   P = makeEnt('player', x, z);
@@ -2162,7 +2340,7 @@ function rescuePlayer() {
 function digAt(x, z, rad, pow, dt, floorY, T, bowl, ramp) {
   const r = digBrush(x, z, rad, pow, dt, floorY, T.tier, PSINK, bowl, ramp);
   if (r.removed > 0) {
-    G.stats.dug += r.removed;
+    G.stats.dug += r.removed; qEv('dig', r.removed);
     const y = hAt(x, z);
     lastDigAt = { x, y, z };
     spawnDebris(x, y + .3, z, r.main, r.removed);
@@ -2322,7 +2500,7 @@ function npcStep(n, dt, sp) {
 function spawnResident(home, arriving) {
   const n = makeEnt('res', arriving ? WS - 6 : doorOf(home).x + rr(-2, 2), arriving ? roadZ(WS - 6) : doorOf(home).z + rr(0, 2));
   n.home = home.id; home.occ.push(n.id); G.residents.push(n); n.fav = pickr(FAVS); n.fr = 0; n.job = '';
-  if (arriving) { n.state = 'arrive'; npcGo(n, doorOf(home).x, doorOf(home).z); toast(`${n.name} is moving to town.`, 'house'); }
+  if (arriving) { n.state = 'arrive'; npcGo(n, doorOf(home).x, doorOf(home).z); toast(`${n.name} is moving to town.`, 'house'); lifeEv('arrive', 0, n.name); }
   else n.state = 'wander';
   return n;
 }
@@ -2334,7 +2512,7 @@ function removeResident(n) {
 function updResident(n, dt, hr) {
   n.hitCD = Math.max(0, n.hitCD - dt); if (n.talkT > 0) n.talkT -= dt;
   const home = G.buildings.find(b => b.id === n.home);
-  if (n.state === 'leave') { if (npcStep(n, dt, 4.5) !== 'moving') npcGo(n, WS - 4, roadZ(WS - 4)); if (n.x > WS - 8) removeResident(n); settle(n, dt); return; }
+  if (n.state === 'leave') { if (npcStep(n, dt, 4.5) !== 'moving') npcGo(n, WS - 4, roadZ(WS - 4)); if (n.x > WS - 8) { lifeEv('leave', 0, n.name); removeResident(n); } settle(n, dt); return; }
   if (n.alarm > 0) {
     n.alarm -= dt;
     const dx = n.x - P.x, dz = n.z - P.z, d = Math.hypot(dx, dz) || 1;
@@ -2353,6 +2531,7 @@ function updResident(n, dt, hr) {
     }
     settle(n, dt); return;
   }
+  if (lifeRoutine(n, dt, hr)) { settle(n, dt); return; }   // lunch, porch, evenings, shelter from rain, a new building to admire
   // working hours: folks with a job go and do it
   if (n.job && hr >= 7 && hr < 18 && doWork(n, dt)) { settle(n, dt); return; }
   if (n.working) { n.working = false; n.swingK = 0; setTool(n.mesh, null); }
@@ -2369,14 +2548,15 @@ function updResident(n, dt, hr) {
     }
   } else if (npcStep(n, dt, 3) === 'fail') n.wait = rr(1, 3);
   n.sayCD -= dt;
-  if (n.sayCD <= 0) { n.sayCD = rr(16, 36); if (Math.hypot(n.x - P.x, n.z - P.z) < 22) say(n, residentLine()); }
+  if (n.sayCD <= 0) { n.sayCD = rr(16, 36); if (Math.hypot(n.x - P.x, n.z - P.z) < 22) say(n, residentLine(n)); }
   if (G.infamy >= 80 && Math.hypot(n.x - P.x, n.z - P.z) < 5 && mode === 'foot' && n.talkT <= 0) say(n, pickr(LINES.scared), 2);
   settle(n, dt);
 }
-function residentLine() {
+function residentLine(n) {
   const h = happiness();
   if (G.fear > 30 && Math.random() < .6) return pickr(LINES.fear);
   if (Math.random() < .35) { const tip = rumor(); if (tip) return tip; }
+  const ll = lifeLine(n); if (ll) return ll;
   if (h > 70 && Math.random() < .5) return pickr(LINES.happy);
   return pickr(LINES.idle);
 }
@@ -2402,7 +2582,7 @@ function hireCrew() {
   const n = makeEnt('crew', doorOf(bunk).x, doorOf(bunk).z);
   n.bunk = bunk.id; n.carry = {}; n.carryN = 0; n.state = 'idle';
   setTool(n.mesh, 'pick');
-  G.crew.push(n); SFX.coin(); toast(`${n.name} signed on. Wages are $12 a day.`, 'crew');
+  G.crew.push(n); SFX.coin(); toast(`${n.name} signed on. Wages are $12 a day.`, 'crew'); qEv('hire');
   return true;
 }
 function updCrew(n, dt, now) {
@@ -2446,7 +2626,7 @@ function updCrew(n, dt, now) {
     if (r !== 'moving') {
       if (r === 'fail' && Math.hypot(n.x - drop.x, n.z - drop.z) > 8) { unstick(n); npcGo(n, drop.x, drop.z); settle(n, dt); return; }
       // crew sell what they carry at Supply Co.
-      let v = 0; for (const k in n.carry) v += n.carry[k] * (ITEMS[k] ? ITEMS[k].p : 0);
+      const v = quote(n.carry, true);   // crew sell at the Exchange's prices, and their haul moves them too
       if (v) { G.money += v; G.stats.earned += v; floatText(n.x, n.y + 2.2, n.z, '+$' + fmt(v), '#ffd25a'); if (Math.hypot(n.x - P.x, n.z - P.z) < 40) flyFromWorld(n.x, n.y + 1.5, n.z, 'cash', v); }
       n.carry = {}; n.carryN = 0; n.state = 'idle'; n.wait = .5;
     }
@@ -2496,6 +2676,7 @@ function hurtNpc(n, dmg, fx, fz) {
 }
 function killNpc(n) {
   const x = n.x, z = n.z;
+  lifeEv('kill', 0, n.name);
   n.dead = true;
   addTomb(x, z, G.day);
   G.kills++;
@@ -2539,7 +2720,7 @@ function updLaw(dt) {
   if (G.wanted > 0) {
     if (deputies.length < G.wanted) { spawnT -= dt; if (spawnT <= 0) { spawnDeputy(); spawnT = G.buildings.some(b => b.type === 'sheriff') ? 4 : 8; } }
     G.seenT += dt;
-    if (G.seenT > 14) { G.wanted--; G.seenT = 7; toast(G.wanted ? 'They are losing your trail.' : 'You lost them.', 'law'); }
+    const lose = hasK('smoke') ? 7 : 14; if (G.seenT > lose) { G.wanted--; G.seenT = lose / 2; toast(G.wanted ? 'They are losing your trail.' : 'You lost them.', 'law'); }
   }
 }
 function arrest() {
@@ -2570,7 +2751,7 @@ function freshState(seed) {
     relics: [], infamy: 0, fear: 0, wanted: 0, seenT: 0, kills: 0, arrests: 0, milestone: 0, goodwill: 0,
     buildings: [], machines: [], residents: [], crew: [], tombs: [], requests: [], meteorAt: 0,
     nextId: 1, arriveT: 20, crimeToday: false, stats: { dug: 0, earned: 0, sold: 0 }, treesCut: 0,
-    player: { x: TOWN.x - 4, z: TOWN.z + 6 }, settings: loadSettings(), hint: 0, pets: { owned: [], active: -1, gear: [] }, town: { food: 20, water: 20 },
+    player: { x: TOWN.x - 4, z: TOWN.z + 6 }, settings: loadSettings(), hint: 0, pets: { owned: [], active: -1, gear: [] }, town: { food: 20, water: 20 }, quests: freshQuests(), pz: freshPz(), mkt: freshMkt(),
   };
 }
 // ---------- inventory ----------
@@ -2586,32 +2767,122 @@ function missingText(cost) {
   return miss.length ? 'Need ' + miss.join(' + ') : '';
 }
 function sellKeys(keys) {
-  let v = 0;
-  for (const k of keys) { const n = have(k); if (!n) continue; v += n * ITEMS[k].p; G.inv[k] = 0; }
-  if (v) { G.money += v; G.stats.earned += v; G.stats.sold += v; invDirty = true; }
+  const c = {}; for (const k of keys) { const n = have(k); if (n) c[k] = n; }
+  const v = sellCounts(c);
+  if (v) { G.money += v; G.stats.earned += v; G.stats.sold += v; qEv('sell', v); }
   return v;
 }
 const oreKeys = () => ITEM_ORDER.filter(k => !BUILD_MATS.includes(k) && have(k) > 0);
 // ---------- the bag: everything you dig rides with you until you sell it ----------
-const bagCap = () => UPGRADES.find(u => u.id === 'bag').cap[Math.min(G.up.bag || 0, 3)];
+const bagCap = () => UPGRADES.find(u => u.id === 'bag').cap[Math.min(G.up.bag || 0, 3)] + (hasK('lunchpail') ? 10 : 0);
 function bagCount() { let n = 0; for (const k in G.inv) n += G.inv[k] || 0; return n; }
 const bagFull = () => bagCount() >= bagCap();
-function bagValue() { let v = 0; for (const k in G.inv) if (ITEMS[k]) v += (G.inv[k] || 0) * ITEMS[k].p; return v; }
+// what the sell pad and Supply Co. take: everything in the bag except what you hold back at the Exchange
+function bagCounts() { const c = {}, H = (G.mkt && G.mkt.hold) || {}; for (const k in G.inv) if (ITEMS[k] && G.inv[k] > 0 && !H[k]) c[k] = G.inv[k]; return c; }
+function bagValue() { return quote(bagCounts()); }
 function sellBag(x, y, z) {
-  const v = bagValue(), n = bagCount(); if (!v) return 0;
-  for (const k in G.inv) G.inv[k] = 0;
-  G.money += v; G.stats.earned += v; G.stats.sold += v; invDirty = true;
+  const c = bagCounts(), v = quote(c); if (!v) return 0;
+  let n = 0; for (const k in c) n += c[k];
+  sellCounts(c);
+  G.money += v; G.stats.earned += v; G.stats.sold += v; invDirty = true; qEv('sell', v);
   SFX.sell(n); flyFromWorld(x, y, z, 'cash', v);
   floatText(x, y + 1.6, z, '+$' + fmt(v), '#ffd25a'); buzz(20);
   return v;
 }
-function machineValue(mc) { let v = 0; for (const k in mc.inv) v += mc.inv[k] * (ITEMS[k] ? ITEMS[k].p : 0); return v; }
+function machineValue(mc) { return quote(mc.inv); }
+
+// ---------- the Exchange: what you sell gets cheaper, what nobody sells climbs, and it never sits still ----------
+// Written by Claude (Command) for the Miner project, Oct 22 2026, from the owner's ask: "as you turn things in,
+// they become less valuable and the things that you haven't been mining much of become more valuable. And it
+// should shift constantly as you're selling stuff."
+// Each item carries a price multiplier m. Every piece sold knocks m down a notch (a full bag of one thing takes
+// about a fifth off, so the notch scales with the bag); m heals back toward its target, and the target climbs
+// toward 2x the longer the item goes unsold. A small random drift keeps the board moving.
+const MKT = { floor: .3, cap: 2.2, hit: .25, heal: 120, climb: 900, top: 1, wob: .006, snap: 30, keep: 20 };
+function freshMkt() { const items = {}; for (const k of ITEM_ORDER) items[k] = { m: 1, idle: 0, n: 0, hist: [], hi: 0 }; return { items, hold: {}, snapT: 0 }; }
+// old saves (and saves from before a new item) open with neutral prices
+function fixMkt() {
+  const f = freshMkt(), o = (G.mkt && G.mkt.items) || {};
+  for (const k in f.items) { const e = o[k]; if (e && Number.isFinite(e.m)) Object.assign(f.items[k], e, { m: clamp(e.m, MKT.floor, MKT.cap), idle: Number.isFinite(e.idle) ? e.idle : 0, hist: Array.isArray(e.hist) ? e.hist.slice(-MKT.keep) : [] }); }
+  const hold = {}; for (const k in ((G.mkt && G.mkt.hold) || {})) if (ITEMS[k] && G.mkt.hold[k]) hold[k] = true;
+  G.mkt = { items: f.items, hold, snapT: (G.mkt && G.mkt.snapT) || 0 };
+}
+const mktE = k => (G.mkt && G.mkt.items[k]) || null;
+const mktMul = k => { const e = mktE(k); return e ? e.m : 1; };
+const mktNotch = () => Math.exp(-MKT.hit / bagCap());
+function priceOf(k) { return ITEMS[k] ? ITEMS[k].p * mktMul(k) * saleMul() : 0; }   // what the next piece fetches
+// the cash for selling `counts` right now, each piece a notch cheaper than the last; apply = really sell
+function quote(counts, apply) {
+  const r = mktNotch(); let v = 0;
+  for (const k in counts) {
+    const n = Math.floor(counts[k] || 0); if (!ITEMS[k] || n <= 0) continue;
+    const e = mktE(k); let m = e ? e.m : 1;
+    for (let i = 0; i < n; i++) { v += ITEMS[k].p * m; m = Math.max(MKT.floor, m * r); }
+    if (apply && e) { e.m = m; e.idle = 0; e.n += n; e.hi = 0; }
+  }
+  return Math.round(v * saleMul());
+}
+// take the pieces out of the stockpile, move the market, and say so when a price takes a real knock
+function sellCounts(c) {
+  const was = {}; for (const k in c) was[k] = mktMul(k);
+  const v = quote(c, true);
+  for (const k in c) G.inv[k] = Math.max(0, have(k) - c[k]);
+  invDirty = true;
+  let worst = null, drop = 0;
+  for (const k in was) { const d = 1 - mktMul(k) / was[k]; if (d > drop) { drop = d; worst = k; } }
+  if (worst && drop >= .12) toast(`${ITEMS[worst].name} down ${Math.round(drop * 100)}%. The buyers have plenty.`, 'coin');
+  return v;
+}
+function gaussR() { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(6.283185307 * v); }
+function mktTick(dt) {
+  const M = G.mkt; if (!M || !(dt > 0)) return;
+  const heal = 1 - Math.exp(-dt / MKT.heal), wob = MKT.wob * Math.sqrt(dt);
+  for (const k in M.items) {
+    const e = M.items[k]; e.idle += dt;
+    const target = 1 + MKT.top * (1 - Math.exp(-e.idle / MKT.climb));
+    e.m = clamp((e.m + (target - e.m) * heal) * Math.exp(wob * gaussR()), MKT.floor, MKT.cap);
+  }
+  M.snapT += dt; if (M.snapT < MKT.snap) return;
+  M.snapT = 0;
+  for (const k in M.items) {
+    const e = M.items[k]; e.hist.push(Math.round(e.m * 1000) / 1000); if (e.hist.length > MKT.keep) e.hist.shift();
+    // a price you used to sell into has run up: tell the player once, until they sell it again
+    if (e.n > 0 && !e.hi && e.m >= 1.5) { e.hi = 1; toast(`${ITEMS[k].name} is up ${Math.round((e.m - 1) * 100)}% at the Exchange!`, 'coin'); }
+  }
+}
+// change against about five minutes ago (or the first snapshot we have)
+function mktChange(k) { const e = mktE(k); if (!e || !e.hist.length) return 0; const h = e.hist, past = h[Math.max(0, h.length - 10)]; return past ? e.m / past - 1 : 0; }
+const fmtPx = v => v >= 10 ? '$' + fmt(Math.round(v)) : '$' + v.toFixed(2);
+function sparkSVG(k) {
+  const e = mktE(k); const pts = e ? e.hist.concat([e.m]) : [1]; if (pts.length < 2) pts.unshift(pts[0]);
+  const lo = Math.min(...pts, .9), hi = Math.max(...pts, 1.1), W = 64, Hh = 22;
+  const d = pts.map((p, i) => `${(i / (pts.length - 1) * W).toFixed(1)},${(Hh - 2 - (p - lo) / (hi - lo) * (Hh - 4)).toFixed(1)}`).join(' ');
+  const y1 = (Hh - 2 - (1 - lo) / (hi - lo) * (Hh - 4)).toFixed(1), up = pts[pts.length - 1] >= pts[0];
+  return `<svg class="sp" viewBox="0 0 ${W} ${Hh}" aria-hidden="true"><line x1="0" y1="${y1}" x2="${W}" y2="${y1}" stroke="#e5d8c6" stroke-dasharray="2 3"/><polyline points="${d}" fill="none" stroke="${up ? '#2f9e8f' : '#d9493c'}" stroke-width="2" stroke-linejoin="round"/></svg>`;
+}
+let mktLiveT = 1;
+function mktHtml() {
+  const M = G.mkt, keys = ITEM_ORDER.filter(k => have(k) > 0 || M.hold[k] || (M.items[k] && M.items[k].n > 0));
+  const bag = bagValue();
+  let h = `<div class="hero"><div><div class="v">$${fmt(bag)}</div><div class="l">for your bag at today's prices${Object.keys(M.hold).some(k => M.hold[k] && have(k)) ? ' (held items stay with you)' : ''}</div></div></div>`;
+  h += '<p>Every piece you sell pushes its price down. What nobody has sold in a while climbs, up to double. Hold something back and the sell pad and Supply Co. leave it in your bag until you sell it here.</p>';
+  if (!keys.length) return h + '<p>Nothing traded yet. Dig something up and the board fills in.</p>';
+  h += '<div class="rows mkt">' + keys.map(k => {
+    const ch = mktChange(k), pc = Math.round(ch * 100), n = have(k), held = !!M.hold[k];
+    const chs = pc ? `<span class="ch ${pc > 0 ? 'up' : 'dn'}">${pc > 0 ? '▲' : '▼'} ${Math.abs(pc)}%</span>` : '<span class="ch">–</span>';
+    return `<div class="r">${gemI(k)}<span class="n">${ITEMS[k].name}${n ? ` <span style="color:var(--muted)">×${fmt(n)}</span>` : ''}</span>${sparkSVG(k)}<span class="px">${fmtPx(priceOf(k))}</span>${chs}` +
+      (n || held ? `<button class="btn sm ${held ? 'hold' : 'soft'}" data-act="mktHold" data-k="${k}">${held ? 'Holding' : 'Hold'}</button>` : '') +
+      (n ? `<button class="btn go sm" data-act="mktSell" data-k="${k}">Sell · $${fmt(quote({ [k]: n }))}</button>` : '') + '</div>';
+  }).join('') + '</div>';
+  return h;
+}
 const population = () => G.residents.length;
 const housing = () => G.buildings.filter(b => b.type === 'house').length * 3 + G.buildings.filter(b => b.type === 'inn').length * 6;
 function appeal() {
   const cnt = t => G.buildings.filter(b => b.type === t).length;
   let a = Math.min(10, cnt('lamp')) * 1.5 + (cnt('saloon') ? 15 : 0) + (cnt('sheriff') ? 5 : 0);
   if (cnt('museum')) a += 8 + G.relics.length * 2;
+  if (hasK('kettle')) a += 5;
   return a + Math.min(20, G.goodwill) - G.tombs.length * 3 + Math.min(40, G.buildings.reduce((s, b) => s + (BTYPES[b.type].appeal || 0), 0)) + decorAppeal();
 }
 const happiness = () => clamp(Math.round(48 + appeal() + townMood() - G.fear * .7), 0, 100);
@@ -2683,7 +2954,7 @@ function doPlace(kind, type, x, z) {
   const T = kind === 'machine' ? MACHINES[type] : BTYPES[type];
   pay(T.cost);
   let obj;
-  if (kind === 'machine') obj = addMachine(type, x, z); else obj = addBuilding(type, x, z);
+  if (kind === 'machine') obj = addMachine(type, x, z); else { obj = addBuilding(type, x, z); qEv('build', 1, type); }
   for (const e of [P, ...allNpcs()]) unstick(e);
   spawnDust(x, obj.y + .4, z, '#e6d6bd', 16, 4);
   SFX.pop();
@@ -2804,7 +3075,7 @@ function poseMachine(mc, dt, t) {
 function harvestMachine(mc, quiet) {
   if (!mc.load) return 0;
   // machines pay out in cash on the spot
-  const n = mc.load, v = machineValue(mc);
+  const n = mc.load, v = quote(mc.inv, true);
   G.money += v; G.stats.earned += v;
   mc.inv = {}; mc.load = 0; mc.done = mc.doneDig;
   if (!quiet) { SFX.harvest(n); flyFromWorld(mc.x, mc.y + 3, mc.z, 'cash', v); floatText(mc.x, mc.y + 4, mc.z, '+$' + fmt(v), '#ffd25a'); }
@@ -2846,7 +3117,7 @@ function collectLoot(o, silent) {
 }
 const _col = new THREE.Color();
 function updFX(dt) {
-  const magR = upK('magnet', G.up.magnet);
+  const magR = upK('magnet', G.up.magnet) + (hasK('horseshoe') ? 1.5 : 0);
   let n = 0;
   for (let k = loot.length - 1; k >= 0; k--) {
     const o = loot[k]; o.age += dt; o.spin += dt * 4;
@@ -2905,7 +3176,7 @@ function foundRelic(x, y, z) {
   if (!best || bd > 5) return;
   best.found = true; syncTerrainUniforms();
   const name = RELICS[best.relic];
-  G.relics.push(name); SFX.discover();
+  G.relics.push(name); SFX.discover(); qEv('relic');
   floatText(x, y + 1.5, z, name, '#fff3c4');
   banner('Relic found', `${name}. ${G.buildings.some(b => b.type === 'museum') ? 'It is on display in the Museum.' : 'Build a Museum to show it off.'}`, 'relic');
   if (G.relics.length === 12) { G.money += 5000; toast('Every fossil found! The territory awards you $5,000.', 'coin'); }
@@ -2928,9 +3199,13 @@ function newDay() {
   let rent = pop * Math.round(6 + h / 10);
   if (G.buildings.some(b => b.type === 'saloon')) rent += pop * 3;
   if (hasB('theater')) rent += pop * 5;
-  let wages = G.crew.length * 12;
+  if (hasK('ledger')) rent += pop * 4;
+  if (hasK('powder') && G.dyn < 5) G.dyn++;
+  if (hasK('winnings')) rent += 50;
+  const wage = hasK('bell') ? 8 : 12;
+  let wages = G.crew.length * wage;
   G.money += rent; G.stats.earned += rent;
-  while (wages > G.money && G.crew.length) { const n = G.crew.pop(); removeEntMesh(n); wages -= 12; toast(`${n.name} quit. You could not make payroll.`, 'warn'); }
+  while (wages > G.money && G.crew.length) { const n = G.crew.pop(); removeEntMesh(n); wages -= wage; toast(`${n.name} quit. You could not make payroll.`, 'warn'); }
   G.money -= wages;
   if (rent || wages) { toast(`Morning. Rent +$${rent}${wages ? `, wages −$${wages}` : ''}`, 'coin'); if (rent) SFX.coin(); }
   G.fear = Math.max(0, G.fear - (G.buildings.some(b => b.type === 'sheriff') ? 8 : 4));
@@ -2938,9 +3213,9 @@ function newDay() {
   G.crimeToday = false; G.goodwill = Math.max(0, G.goodwill - 1);
   const keepT = G.tombs.filter(t => G.day - t.day < 5); if (keepT.length !== G.tombs.length) { G.tombs = keepT; rebuildTombs(); }
   if (h < (hasB('doctor') ? 12 : 22) && G.residents.length) { const n = pickr(G.residents.filter(r => r.state !== 'leave')); if (n) { n.state = 'leave'; npcGo(n, WS - 4, roadZ(WS - 4)); toast(`${n.name} is leaving. Folks are unhappy.`, 'warn'); } }
-  G.requests = Array.from({ length: 3 }, makeRequest);
+  G.requests = [];
   if (G.day >= 3 && Math.random() < .45) G.meteorAt = .74 + Math.random() * .14;
-  townDay();
+  townDay(); lifeMorning(); questMorning();
   saveGame();
 }
 function makeRequest() {
@@ -2956,7 +3231,7 @@ function deliver(idx) {
   const r = G.requests[idx]; if (!r || have(r.k) < r.qty) return false;
   G.inv[r.k] -= r.qty; invDirty = true;
   G.money += r.reward; G.stats.earned += r.reward; G.goodwill += 3; G.fear = Math.max(0, G.fear - 3);
-  G.requests[idx] = null; SFX.coin(); toast(`${r.who} paid $${r.reward}. Thanks, Mayor!`, 'coin');
+  G.requests[idx] = null; qEv('deliver'); SFX.coin(); toast(`${r.who} paid $${r.reward}. Thanks, Mayor!`, 'coin');
   return true;
 }
 let smeltT = 0, heapT = 0;
@@ -3153,6 +3428,7 @@ function personHtml(n) {
   const hearts = `<span class="hearts">${Array.from({ length: 10 }, (_, i) => `<i class="${i < fr ? 'on' : ''}">&hearts;</i>`).join('')}</span>`;
   let h = `<div class="hero"><div><div class="v" style="font-size:20px">${J.name}</div><div class="l">${home ? 'Lives in a ' + BTYPES[home.type].name.toLowerCase() : 'Just passing through'} &middot; loves ${ITEMS[n.fav].name.toLowerCase()}</div></div>${hearts}</div>`;
   if (n.lastLine) h += `<p>&ldquo;${escapeHtml(n.lastLine)}&rdquo;</p>`;
+  h += lifePersonHtml(n);
   h += `<div class="btnrow"><button class="btn go" data-act="chat">${n.chatDay === G.day ? 'Chat again' : 'Chat'}</button><button class="btn gold" data-act="gift" ${have(n.fav) ? '' : 'disabled'}>Give ${ITEMS[n.fav].name.toLowerCase()}${have(n.fav) ? '' : ' (none)'}</button></div>`;
   h += `<p>Friends work 5% harder for every heart. Chat once a day, and bring what they love.</p><h4>Job</h4><div class="list">` + Object.entries(JOBS).map(([k, j]) => {
     const cur = (n.job || '') === k, miss = j.need && !G.buildings.some(b => b.type === j.need);
@@ -3168,13 +3444,15 @@ function chatWith(n) {
     line = pickr(['Here, I found this by the river. For you.', 'You have been good to us. Take this.', 'Saved up a little something for you, Mayor.']) + ` (+$${v})`;
   } else if ((n.fr || 0) >= 4 && Math.random() < .5) line = rumor() || pickr(TALK[n.job || '']);
   else line = pickr(TALK[n.job || ''] || TALK['']);
-  n.lastLine = line; say(n, line.replace(/ \(\+\$\d+\)$/, ''), 3.4); SFX.ui();
+  qEv('chat'); n.lastLine = line; say(n, line.replace(/ \(\+\$\d+\)$/, ''), 3.4); SFX.ui();
 }
 function giftTo(n) {
   if (!have(n.fav)) return;
   G.inv[n.fav]--; invDirty = true; n.fr = Math.min(10, (n.fr || 0) + 2);
   n.lastLine = pickr([`Oh! ${ITEMS[n.fav].name}! You remembered.`, `For me? I love ${ITEMS[n.fav].name.toLowerCase()}!`, 'You are the best mayor this valley ever had.']);
-  say(n, n.lastLine, 3); floatText(n.x, n.y + 2.4, n.z, '♥', '#ff7fa8'); SFX.discover();
+  n.gift = { name: ITEMS[n.fav].name.toLowerCase(), d: G.day };
+  if (lifeIsBday(n)) { n.fr = Math.min(10, n.fr + 2); n.lastLine = pickr(['On my birthday! You remembered!', 'Best birthday present in the valley.']); }
+  say(n, n.lastLine, 3); floatText(n.x, n.y + 2.4, n.z, '♥', '#ff7fa8'); SFX.discover(); qEv('gift');
 }
 function fieldHtml(b) {
   const fs = workersAt(b, 'farmer'), C = CROPS[b.crop];
@@ -3196,6 +3474,964 @@ function suppliesHtml() {
 function peopleHtml() {
   if (!G.residents.length) return '<p>Nobody lives here yet. Build houses and settlers will come.</p>';
   return `<p>Tap someone to chat, give gifts or change their job.</p><div class="list">${G.residents.map(n => `<div class="item"><div class="tx"><b>${escapeHtml(n.name)}</b><span>${JOBS[n.job || ''].name} &middot; ${n.fr || 0} hearts</span></div><button class="btn go sm" data-act="person" data-id="${n.id}">Talk</button></div>`).join('')}</div>`;
+}
+
+// ===================== lived-in town: weather, routines, gossip, reactions, the town dog =====================
+// Written by Claude (Command) for the Miner project.
+// The valley keeps its own weather and folks keep their own day: coffee on the porch, lunch together,
+// evenings at the saloon. They notice what you do, pass it around, and jump when the ground shakes.
+// None of it gates digging, building or hiring. It only gives the last normal town in the territory a life.
+const WX = {
+  clear: { name: 'Clear', icon: '☀', cloud: 0, rain: 0, fog: 0, hot: 0, w: 30, say: 'Clear skies.' },
+  cloudy: { name: 'Cloudy', icon: '☁', cloud: .65, rain: 0, fog: .1, hot: 0, w: 22, say: 'Clouds, but no rain in them.' },
+  rain: { name: 'Rain', icon: '☂', cloud: .9, rain: 1, fog: .3, hot: 0, w: 16, say: 'Fields grow faster and the wells fill.' },
+  storm: { name: 'Thunderstorm', icon: '⚡', cloud: 1, rain: 1, fog: .35, hot: 0, w: 6, say: 'Rain and lightning. Folks stay under cover.' },
+  fog: { name: 'Fog', icon: '≡', cloud: .45, rain: 0, fog: 1, hot: 0, w: 10, say: 'Thick fog off the river.' },
+  wind: { name: 'Windy', icon: '≈', cloud: .3, rain: 0, fog: 0, hot: 0, w: 10, say: 'The windmill spins double.' },
+  scorcher: { name: 'Scorcher', icon: '♨', cloud: 0, rain: 0, fog: 0, hot: 1, w: 6, say: 'Hot. The town drinks extra water tomorrow.' },
+};
+const WX_TOTAL = Object.values(WX).reduce((s, w) => s + w.w, 0);
+const DOG_NAMES = ['Biscuit', 'Nugget', 'Gravy', 'Dusty', 'Pickaxe', 'Boone', 'Tater', 'Pebble'];
+const LIFE_LINES = {
+  clear: ['Not a cloud. Good digging weather.', 'Sun on the porch. Life is simple here.', 'Days like this, you forget the world went strange.'],
+  cloudy: ['Gray skies. Gray coffee. Still a good day.', 'Clouds are thinking about it.', 'Looks like rain and never means it.'],
+  rain: ['Rain on the tin roof. Best sound there is.', 'My tomatoes are drinking it up.', 'Keep your powder dry, Mayor.'],
+  storm: ['That thunder rattled my teeth.', 'Lightning hit the ridge. Count to five.', 'Storm like this, a ninja could walk right past you.'],
+  fog: ['Can\'t see the hills. Can\'t see my own boots.', 'Fog like this, anyone could be anyone.', 'I heard footsteps in the fog. Nobody there.'],
+  wind: ['Hold onto your hat.', 'The windmill is earning its keep today.', 'Wind took my laundry to the next county.'],
+  scorcher: ['Hot enough to fry an egg on a pickaxe.', 'Drink water, Mayor. I mean it.', 'Even the river is sweating.'],
+};
+const LIFE_SAY = {
+  porch: ['Morning, valley.', 'Coffee, porch, quiet. That is the whole plan.', 'Another normal morning. I will take it.', 'Birds are up. So am I. Barely.'],
+  lunch: ['Pass the bread.', 'Best part of the day.', 'Half an hour off my feet. Bliss.'],
+  eve: ['Long day. Good day.', 'Somebody put a song on.', 'Sun going down over the pit. Pretty, in its way.'],
+  party: ['Party! Somebody grab the fiddle!', 'Now THIS is a town.', 'I have not danced since the war. Any war.'],
+  chapel: ['Sunday best, everybody.', 'Pray for good rock and quiet neighbors.'],
+  shelter: ['Waiting it out under the eaves.', 'Not stepping out in that.', 'Rain check, Mayor. Literally.'],
+  look: ['Ooh. Would you look at that.', 'Now that is a building.', 'Town is coming up in the world.', 'I give it my blessing. Not that you asked.'],
+  boom: ['Yikes!', 'My china!', 'Was that you, Mayor?!', 'Every time! Every single time!', 'Whoa! Felt that in my boots.'],
+  bday: ['It\'s my birthday today!', 'Guess who is a year older? This one.', 'Birthday today. A gift would not hurt.'],
+};
+const SMALL_TALK = [
+  ['Think it will rain?', 'My knee says yes.'], ['That new fellow at the inn. Ever seen him blink?', 'Now that you mention it, no.'],
+  ['Pie at the bakery is the best yet.', 'You say that every week.'], ['Mayor works hard, I will give them that.', 'Digs like a badger with a grudge.'],
+  ['Did you lock your door last night?', 'I always do now.'], ['My cousin wants to move here.', 'Tell her we have the best water in the valley.'],
+  ['Heard the Crane folded a crane out of a dollar bill.', 'Show-off.'], ['Ore prices up or down?', 'Up, if you ask the Mayor. Down, if you ask Supply Co.'],
+  ['Saw something on the ridge last night.', 'A coyote?', 'Coyotes do not bow.'], ['I miss the city sometimes.', 'The city went crazy. Here, a hole is just a hole.'],
+];
+const GOSSIP_REPLY = ['No! Really?', 'Get out of town.', 'I knew it.', 'Well, I never.', 'That figures.', 'Do not tell my wife I told you that.'];
+let livedT = 0, lifeClock = 0, dog = null, umbMat = null;   // lifeClock runs with the game, not the screen: it stops while a sheet is open
+function freshLife() { return { wxDay: 0, wx: ['clear', 'clear'], rainT: 0, hot: false, deeds: [], deedId: 1, sellDay: 0, sellSum: 0, sellTier: 0, ms: -1, party: 0, partyWhy: '', partySeen: 0, market: 0, visitDay: 0, pets: 0, petDay: 0, dog: '' }; }
+function fixLife() { G.life = Object.assign(freshLife(), G.life || {}); }
+// the day's weather comes from the town's seed, so a forecast is a promise
+function wxOf(day) {
+  if (day <= 1) return ['clear', 'clear'];
+  const R = mulberry32((G.seed ^ Math.imul(day, 2654435761)) >>> 0);
+  const roll = () => { let s = WX_TOTAL * R(); for (const k in WX) { s -= WX[k].w; if (s <= 0) return k; } return 'clear'; };
+  const am = roll(), pm = R() < .6 ? am : roll();
+  return [am, pm];
+}
+function life() {
+  if (!G.life) G.life = freshLife();
+  const L = G.life;
+  if (L.wxDay !== G.day) { L.wxDay = G.day; L.wx = wxOf(G.day); }
+  if (L.ms < 0) L.ms = G.milestone;
+  if (!L.dog) L.dog = DOG_NAMES[(G.seed >>> 0) % DOG_NAMES.length];
+  return L;
+}
+const amHalf = h => h >= 6 && h < 14;   // the day starts at 6:00, so the small hours belong to the afternoon's weather
+const wxNow = () => { const L = life(); return amHalf(hourNow()) ? L.wx[0] : L.wx[1]; };
+function lifeSetWeather(k) { const L = life(); if (WX[k]) L.wx = [k, k]; return wxNow(); }
+const bdayOf = n => (n.id * 7 + (G.seed >>> 0) % 11) % 40;   // one birthday a resident every 40 days
+const lifeIsBday = n => bdayOf(n) === G.day % 40;
+const isMarket = () => G.day % 6 === 0;
+function habit(n) { const h = Math.imul(n.id + 17, 2654435761) >>> 0; return { social: h % 3 !== 0, music: h % 7 === 1 }; }
+const capFirst = s => s ? s[0].toUpperCase() + s.slice(1) : s;
+const youify = t => t.replace(/^the Mayor /, 'you ');
+
+// ---------- deeds and gossip: what folks saw, and who has heard ----------
+function deed(k, text, opts) {
+  opts = opts || {};
+  const L = life();
+  let d = opts.key && L.deeds.find(x => x.key === opts.key && x.d === G.day);
+  if (d) { d.t = text; return d; }
+  d = { id: L.deedId++, k, key: opts.key || '', t: text, d: G.day, me: /^the Mayor /.test(text), kn: [] };
+  const live = G.residents.filter(n => n.state !== 'leave');
+  if (opts.all) d.kn = live.map(n => n.id);
+  else if (live.length) {
+    // whoever was closest saw it; if nobody was near, the story starts with somebody anyway
+    const near = live.slice().sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z));
+    d.kn.push(near[0].id);
+    if (near[1] && Math.hypot(near[1].x - P.x, near[1].z - P.z) < 20) d.kn.push(near[1].id);
+  }
+  L.deeds.push(d); if (L.deeds.length > 12) L.deeds.shift();
+  return d;
+}
+function lifeEv(ev, n, k) {
+  if (!G || !P) return;
+  const L = life();
+  if (ev === 'sell') {
+    if (L.sellDay !== G.day) { L.sellDay = G.day; L.sellSum = 0; L.sellTier = 0; }
+    L.sellSum += n || 0;
+    const tier = [300, 1500, 6000, 25000].filter(v => L.sellSum >= v).length;
+    if (tier > L.sellTier) { L.sellTier = tier; deed('sell', `the Mayor sold $${fmt(L.sellSum)} of ore in one day`, { key: 'sell' }); }
+  } else if (ev === 'build' && k && k !== 'lamp' && k !== 'field' && BTYPES[k] && !(BTYPES[k].kind === 'deco' && BTYPES[k].cost.$ < 1000)) {
+    deed('build', `the Mayor put up a new ${BTYPES[k].name.toLowerCase()}`);
+    const b = G.buildings.filter(x => x.type === k).pop(); if (b) lifeAdmire(b);
+  } else if (ev === 'relic') deed('relic', 'the Mayor dug an old fossil out of the hills');
+  else if (ev === 'puzzle' && PZ_TYPES[k]) deed('puzzle', `the Mayor beat a${/^[AEIOU]/.test(PZ_TYPES[k].name) ? 'n' : ''} ${PZ_TYPES[k].name} out past the ridge`, { key: 'pz' + k });
+  else if (ev === 'cave') deed('cave', 'the Mayor broke into a crystal cave', { key: 'cave' });
+  else if (ev === 'hire') deed('hire', 'the Mayor hired another hand', { key: 'hire' });
+  else if (ev === 'deliver') deed('deliver', 'the Mayor filled an order for the neighbors', { key: 'deliver' });
+  else if (ev === 'kill' && k) deed('kill', `${k} never came home, and nobody is saying why`);
+  else if (ev === 'arrive' && k) {
+    // a new face: the neighbors wander over to say hello
+    deed('arrive', `${k} moved into town`, { all: true });
+    const nb = G.residents.find(r => r.name === k);
+    if (nb) G.residents.filter(r => r !== nb && r.state === 'wander').slice(0, 2).forEach((r, i) => {
+      r.lv = { kind: 'look', x: nb.x + (i ? 1.6 : -1.6), z: nb.z + 1.5, fx: nb.x, fz: nb.z, until: lifeClock + 14, line: pickr([`Welcome to town, ${k.split(' ')[0]}!`, 'Fresh face! Where you from?', 'You will love it here. Mostly.']) };
+      r.lspT = 0;
+    });
+  } else if (ev === 'leave' && k) deed('leave', `${k} packed up and left town`, { all: true });
+}
+// the town notices its own troubles too: empty pantries and dry wells are all anyone talks about
+function lifeTownNews() {
+  if (!G.short) return;
+  if (G.short.food) deed('short', 'the town ran short of food', { all: true, key: 'shortF' });
+  if (G.short.water) deed('short', 'the wells could not keep up and folks went thirsty', { all: true, key: 'shortW' });
+}
+// two folks standing together trade small talk, or one tells the other something new
+function lifeConverse(a, b) {
+  const L = life(), news = L.deeds.filter(d => d.kn.includes(a.id) && !d.kn.includes(b.id));
+  let first, reply;
+  if (news.length) {
+    const d = news[news.length - 1]; d.kn.push(b.id);
+    first = `Did you hear? ${capFirst(d.t)}.`; reply = pickr(GOSSIP_REPLY);
+  } else if (Math.random() < .35) { first = pickr(LIFE_LINES[wxNow()]); reply = pickr(['You said it.', 'Mm-hm.', 'Could be worse.']); }
+  else { const c = pickr(SMALL_TALK); first = c[0]; reply = c.slice(1).join(' '); }
+  a.face = Math.atan2(b.x - a.x, b.z - a.z); b.face = Math.atan2(a.x - b.x, a.z - b.z);
+  say(a, first, 3.2); b.replyAt = lifeClock + 2.4; b.replyLine = reply;
+  a.chatT = b.chatT = lifeClock + rr(9, 16);
+  return first;
+}
+// what a resident might say on their own: weather, birthdays, the latest news
+function lifeLine(n) {
+  if (!G.life || Math.random() > .45) return null;
+  const L = life(), w = wxNow();
+  if (n && lifeIsBday(n)) return pickr(LIFE_SAY.bday);
+  const bd = G.residents.find(lifeIsBday);
+  if (bd && bd !== n && Math.random() < .3) return L.party === G.day ? `It's ${bd.name}'s birthday. Party tonight!` : `It's ${bd.name}'s birthday. Wish them a happy one.`;
+  if (isMarket() && hourNow() < 17 && Math.random() < .3) return pickr(['Market day! Fresh everything.', 'Got my eye on a stall in the square.']);
+  const known = n ? L.deeds.filter(d => d.kn.includes(n.id)) : [];
+  if (known.length && Math.random() < .5) { const d = pickr(known); return d.me ? `Heard ${youify(d.t)}.` : `Folks say ${d.t}.`; }
+  return pickr(LIFE_LINES[w]);
+}
+function greetLine(n) {
+  const hr = hourNow(), t = titleOf(), part = hr < 12 ? 'Morning' : hr < 18 ? 'Afternoon' : 'Evening';
+  if (lifeIsBday(n)) return pickr(LIFE_SAY.bday);
+  const own = life().deeds.filter(d => d.me && d.kn.includes(n.id));
+  if (own.length && Math.random() < .5) return `Heard ${youify(own[own.length - 1].t)}!`;
+  // they remember what you gave them
+  if (n.gift && G.day - n.gift.d <= 3 && Math.random() < .4) return pickr([`Still thinking about your gift, ${t}. ${capFirst(n.gift.name)}! For me!`, `I put your ${n.gift.name} right on my mantel.`]);
+  if ((n.fr || 0) >= 5) return pickr([`There's my favorite ${t.toLowerCase()}!`, `${part}, ${t}! Good to see you.`, 'Hey hey! Look who it is.']);
+  return pickr([`${part}, ${t}.`, `${part}.`, pickr(LIFE_LINES[wxNow()])]);
+}
+
+// ---------- routines: where each resident wants to be at this hour ----------
+const squareSpot = () => ({ x: TOWN.x, z: TOWN.z + 3 });
+function lunchSpot() { const b = G.buildings.find(b => b.type === 'bakery') || G.buildings.find(b => b.type === 'saloon'); return b ? Object.assign(doorOf(b), { door: true }) : squareSpot(); }
+function eveSpot() { const b = G.buildings.find(b => b.type === 'saloon') || G.buildings.find(b => b.type === 'theater'); return b ? Object.assign(doorOf(b), { door: true }) : squareSpot(); }
+// folks stand in a ring (or a half ring in front of a door) facing each other
+function ringSpot(kind, c, n) {
+  const i = Math.max(0, G.residents.indexOf(n)), N = Math.max(4, G.residents.length), r = clamp(1.8 + N * .22, 2.4, 5.5);
+  const cx = c.x, cz = c.z + (c.door ? 1.2 : 0);
+  const a = c.door ? Math.PI * (.12 + .76 * (i % N) / (N - 1)) : i / N * Math.PI * 2;
+  return { kind, x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r, fx: cx, fz: cz + (c.door ? r * .5 : 0) };
+}
+function porchSpot(n) {
+  const home = G.buildings.find(b => b.id === n.home); if (!home) return null;
+  const d = doorOf(home), k = (n.id % 3) - 1;
+  return { kind: 'porch', x: d.x + k * 1.3, z: d.z + .6, fx: d.x + k * 1.3, fz: d.z + 8 };
+}
+function shelterSpot(n) {
+  let best = null, bd = 1e9;
+  for (const b of G.buildings) {
+    if (!BTYPES[b.type] || BTYPES[b.type].kind || b.type === 'field' || b.type === 'well' || b.type === 'shaft') continue;
+    const d = Math.hypot(b.x - n.x, b.z - n.z); if (d < bd) { bd = d; best = b; }
+  }
+  if (!best) return null;
+  const d = doorOf(best), k = ((n.id % 5) - 2) * .8;
+  return { kind: 'shelter', x: d.x + k, z: d.z - .2, fx: d.x + k, fz: d.z + 8 };
+}
+function lifeSpotFor(n, hr) {
+  const L = life();
+  if (n.lv && n.lv.until > lifeClock) return n.lv;
+  const W = WX[wxNow()], workHrs = n.job && hr >= 7 && hr < 18;
+  if (hr >= 11.6 && hr < 13 && G.residents.length > 1 && !W.rain) return ringSpot('lunch', lunchSpot(), n);   // they down tools a little early to walk over
+  if (workHrs) return null;
+  if (W.rain) return shelterSpot(n);
+  if (L.party === G.day && hr >= 18 && hr < 21) return ringSpot('party', squareSpot(), n);
+  if (hr >= 6 && hr < 7.5) return porchSpot(n);
+  const chapel = G.buildings.find(b => b.type === 'chapel');
+  if (chapel && G.day % 7 === 0 && hr >= 9 && hr < 11) return ringSpot('chapel', Object.assign(doorOf(chapel), { door: true }), n);
+  if (hr >= 18.5 && hr < 21) return habit(n).social ? ringSpot('eve', eveSpot(), n) : porchSpot(n);
+  return null;
+}
+// walk somewhere and stand facing a point; true once there
+function standAt(n, s, dt) {
+  const dx = s.x - n.x, dz = s.z - n.z, d = Math.hypot(dx, dz);
+  if (n.working) { n.working = false; n.swingK = 0; setTool(n.mesh, null); }
+  if (d > 1.3) {
+    // no path? walk straight at it for a couple of seconds before asking the pathfinder again
+    if ((n.gx === undefined || Math.hypot(n.gx - s.x, n.gz - s.z) > 1) && lifeClock > (n.repath || 0)) npcGo(n, s.x, s.z);
+    if (n.gx === undefined || npcStep(n, dt, 3.3) === 'fail') {
+      if (n.gx === undefined && lifeClock > (n.repath || 0)) n.repath = lifeClock + 1;
+      moveEnt(n, dx / d * 3 * dt, dz / d * 3 * dt); n.moving = true; n.face = Math.atan2(dx, dz);
+    }
+    return false;
+  }
+  n.gx = undefined; n.moving = false;
+  n.face += angDiff(n.face, Math.atan2(s.fx - n.x, s.fz - n.z)) * Math.min(1, dt * 4);
+  return true;
+}
+// called by updResident before jobs and wandering; true while the routine is driving this resident
+function lifeRoutine(n, dt, hr) {
+  if (!G.life || (n.state !== 'wander' && n.state !== 'idle')) { if (n.lifeAt) { n.lifeAt = ''; n.lean = 0; } return false; }
+  if (!n.lspot || lifeClock > (n.lspT || 0)) { n.lspot = lifeSpotFor(n, hr); n.lspT = lifeClock + .7; }
+  const s = n.lspot;
+  if (!s) { if (n.lifeAt) { n.lifeAt = ''; n.lean = 0; } return false; }
+  if (!standAt(n, s, dt)) { n.lifeAt = ''; n.lean = damp(n.lean || 0, 0, 8, dt); return true; }
+  if (n.lifeAt !== s.kind) {
+    n.lifeAt = s.kind;
+    if (s.line) say(n, s.line, 3);
+    else if (n.saidAt !== s.kind + G.day && Math.random() < .5 && n.talkT <= 0) { n.saidAt = s.kind + G.day; say(n, pickr(LIFE_SAY[s.kind] || LIFE_SAY.eve), 3); }
+  }
+  // a little body language: porch stretches, swaying to the fiddle, hopping at a party
+  let lean = 0;
+  if (s.kind === 'porch') lean = -.1 * Math.max(0, Math.sin(tNow * .8 + n.id));
+  else if (s.kind === 'party' || (s.kind === 'eve' && LK.fiddler && LK.fiddler !== n)) lean = Math.sin(tNow * 3.2 + n.id) * .07;
+  n.lean = damp(n.lean || 0, lean, 6, dt);
+  if (s.kind === 'party' && n.y <= n.gy + .02 && Math.random() < dt * .25) { n.y = n.gy + .06; n.vy = 4; }
+  return true;
+}
+function lifeFiddler() {
+  const hr = hourNow(); if (hr < 18.5 || hr >= 21 || WX[wxNow()].rain) return null;
+  const at = G.residents.filter(n => (n.lifeAt === 'eve' || n.lifeAt === 'party') && n.state === 'wander' && !n.alarm);
+  if (at.length < 2) return null;
+  return at.find(n => habit(n).music) || at[0];
+}
+// a new building draws a little crowd for a while
+function lifeAdmire(b) {
+  const d = doorOf(b), free = G.residents.filter(n => n.state === 'wander' || n.state === 'idle');
+  free.sort((a, c) => Math.hypot(a.x - b.x, a.z - b.z) - Math.hypot(c.x - b.x, c.z - b.z));
+  free.slice(0, 3).forEach((n, i) => {
+    if (Math.hypot(n.x - b.x, n.z - b.z) > 70) return;
+    n.lv = { kind: 'look', x: d.x + (i - 1) * 1.6, z: d.z + 3.2, fx: b.x, fz: b.z, until: lifeClock + 20, line: pickr(LIFE_SAY.look) };
+    n.lspT = 0;
+  });
+}
+// the ground shakes: folks hop and holler, the dog bolts, and blasting near town becomes the talk of the town
+function lifeBoom(x, z, big) {
+  if (!G || !G.residents) return 0;
+  const R = big ? 500 : 30; let n = 0;
+  for (const r of G.residents) {
+    if (r.state === 'inside' || r.state === 'leave' || Math.hypot(r.x - x, r.z - z) > R) continue;
+    r.squash = 1; r.y = r.gy + .06; r.vy = 5; say(r, pickr(LIFE_SAY.boom), 2.4); n++;
+  }
+  if (dog && Math.hypot(dog.x - x, dog.z - z) < R) { dog.flee = 3; dog.fx = x; dog.fz = z; }
+  if (big) deed('meteor', 'a sky-rock came down out past town', { all: true, key: 'meteor' });
+  else if (Math.hypot(x - TOWN.x, z - TOWN.z) < 55) deed('blast', 'somebody keeps blasting right next to town', { key: 'blast' });
+  return n;
+}
+
+// ---------- the town dog ----------
+let dogGeoCache = null;
+function dogGeo() {
+  if (dogGeoCache) return dogGeoCache;
+  const fur = '#b07a44', dark = '#6a4428', P = [
+    [new THREE.CapsuleGeometry(.2, .42, 4, 10), fur, TM(0, .42, 0, Math.PI / 2)],
+    [sph(.19, 12, 10), fur, TM(0, .62, .36)],
+    [box(.12, .1, .16), '#d9b48a', TM(0, .57, .52)],
+    [sph(.04, 8, 6), '#2b2024', TM(0, .6, .6)],
+    [sph(.03, 6, 5), '#2b2024', TM(-.08, .68, .5)], [sph(.03, 6, 5), '#2b2024', TM(.08, .68, .5)],
+    [box(.08, .16, .05), dark, TM(-.15, .74, .3, 0, 0, .4)], [box(.08, .16, .05), dark, TM(.15, .74, .3, 0, 0, -.4)],
+    [cyl(.15, .17, .04, 12), '#d0473a', TM(0, .5, .26, Math.PI / 2.6)],
+  ];
+  for (const [x, z] of [[-.12, .2], [.12, .2], [-.12, -.2], [.12, -.2]]) P.push([cyl(.05, .045, .3, 6), fur, TM(x, .15, z)]);
+  return (dogGeoCache = mergeParts(P));
+}
+function makeDog() {
+  const g = new THREE.Group(), body = new THREE.Mesh(dogGeo(), MATS3.toy); body.castShadow = true; g.add(body);
+  const tail = new THREE.Mesh(mergeParts([[cyl(.03, .045, .28, 6), '#b07a44', TM(0, .14, 0)]]), MATS3.toy); tail.position.set(0, .5, -.38); tail.rotation.x = -.7; g.add(tail);
+  g.scale.setScalar(1.1); scene.add(g);
+  const s = squareSpot();
+  dog = { kind: 'dog', x: s.x + 2, z: s.z + 2, y: hAt(s.x + 2, s.z + 2), gy: 0, vy: 0, r: .3, face: 0, mesh: g, body, tail, walkT: 0, moving: false, wag: 1, tx: s.x, tz: s.z, waitT: 2, petT: 0, flee: 0, near: false, barkT: 0 };
+  return dog;
+}
+function dogGoal(hr) {
+  if (hr >= 21 || hr < 6 || WX[wxNow()].rain) { const o = G.buildings.find(b => b.type === 'office'); return o ? { x: doorOf(o).x + 1.5, z: doorOf(o).z + .4, rest: true } : null; }
+  return null;
+}
+function updDog(dt) {
+  if (!dog) { if (G.residents.length && scene) makeDog(); else return; }
+  const L = life(), hr = hourNow(), dP = Math.hypot(P.x - dog.x, P.z - dog.z), onFoot = mode === 'foot' && !room;
+  let tx = dog.tx, tz = dog.tz, sp = 3.4, stop = .6;
+  const g = dogGoal(hr);
+  if (dog.flee > 0) { dog.flee -= dt; const a = Math.atan2(dog.z - dog.fz, dog.x - dog.fx); tx = dog.x + Math.cos(a) * 6; tz = dog.z + Math.sin(a) * 6; sp = 7; stop = 0; }
+  else if (onFoot && dP < 12 && !g) { tx = P.x; tz = P.z; stop = 1.8; sp = dP > 5 ? 6 : 3.6; }
+  else if (g) { tx = g.x; tz = g.z; stop = .5; }
+  else {
+    dog.waitT -= dt;
+    if (dog.waitT <= 0 || Math.hypot(dog.tx - dog.x, dog.tz - dog.z) < .8) {
+      const a = Math.random() * 6.28, r = rr(3, 20), s = squareSpot();
+      dog.tx = s.x + Math.cos(a) * r; dog.tz = s.z + Math.sin(a) * r * .8; dog.waitT = rr(4, 10);
+    }
+    tx = dog.tx; tz = dog.tz;
+  }
+  // a bark when you come back to town
+  if (onFoot && dP < 12 && !dog.near) { dog.near = true; if (lifeClock > dog.barkT) { dog.barkT = lifeClock + 25; dogBark(); } }
+  if (dP > 25) dog.near = false;
+  const dx = tx - dog.x, dz = tz - dog.z, d = Math.hypot(dx, dz);
+  if (d > stop) {
+    const k = Math.min(sp * dt, d - stop), r = moveEnt(dog, dx / d * k, dz / d * k);
+    if (r && !dog.flee) { dog.waitT = 0; }
+    dog.face += angDiff(dog.face, Math.atan2(dx, dz)) * Math.min(1, dt * 8); dog.moving = true;
+  } else { dog.moving = false; if (dP < 6 && onFoot) dog.face += angDiff(dog.face, Math.atan2(P.x - dog.x, P.z - dog.z)) * Math.min(1, dt * 4); }
+  settle(dog, dt);
+  // stand still next to the dog for a moment and you give it a good scratch
+  if (onFoot && dP < 1.9 && !P.moving && !paused) {
+    dog.petT += dt;
+    if (dog.petT > 1.2) {
+      dog.petT = -18; dog.wag = 4; L.pets++;
+      floatText(dog.x, dog.y + 1.3, dog.z, '♥', '#ff7fa8'); SFX.discover();
+      if (L.petDay !== G.day) { L.petDay = G.day; G.goodwill += 1; toast(`${L.dog} the town dog thinks you are wonderful.`, 'house'); }
+    }
+  } else if (dog.petT > 0) dog.petT = 0;
+  if (dog.petT < 0) dog.petT = Math.min(0, dog.petT + dt);
+  dog.wag = damp(dog.wag, onFoot && dP < 8 ? 2 : 1, 1.5, dt);
+}
+function dogBark() {
+  if (!dog) return;
+  floatText(dog.x, dog.y + 1.2, dog.z, 'Woof!', '#fff');
+  if (!SFX.live()) return;
+  const t = SFX.ctx.currentTime, k = clamp(1 - Math.hypot(P.x - dog.x, P.z - dog.z) / 30, .2, 1);
+  for (let i = 0; i < 2; i++) { SFX.tone(t + i * .16, 560, .07, .05 * k, 'square', 330); SFX.noise(t + i * .16, .06, [['bandpass', 900, 1]], .05 * k); }
+}
+function poseDog(dt) {
+  if (!dog) return;
+  const g = dog.mesh, rest = dogGoal(hourNow()), lying = rest && Math.hypot(dog.x - rest.x, dog.z - rest.z) < 1.5;
+  if (dog.moving) dog.walkT += dt * 14;
+  g.position.set(dog.x, dog.y + (dog.moving ? Math.abs(Math.sin(dog.walkT)) * .06 : 0), dog.z);
+  g.rotation.y = dog.face;
+  dog.body.scale.y = damp(dog.body.scale.y, lying ? .62 : 1, 6, dt);
+  dog.tail.rotation.z = Math.sin(tNow * (6 + dog.wag * 4)) * (.35 + dog.wag * .12) * (lying ? .3 : 1);
+  if (lying && nightF > .5 && Math.random() < dt * .3) floatText(dog.x, dog.y + .9, dog.z, 'z', '#cfd8ff');
+}
+
+// ---------- weather you can see and hear ----------
+const RAIN = { mesh: null, n: 280, drops: [] };
+const LK = { cloud: 0, rain: 0, fog: 0, hot: 0, storm: 0, boltT: 4, thunderAt: 0, gusts: 0, splash: 0 };
+const _rm = new THREE.Matrix4(), _rq = new THREE.Quaternion(), _re = new THREE.Euler(), _rv = new THREE.Vector3(), _rs = new THREE.Vector3(1, 1, 1), _gray = new THREE.Color('#9aa5b0'), _warm = new THREE.Color('#f6dcb0');
+function initRain() {
+  const m = new THREE.InstancedMesh(new THREE.BoxGeometry(.03, .8, .03), new THREE.MeshBasicMaterial({ color: '#d8e8f8', transparent: true, opacity: .5, depthWrite: false }), RAIN.n);
+  m.frustumCulled = false; m.count = 0; scene.add(m); RAIN.mesh = m;
+  for (let k = 0; k < RAIN.n; k++) RAIN.drops.push({ x: rr(-22, 22), y: rr(0, 24), z: rr(-22, 22), s: rr(.85, 1.2) });
+}
+function updRain(dt, k, wind) {
+  if (!RAIN.mesh) initRain();
+  const m = RAIN.mesh, want = room ? 0 : Math.round(RAIN.n * k);
+  m.count = want; if (!want) return;
+  const top = 24 + (mode === 'over' ? rig.dist * .25 : 0);
+  _rq.setFromEuler(_re.set(0, 0, -wind * .05));
+  for (let i = 0; i < want; i++) {
+    const d = RAIN.drops[i];
+    d.y -= dt * 24 * d.s; d.x += wind * dt;
+    if (d.y < -3) { d.y = top; d.x = rr(-22, 22); d.z = rr(-22, 22); }
+    _rm.compose(_rv.set(rig.x + d.x, rig.y + d.y, rig.z + d.z), _rq, _rs); m.setMatrixAt(i, _rm);
+  }
+  m.instanceMatrix.needsUpdate = true;
+}
+function rainSound(k) {
+  if (!SFX.live()) return;
+  if (!SFX.rainG) {
+    const ac = SFX.ctx, s = ac.createBufferSource(); s.buffer = SFX.nb; s.loop = true;
+    const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1300;
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5200;
+    SFX.rainG = ac.createGain(); SFX.rainG.gain.value = 0;
+    s.connect(hp); hp.connect(lp); lp.connect(SFX.rainG); SFX.rainG.connect(SFX.out); s.start();
+  }
+  SFX.rainG.gain.setTargetAtTime(k * .05, SFX.ctx.currentTime, .5);
+}
+// runs after the daylight and camera have been set for this frame, and leans on them
+function lifeSky(dt) {
+  const kind = wxNow(), W = WX[kind];
+  LK.cloud = damp(LK.cloud, W.cloud, .5, dt); LK.rain = damp(LK.rain, W.rain, .7, dt); LK.fog = damp(LK.fog, W.fog, .4, dt);
+  LK.hot = damp(LK.hot, W.hot, .5, dt); LK.storm = damp(LK.storm, kind === 'storm' ? 1 : 0, .7, dt);
+  const day = 1 - nightF * .7;
+  sun.intensity *= lerp(1, .42, LK.cloud); hemi.intensity *= lerp(1, .86, LK.cloud);
+  skyU.uTop.value.lerp(_gray, LK.cloud * .55 * day); skyU.uHor.value.lerp(_gray, LK.cloud * .4 * day);
+  skyU.uSunK.value *= 1 - LK.cloud * .8;
+  if (LK.hot > .01) { skyU.uHor.value.lerp(_warm, LK.hot * .35 * day); renderer.toneMappingExposure += LK.hot * .06; }
+  scene.fog.color.copy(skyU.uHor.value);
+  scene.fog.near *= lerp(1, .1, LK.fog) * lerp(1, .8, LK.rain); scene.fog.far *= lerp(1, .3, LK.fog) * lerp(1, .75, LK.rain);
+  const wind = kind === 'wind' ? 5 : kind === 'storm' ? 3 : .6;
+  updRain(dt, LK.rain, wind); rainSound(LK.rain);
+  // lightning, then thunder a beat later
+  if (LK.storm > .7 && !paused) {
+    LK.boltT -= dt;
+    if (LK.boltT <= 0) { LK.boltT = rr(6, 16); flashScreen(.12); LK.thunderAt = tNow + rr(.4, 1.6); }
+  }
+  if (LK.thunderAt && tNow >= LK.thunderAt) {
+    LK.thunderAt = 0; rig.shake = Math.max(rig.shake, .12);
+    if (SFX.live()) { const t = SFX.ctx.currentTime; SFX.noise(t, 2.2, [['lowpass', 170]], .3, .05); SFX.tone(t, 48, 1.6, .12, 'sine', 30); }
+  }
+  // umbrellas come out for anyone outdoors and not at work
+  for (const n of G.residents) {
+    if (!n.mesh) continue;
+    const want = LK.rain > .3 && n.state !== 'inside' && !n.working;
+    if (want && !n.mesh.userData.umb) addUmbrella(n);
+    if (n.mesh.userData.umb) n.mesh.userData.umb.visible = want;
+    // the birthday resident wears a party hat all day (unless the umbrella is up)
+    const hat = lifeIsBday(n) && n.state !== 'inside' && !want;
+    if (hat && !n.mesh.userData.phat) addPartyHat(n);
+    if (n.mesh.userData.phat) n.mesh.userData.phat.visible = hat;
+  }
+  poseDog(paused ? 0 : dt); if (visitor) poseEnt(visitor, tNow, paused ? 0 : dt);
+  const wx = $('wx'); if (wx && wx.dataset.k !== kind) { wx.dataset.k = kind; wx.textContent = W.icon; wx.title = W.name; }
+}
+const UMB_COLS = ['#d0473a', '#3f7fbf', '#e8b04e', '#5aa66a', '#8a5ab8'];
+const umbGeos = {};
+function addUmbrella(n) {
+  const c = UMB_COLS[n.id % UMB_COLS.length];
+  const geo = umbGeos[c] || (umbGeos[c] = mergeParts([[new THREE.ConeGeometry(.78, .32, 10, 1, true), c, TM(0, 2.32, 0)], [sph(.04, 6, 5), '#eee', TM(0, 2.5, 0)], [cyl(.022, .022, 1.05, 6), '#4a3a2a', TM(.28, 1.72, .12, 0, 0, .25)]]));
+  if (!umbMat) umbMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .6, side: THREE.DoubleSide });
+  const u = new THREE.Mesh(geo, umbMat); u.castShadow = true;
+  n.mesh.userData.body.add(u); n.mesh.userData.umb = u;
+}
+let partyHatGeo = null;
+function addPartyHat(n) {
+  if (!partyHatGeo) partyHatGeo = mergeParts([[new THREE.ConeGeometry(.2, .46, 12), '#ff7fa8', TM(0, 1.92, 0, -.12)], [cyl(.205, .205, .05, 12), '#ffd25a', TM(0, 1.73, -.01, -.12)], [sph(.07, 8, 6), '#7fd0ff', TM(0, 2.16, .03)]]);
+  const h = new THREE.Mesh(partyHatGeo, MATS3.toy); h.castShadow = true;
+  n.mesh.userData.body.add(h); n.mesh.userData.phat = h;
+}
+
+// ---------- the town's clock: greetings, chats, events, market fees ----------
+function lifeUpd(dt) {
+  lifeClock += dt;
+  updDog(dt); updVisitor(dt);
+  livedT -= dt; if (livedT > 0) return;
+  const step = .25 - livedT; livedT = .25;
+  const L = life(), hr = hourNow(), W = WX[wxNow()], live = G.residents.filter(n => n.mesh && n.state !== 'inside' && n.state !== 'leave');
+  // rain waters every field and fills the wells overnight; a scorcher makes tomorrow thirsty
+  if (W.rain) {
+    L.rainT += step;
+    for (const b of G.buildings) if (b.type === 'field' && b.crop && b.grow < 1) b.grow = Math.min(.999, b.grow + step / (CROPS[b.crop].days * DAY_LEN) * .4);   // townTick finishes the last bit, so farmers still harvest
+  }
+  if (W.hot && hr > 10 && hr < 18) L.hot = true;
+  if (wxNow() === 'wind') for (const b of G.buildings) if (b.mesh.userData.sails) b.mesh.userData.sails.rotation.z += step * 1.6;
+  // weather you can feel: dust whips past in the wind, boots splash in the rain
+  if (wxNow() === 'wind' && !room && Math.random() < .5) { spawnDust(P.x + rr(-12, 12), P.y + rr(.5, 2), P.z + rr(-12, 12), '#d9c9ae', 3, 3, 0); LK.gusts++; }
+  if (W.rain && mode === 'foot' && P.moving && !room) {
+    spawnDust(P.x, P.y + .05, P.z, '#bcd6ee', 3, 1.2, 0); LK.splash++;
+    if (SFX.live() && Math.random() < .5) SFX.noise(SFX.ctx.currentTime, .07, [['bandpass', 2400, 1.4]], .02);
+  }
+  // folks say hello when you walk by
+  if (mode === 'foot' && !room) for (const n of live) {
+    if (n.talkT > 0 || lifeClock < (n.greetT || 0) || G.infamy >= 80 || Math.hypot(n.x - P.x, n.z - P.z) > 4.5) continue;
+    n.greetT = lifeClock + rr(40, 70); say(n, greetLine(n), 2.8);
+    if ((n.fr || 0) >= 5 && n.y <= n.gy + .02) { n.y = n.gy + .05; n.vy = 3.5; }
+    n.face = Math.atan2(P.x - n.x, P.z - n.z);
+  }
+  // two folks standing together strike up a conversation
+  const gathered = live.filter(n => n.lifeAt && n.lifeAt !== 'porch' && n.state === 'wander' && !n.alarm && n.talkT <= 0 && !n.replyAt && lifeClock > (n.chatT || 0));
+  for (let i = 0; i < gathered.length; i++) {
+    const a = gathered[i]; if (a.talkT > 0 || a.replyAt) continue;
+    const b = gathered.find(o => o !== a && o.talkT <= 0 && !o.replyAt && Math.hypot(o.x - a.x, o.z - a.z) < 6);
+    if (b && Math.random() < .35) lifeConverse(a, b);
+  }
+  // a new milestone is worth a party in the square tonight
+  if (G.milestone > L.ms) {
+    // too late for tonight? the party is tomorrow evening (the calendar day turns at 6:00)
+    const late = hr >= 21;
+    L.ms = G.milestone; L.party = G.day + (late ? 1 : 0); L.partyWhy = `becoming a ${MILESTONES[G.milestone].name}`;
+    toast(`The town is throwing a party ${late ? 'tomorrow night' : 'tonight'} for ${L.partyWhy}!`, 'town');
+  }
+  if (L.party === G.day && hr >= 18 && hr < 21) {
+    const s = squareSpot();
+    if (Math.random() < .5) spawnDust(s.x + rr(-3, 3), hAt(s.x, s.z) + 2.5, s.z + rr(-3, 3), pickr(['#ff7fa8', '#ffd25a', '#7fd0ff', '#9be27a']), 2, 1.5, 1);
+    if (L.partySeen !== G.day && mode === 'foot' && Math.hypot(P.x - s.x, P.z - s.z) < 18) { L.partySeen = G.day; SFX.fanfare(); toast(`Everybody is out celebrating ${L.partyWhy}.`, 'town'); }
+  }
+  // the evening fiddler
+  for (const n of G.residents) if (n.replyAt && lifeClock >= n.replyAt) { say(n, n.replyLine, 3); n.replyAt = 0; }
+  const f = LK.fiddler = lifeFiddler();
+  if (f && f.lifeAt && Math.random() < .45) {
+    floatText(f.x + rr(-.3, .3), f.y + 2.3, f.z, pickr(['♪', '♫']), '#fff4c8');
+    if (SFX.live() && Math.hypot(P.x - f.x, P.z - f.z) < 22) { const t = SFX.ctx.currentTime; SFX.tone(t, 392 * Math.pow(2, PENTA[ri(0, 7)] / 12), .4, .018, 'triangle', 0, .02, .4); }
+  }
+  // market day: stalls in the square pay the town a fee at noon
+  if (isMarket() && hr >= 12 && L.market !== G.day && G.residents.length) {
+    L.market = G.day;
+    const fee = G.residents.length * (4 + maxTier() * 2); G.money += fee; G.stats.earned += fee;
+    toast(`Market stalls paid the town $${fmt(fee)} in fees.`, 'coin'); SFX.coin();
+  }
+  updMarket(isMarket() && hr >= 8 && hr < 17);
+}
+let marketMesh = null;
+function updMarket(on) {
+  if (!on) { if (marketMesh) marketMesh.visible = false; return; }
+  if (!marketMesh) {
+    const P2 = [];
+    for (const [x, c] of [[-2.2, '#d0473a'], [2.2, '#3f7fbf']]) {
+      P2.push([box(2.4, .7, 1.1), '#a07a4e', TM(x, .35, 0)]);
+      for (const sx of [-1.1, 1.1]) P2.push([cyl(.05, .05, 2, 6), '#6a4a2e', TM(x + sx, 1, -.4)]);
+      P2.push([box(2.7, .08, 1.5), c, TM(x, 2.05, 0, -.2)]);
+      P2.push([sph(.2, 8, 6), '#f08a2c', TM(x - .6, .85, 0)], [sph(.18, 8, 6), '#9be27a', TM(x, .83, .1)], [box(.4, .3, .3), '#e8c25a', TM(x + .7, .85, 0)]);
+    }
+    marketMesh = new THREE.Mesh(mergeParts(P2), MATS3.toy); marketMesh.castShadow = true; scene.add(marketMesh);
+  }
+  const s = squareSpot(); let x = s.x - 9, z = s.z + 7;
+  for (let k = 0; k < 24 && obstacleAt(x, z, 3); k++) { x += 2.5 * Math.cos(k); z += 2.5 * Math.sin(k); }
+  marketMesh.position.set(x, hAt(x, z), z); marketMesh.visible = true;
+}
+// each morning: the rain and heat settle up, the news goes stale, birthdays and market day are announced
+function lifeMorning() {
+  const L = life(), bits = [], wells = G.buildings.filter(b => b.type === 'well').length;
+  if (L.rainT > 15 && wells) { const w = Math.max(1, Math.round(clamp(L.rainT / (DAY_LEN * .3), 0, 1) * 3 * wells)); G.town.water += w; bits.push(`the rain topped up the wells (+${w} water)`); }
+  if (L.hot && G.residents.length) { const w = Math.ceil(G.residents.length / 4); G.town.water = Math.max(0, G.town.water - w); bits.push(`yesterday's heat cost ${w} extra water`); }
+  L.rainT = 0; L.hot = false;
+  L.deeds = L.deeds.filter(d => G.day - d.d <= 6); lifeTownNews();
+  const bd = G.residents.filter(lifeIsBday);
+  const pal = bd.find(n => (n.fr || 0) >= 3);   // a friend's birthday gets a party in the square
+  if (pal) { L.party = G.day; L.partyWhy = `${pal.name}'s birthday`; }
+  if (bd.length) { bits.push(`it's ${bd.map(n => n.name).join(' and ')}'s birthday (a gift counts double)`); }
+  if (isMarket()) bits.push('market day in the square');
+  const [am, pm] = L.wx;
+  toast(`${WX[am].name}${pm !== am ? `, turning ${WX[pm].name.toLowerCase()} later` : ''}. ${capFirst(bits.join('; '))}${bits.length ? '.' : ''}`.trim(), 'house');
+}
+// ---------- strangers off the road: the world outside went strange, and they bring a little of it in ----------
+const VISITORS = [
+  { who: 'a traveling salesman', hat: 'cowboy', lines: ['Patent rock polish! Makes granite sing!', 'Out in the city they sell shadows by the pound now.', 'Your town is so... normal. I love it.'] },
+  { who: 'a reporter from the city', hat: 'hair', lines: ['Is it true nothing strange ever happens here?', 'The city has ninjas on the trolley lines. Ninjas!', 'Can I quote you on the weather?'] },
+  { who: 'a monk who will not say which monastery', hat: 'bun', lines: ['The mountain sent me to look at your hole.', 'A paper crane is a promise. Remember that.', 'Peace, Mayor. Mostly.'] },
+  { who: 'a drifter with a long case on their back', hat: 'cowboy', lines: ['Just passing through.', 'Do not ask what is in the case.', 'Nice quiet town. Keep it that way.'] },
+];
+let visitor = null;
+function startVisitor() {
+  const L = life(), V = VISITORS[(G.day / 4 | 0) % VISITORS.length], look = lookFor('res'); look.hat = V.hat;
+  const v = makeEnt('res', WS - 6, roadZ(WS - 6), look), s = eveSpot();
+  v.V = V; v.state = 'arrive'; npcGo(v, s.x + 2.5, s.z + 2.5);
+  visitor = v; L.visitDay = G.day;
+  toast(`A stranger is coming up the road: ${V.who}.`, 'house');
+  return v;
+}
+function updVisitor(dt) {
+  const hr = hourNow();
+  if (!visitor) {
+    if (G.day % 4 === 2 && hr >= 9.5 && hr < 10.5 && life().visitDay !== G.day && G.residents.length >= 3) startVisitor();
+    return;
+  }
+  const v = visitor; if (v.talkT > 0) v.talkT -= dt;
+  if (v.state === 'leave' || hr >= 15.5 || hr < 6) {
+    if (v.state !== 'leave') { v.state = 'leave'; v.leaveT = 0; npcGo(v, WS - 4, roadZ(WS - 4)); say(v, 'So long, folks.', 2.5); }
+    v.leaveT += dt;
+    const r = v.gx === undefined ? 'fail' : npcStep(v, dt, 4);
+    if (r !== 'moving' && lifeClock > (v.repath || 0)) { v.repath = lifeClock + 2.5; npcGo(v, WS - 4, roadZ(WS - 4)); }
+    // a stranger who cannot find the road out simply slips away
+    if (v.x > WS - 8 || v.leaveT > 90) { removeEntMesh(v); visitor = null; return; }
+  } else if (v.state === 'arrive') {
+    if (npcStep(v, dt, 4) !== 'moving') { v.state = 'stay'; visitorArrived(v); }
+  } else {
+    v.moving = false;
+    if (mode === 'foot' && v.talkT <= 0 && lifeClock > (v.greetT || 0) && Math.hypot(P.x - v.x, P.z - v.z) < 6) { v.greetT = lifeClock + 12; v.face = Math.atan2(P.x - v.x, P.z - v.z); say(v, pickr(v.V.lines), 3.4); }
+  }
+  settle(v, dt);
+}
+// a stranger with somewhere to sit spends a little money, and everyone wants to know who they were
+function visitorArrived(v) {
+  const spend = hasB('saloon') || hasB('inn') ? 30 + G.residents.length * 3 : 0;
+  if (spend) { G.money += spend; G.stats.earned += spend; floatText(v.x, v.y + 2.4, v.z, `+$${spend}`, '#ffd25a'); toast(`${capFirst(v.V.who)} spent $${spend} in town.`, 'coin'); }
+  const near = G.residents.filter(n => Math.hypot(n.x - v.x, n.z - v.z) < 25).map(n => n.id);
+  const d = deed('visitor', `${v.V.who} came through with news from outside`, { key: 'visitor' });
+  for (const id of near) if (!d.kn.includes(id)) d.kn.push(id);
+  return spend;
+}
+// the person sheet: how this resident spends a day
+function lifePersonHtml(n) {
+  const h = habit(n), heard = life().deeds.filter(d => d.kn.includes(n.id)).length, bdIn = (bdayOf(n) - G.day % 40 + 40) % 40;
+  const eve = h.social ? (hasB('saloon') ? 'evenings at the saloon' : 'evenings in the square') : 'evenings on the porch';
+  return `<p>Coffee on the porch at dawn, lunch with the neighbors at noon, ${eve}${h.music ? ', and the fiddle when there is a crowd' : ''}. ${bdIn ? `Birthday in ${bdIn} day${bdIn > 1 ? 's' : ''}.` : '<b>Birthday today!</b> A gift counts double.'} ${heard ? `Has heard ${heard} bit${heard > 1 ? 's' : ''} of news this week.` : 'Has not heard any news lately.'}</p>`;
+}
+function lifeNewsHtml() {
+  const L = life(), [am, pm] = L.wx, tm = wxOf(G.day + 1)[0], hr = hourNow(), pop = G.residents.length;
+  let h = `<h4>Town talk</h4><div class="stats"><div class="stat"><span>Today</span><b>${WX[wxNow()].icon} ${WX[wxNow()].name}</b><span>${amHalf(hr) && pm !== am ? `Turning ${WX[pm].name.toLowerCase()} this afternoon.` : WX[wxNow()].say}</span></div><div class="stat"><span>Tomorrow</span><b>${WX[tm].icon} ${WX[tm].name}</b><span>${WX[tm].say}</span></div></div>`;
+  const on = [];
+  const bd = G.residents.filter(lifeIsBday); if (bd.length) on.push(`${bd.map(n => escapeHtml(n.name)).join(' and ')}'s birthday: a gift counts double`);
+  if (L.party === G.day) on.push(`a party in the square tonight for ${escapeHtml(L.partyWhy)}`);
+  on.push(isMarket() ? 'market day in the square' : `next market day is day ${G.day + 6 - G.day % 6}`);
+  if (G.buildings.some(b => b.type === 'chapel')) on.push(G.day % 7 === 0 ? 'Sunday service this morning' : `Sunday service on day ${G.day + 7 - G.day % 7}`);
+  on.push(L.pets ? `${L.dog} the town dog has been scratched ${L.pets} time${L.pets > 1 ? 's' : ''}` : `${L.dog} the town dog would love a scratch (stand still next to it)`);
+  h += `<p>${capFirst(on.join(' · '))}.</p>`;
+  const news = L.deeds.slice().reverse();
+  h += news.length ? '<h4>What folks are saying</h4><div class="list">' + news.slice(0, 5).map(d => `<div class="item"><div class="tx"><b>&ldquo;${escapeHtml(capFirst(d.t))}.&rdquo;</b><span>${d.kn.filter(id => G.residents.some(r => r.id === id)).length} of ${pop} folks have heard · day ${d.d}</span></div></div>`).join('') + '</div>' : '<p>Nothing much to gossip about yet. Give them something.</p>';
+  return h;
+}
+
+// ===================== quests: missions, side quests, keepsakes =====================
+// Written by Claude (Command) for the Miner project.
+// Folks bring offers each morning. Take them or let them go: nothing in the valley waits on a quest.
+// A finished quest pays out a keepsake that is yours alone; a passed or missed one is gone for this town.
+// Steps listen for things you already do (dig, sell, build, chat...) or ask you to hand goods over.
+const CAST = {
+  vern: { name: 'Vern Haskett', role: 'the barber' },
+  del: { name: 'Delphine Coalfax', role: 'who runs the diner' },
+  hollis: { name: 'Hollis Brandt', role: 'from the rival claim' },
+  pruitt: { name: 'the Widow Pruitt', role: 'who knows everything' },
+  rusty: { name: 'Rusty Odom', role: 'the mail carrier' },
+  june: { name: 'June Tolliver', role: 'behind the Supply Co. counter' },
+  crane: { name: 'The Black Crane', role: 'who leaves paper on porches' },
+};
+const KEEPSAKES = {
+  lunchpail: { name: "Del's Tin Lunch Pail", desc: 'Your bag holds 10 more.' },
+  dowsing: { name: 'Dowsing Rod', desc: 'Prospector ping reaches 12 further.' },
+  ledger: { name: 'The Other Ledger', desc: 'Every settler pays $4 more rent each morning.' },
+  kettle: { name: 'Copper Kettle', desc: 'Town appeal +5.' },
+  horseshoe: { name: 'Lucky Horseshoe', desc: 'Loot jumps to you from further away.' },
+  powder: { name: 'Powder Tab', desc: 'One free stick of dynamite each morning, up to 5.' },
+  mask: { name: "The Crane's Mask", desc: 'Everything you sell pays 10% more. Nobody haggles with you now.' },
+  bell: { name: "Brandt's Dinner Bell", desc: 'Your crew works for $4 less a day. They like the company.' },
+  winnings: { name: 'Saloon Winnings', desc: 'The folks who bet on you pay out $50 every morning.' },
+  smoke: { name: 'Smoke Pellets', desc: 'Deputies lose your trail twice as fast.' },
+};
+const hasK = id => !!(G.quests && G.quests.keep.includes(id));
+const saleMul = () => hasK('mask') ? 1.1 : 1; // every sale: bag, buttons, machines, crew
+const Q_OFFER_DAYS = 3, Q_MAX_ACTIVE = 3, Q_MAX_OFFERS = 2;
+const QUESTS = [
+  { id: 'griddle', who: 'del', title: 'The Pancake War', reward: { $: 120, keep: 'lunchpail' },
+    blurb: "The diner across the county poached my cook. Fine. I'll out-flip them myself, but my griddle eats coal like a widower eats casseroles.",
+    steps: [{ give: 'coal', n: 12, text: 'Bring Delphine 12 coal' }] },
+  { id: 'quiet', who: 'vern', title: 'Make Some Noise', reward: { $: 200, keep: 'dowsing' },
+    blurb: 'Something is going to happen at the barbershop tonight. Something quiet. I need the valley to be very, very loud while it does. Dig. Dig a lot.',
+    steps: [{ ev: 'dig', n: 1500, text: 'Dig 1,500 loads of earth' }, { ev: 'chat', n: 1, text: 'Tell anyone in town it was "just the miner"' }] },
+  { id: 'bet', who: 'hollis', title: "Brandt's Bet", days: 3, after: 'tryout', soft: 1, reward: { $: 300, keep: 'ledger' },
+    blurb: "Fifty dollars says you can't move $1,500 of ore in three days. Make it interesting: win, and I'll show you how my family really keeps its books.",
+    steps: [{ ev: 'sell', n: 1500, text: 'Sell $1,500 of goods', money: true }] },
+  { id: 'cranes', who: 'pruitt', title: 'Paper Cranes', reward: { $: 90, keep: 'kettle' },
+    blurb: 'Somebody leaves folded paper cranes on porches at night. Black paper. Ask around, dear. People tell a nice face things.',
+    steps: [{ ev: 'chat', n: 3, text: 'Chat with neighbors (3)' }, { ev: 'gift', n: 1, text: 'Sweeten someone with a gift' }] },
+  { id: 'bones', who: 'rusty', title: 'Return to Sender', reward: { $: 300, keep: 'horseshoe' },
+    blurb: "There's a parcel addressed to 'whoever digs up the old bones'. No stamp. No return address. It ticks a little. Find me a fossil and it's yours.",
+    steps: [{ ev: 'relic', n: 1, text: 'Dig up a fossil' }] },
+  { id: 'fuse', who: 'june', title: 'Product Demonstration', reward: { $: 60, keep: 'powder' },
+    blurb: 'Corporate says I have to show customers the dynamite "works as advertised". Throw a few, would you? Away from the bakery.',
+    steps: [{ ev: 'dyn', n: 3, text: 'Throw 3 sticks of dynamite' }] },
+  { id: 'lamps', who: 'pruitt', title: 'Lights on Main', after: 'cranes', soft: 1, reward: { $: 260, goodwill: 6 },
+    blurb: 'Shadows on Main Street have been moving against the wind. Put up some lamps. Shadows hate a lamp.',
+    steps: [{ ev: 'build', k: 'lamp', n: 2, text: 'Build 2 street lamps' }] },
+  { id: 'echo', who: 'vern', title: 'The Echo Under the Hill', after: 'quiet', soft: 1, reward: { $: 600 },
+    blurb: 'Under the hills there are rooms nobody dug. I used to train in one. Break into a cave and tell me if the scrolls are still there.',
+    steps: [{ ev: 'cave', n: 1, text: 'Break into a cave' }] },
+  { id: 'tryout', who: 'hollis', title: 'Poaching Season', reward: { $: 150 },
+    blurb: "My best digger wants to work for you. I'd rather he didn't. Hire somebody first and I keep my man.",
+    steps: [{ ev: 'hire', n: 1, text: 'Hire a crew member' }] },
+  { id: 'ring', who: 'del', title: 'Second Wedding, Same Groom', days: 5, after: 'griddle', soft: 1, reward: { $: 520, goodwill: 4 }, tier: 2,
+    blurb: "I'm remarrying my ex-husband. Don't look at me like that. He wants a ring made from valley gold, and he wants it by Saturday.",
+    steps: [{ give: 'gold', n: 5, text: 'Bring Delphine 5 gold' }] },
+  { id: 'gate', who: 'rusty', title: 'Iron Gate', after: 'bones', soft: 1, reward: { $: 380 }, tier: 2,
+    blurb: 'The post office needs a gate. A real one. Folks in black pajamas have been reading other people\'s letters.',
+    steps: [{ give: 'iron', n: 10, text: 'Bring Rusty 10 iron' }] },
+  { id: 'regulars', who: 'del', title: 'Regulars', reward: { $: 180, goodwill: 5 },
+    blurb: 'Fill a few town orders at the Mayor\'s Office. Folks who get what they need eat breakfast at my place.',
+    steps: [{ ev: 'deliver', n: 2, text: "Fill 2 town requests at the Mayor's Office" }] },
+  // ---- story arcs: later chapters wait on earlier ones, and some only open on the road you took ----
+  { id: 'vows', who: 'del', title: 'Speak Now', after: 'ring', reward: { $: 150 },
+    blurb: "The wedding is Saturday, at the diner, in the same booth as last time. His mother is coming. So is somebody nobody invited. Be my muscle, and smile.",
+    steps: [{ ev: 'chat', n: 2, text: 'Round up 2 guests for the diner wedding' }],
+    choice: { ask: "At 'speak now or forever hold your peace', a figure in black silk stands up in the back booth.", opts: [
+      { label: 'Tackle them into the pie case', clue: 'scent', trust: { del: -1 }, beat: "You tackled a ninja into the pie case at Delphine's second wedding. It got away, but you got a good noseful first." },
+      { label: 'Let the bride have her day (+$250)', $: 250, trust: { del: 3 }, beat: 'The figure in black sat back down and cried through the whole ceremony. Delphine says it was the best wedding she ever had. Both times.' }] } },
+  { id: 'stakes', who: 'hollis', title: 'Claim Jumper', after: 'tryout', reward: { $: 100 },
+    blurb: "Somebody moved my claim stakes onto your side of the creek overnight. Not me. I'd have done it in daylight, like a man. Dig along the line so the surveyor can see it.",
+    steps: [{ ev: 'dig', n: 800, text: 'Dig 800 loads along the creek line' }],
+    choice: { ask: 'The county surveyor will write down whatever you say about where the line runs.', opts: [
+      { label: 'Tell the truth: the land is his', trust: { hollis: 4 }, flag: 'hollisFriend', beat: 'You told the surveyor the truth. Hollis bought the whole saloon a round and called you "partner" twice, both times by accident.' },
+      { label: 'Keep the land (+$900)', $: 900, trust: { hollis: -5 }, flag: 'hollisFoe', beat: 'You kept the land. Hollis Brandt has started eating his breakfast facing your door.' }] } },
+  { id: 'partners', who: 'hollis', title: 'Brandt & Partner', flag: 'hollisFriend', reward: { $: 250, keep: 'bell' },
+    blurb: "Partner. There, I said it on purpose. My granddad's dinner bell could call a crew in from three hills over. Help me cast a new one and we'll share the noise.",
+    steps: [{ give: 'iron', n: 12, text: 'Bring Hollis 12 iron for the bell' }] },
+  { id: 'grudge', who: 'hollis', title: "Brandt's Grudge", flag: 'hollisFoe', days: 4, reward: { $: 500, keep: 'winnings' },
+    blurb: 'Hollis bet the whole saloon you go broke by Sunday. Half the county put money on it. The other half put money on you. Make them rich.',
+    steps: [{ ev: 'sell', n: 3000, text: 'Sell $3,000 of goods before Sunday', money: true }] },
+  { id: 'scrolls', who: 'vern', title: 'Old Scrolls', after: 'echo', reward: { $: 200 },
+    blurb: "You found the room. Of course you did. Bring me iron, enough to bar that door for good, and bring the scrolls. Don't read them. Don't you dare read them.",
+    steps: [{ give: 'iron', n: 6, text: 'Bring Vern 6 iron to bar the door' }],
+    choice: { ask: 'Vern holds the scrolls over the barbershop stove and waits for you to look away.', opts: [
+      { label: 'Let him burn them', trust: { vern: 3 }, beat: 'The scrolls went up blue. Vern gave you a free shave and did not say one word the whole time.' },
+      { label: 'Snatch one back', clue: 'habit', trust: { vern: -2 }, beat: 'You kept one scroll. Most of it is a list of who in town does what, and when.' }] } },
+  { id: 'roost', who: 'pruitt', title: "The Crane's Roost", after: 'lamps', reward: { $: 150 }, clue: 'hand',
+    blurb: "With the lamps up I finally saw one, dear. Folding cranes on the Dobbs porch at two in the morning. I couldn't see the face. I saw which hand did the folding. Help me set a trap.",
+    steps: [{ ev: 'build', k: 'lamp', n: 1, text: 'Put up one more lamp by the porches' }, { ev: 'chat', n: 2, text: 'Keep the neighbors talking so the Crane feels safe' }],
+    beat: 'The trap worked halfway: Widow Pruitt watched the Crane fold paper on the Dobbs porch, then lost it in the fog.' },
+  { id: 'letter', who: 'rusty', title: 'Dead Letter', after: 'gate', reward: { $: 120 },
+    blurb: "A letter came through for 'The Black Crane, General Delivery'. I am a federal employee. I cannot open it. You, however, are a private citizen with a kettle.",
+    steps: [{ ev: 'deliver', n: 1, text: 'Fill a town request so nobody wonders why you were at the post office' }],
+    choice: { ask: 'The letter is sealed with black wax. The kettle is already hot.', opts: [
+      { label: 'Steam it open', clue: 'scent', trust: { rusty: -1 }, beat: 'You steamed the letter open. It says "the miner is getting close." The paper smells like its owner.' },
+      { label: 'Leave it at the drop, sealed (+$300)', $: 300, trust: { rusty: 2 }, flag: 'craneOwes', beat: 'You left the letter at the drop, sealed. Next morning there was $300 on your porch under a black paper crane.' }] } },
+  { id: 'audit', who: 'june', title: 'Inventory Discrepancy', after: 'fuse', days: 4, reward: { $: 100 },
+    blurb: 'Corporate is sending an auditor Thursday. Forty sticks of dynamite walked out of my stockroom and I did not sell them. I need the till to look healthy.',
+    steps: [{ ev: 'sell', n: 1200, text: 'Sell $1,200 of goods so the till looks healthy', money: true }],
+    choice: { ask: 'The auditor is at the counter. June is looking at you, not him.', opts: [
+      { label: 'Cover the missing sticks (-$300)', $: -300, trust: { june: 3 }, flag: 'juneOwes', beat: 'You paid for forty sticks you never saw. June says she knows who took them and will tell you when it is safe.' },
+      { label: 'Tell the auditor everything (+$400)', $: 400, clue: 'habit', trust: { june: -4 }, beat: 'The auditor found black silk in the stockroom vent and paid you for your honesty. June has not spoken to you since.' }] } },
+  { id: 'safe', who: 'june', title: 'When It Is Safe', flag: 'juneOwes', reward: { $: 200 }, clue: 'any',
+    blurb: "It's safe. Meet me behind the Supply Co. after closing. Bring a couple of sticks; if anybody's listening, I want them deaf.",
+    steps: [{ ev: 'dyn', n: 2, text: 'Throw 2 sticks behind the Supply Co.' }],
+    beat: 'Behind the Supply Co., between two blasts, June told you what she saw the night the dynamite went missing.' },
+  { id: 'favor', who: 'crane', title: 'A Favor Returned', flag: 'craneOwes', reward: { $: 300, keep: 'smoke' },
+    blurb: '(Black paper, folded into a crane.) You did not open my letter. That makes you rarer than gold in this valley. Open a door under the hills for me and we are even.',
+    steps: [{ ev: 'cave', n: 1, text: 'Break into a cave for the Crane' }],
+    beat: 'You opened a cave for the Crane. In the morning, a pouch of smoke pellets sat on your pillow. You do not lock your door anymore. There is no point.' },
+];
+const qDef = id => QUESTS.find(q => q.id === id);
+function freshQuests() { return { offers: [], active: [], done: [], gone: [], keep: [], rolls: 0, flags: [], trust: {}, pending: [], beats: [], story: null }; }
+// old saves have no quest book (or one from before the story); give them the missing parts and keep the rest
+function fixQuests() {
+  G.quests = Object.assign(freshQuests(), G.quests || {});
+  for (const k of ['offers', 'active']) G.quests[k] = G.quests[k].filter(o => o && qDef(o.id));
+  G.quests.pending = G.quests.pending.filter(id => qDef(id) && qDef(id).choice);
+  story();
+}
+function qEligible(q) {
+  const Q = G.quests;
+  if (Q.done.includes(q.id) || Q.gone.includes(q.id) || Q.offers.some(o => o.id === q.id) || Q.active.some(a => a.id === q.id)) return false;
+  // a soft chapter also opens when its lead-in was passed or missed (those five were open to everyone before the story)
+  if (q.after && !Q.done.includes(q.after) && !(q.soft && Q.gone.includes(q.after))) return false;
+  if (q.flag && !Q.flags.includes(q.flag)) return false;
+  if ((Q.trust[q.who] || 0) <= TRUST_SHUN) return false; // they will not deal with you
+  return !q.tier || maxTier() >= q.tier;
+}
+
+// ===================== story: the Black Crane, trust, choices, clues =====================
+// Written by Claude (Command). Every town has its own secret: one of the six regulars is the Black Crane,
+// the ninja who folds black paper cranes on porches. Who it is, and the habits that give them away, are rolled
+// from the town's seed, so each new town is a new mystery. Clues come from quests, choices and friendships.
+// Accuse the right person and the valley is yours; accuse wrong twice and the Crane goes quiet for good.
+const SUSPECTS = ['vern', 'del', 'hollis', 'pruitt', 'rusty', 'june'];
+const CLUE_KINDS = ['hand', 'scent', 'habit'];
+const TRAITS = {
+  hand: ['is left-handed', 'is right-handed'],
+  scent: ['smells of bay rum', 'smells of cedar shavings', 'smells of gun oil', 'smells of lavender', 'smells of burnt coffee'],
+  habit: ['is up before dawn', 'hums old hymns', 'never eats in public', 'whistles through their teeth', 'cracks their knuckles'],
+};
+const TRUST_SHUN = -4, TRUST_CONFIDE = 6;
+const UNMASK = {
+  vern: "Vern sets down the razor. 'Forty years I kept this valley quiet. Fine. Now you keep it quiet with me.' The barbershop has a back room, and you have a key.",
+  del: "Delphine unties her apron. There is black silk under it. 'Do you know how hard it is to run a diner and a clan? Sit down. Eat your pancakes.'",
+  hollis: "Hollis laughs until he coughs. 'A Brandt never does anything in daylight, partner. That was the whole joke.'",
+  pruitt: "The Widow Pruitt folds one last crane, slowly, right in front of you. 'Everybody tells a nice face things, dear. Even you.'",
+  rusty: "Rusty hands you a letter addressed to you, postmarked last spring. It says: 'You will figure it out right about now.'",
+  june: "June slides forty sticks of dynamite across the counter. 'Inventory's square. Tell corporate nothing.'",
+};
+function makeStory(seed) {
+  const r = mulberry32(((seed | 0) ^ 0x5eedc4a) >>> 0), pick = a => a[Math.floor(r() * a.length)];
+  const crane = pick(SUSPECTS), traits = {};
+  for (const id of SUSPECTS) traits[id] = { hand: pick(TRAITS.hand), scent: pick(TRAITS.scent), habit: pick(TRAITS.habit) };
+  // nobody else may match the Crane on all three, so three clues always name exactly one person
+  const sig = t => t.hand + t.scent + t.habit;
+  for (const id of SUSPECTS) while (id !== crane && sig(traits[id]) === sig(traits[crane])) traits[id].scent = pick(TRAITS.scent);
+  return { crane, traits, known: [], accused: [], unmasked: false, gone: false, wait: 0, confided: [], noted: { kills: 0, arrests: 0 } };
+}
+function story() { const Q = G.quests; return Q.story || (Q.story = makeStory(G.seed)); }
+function storyBeat(text) { const B = G.quests.beats; B.push({ d: G.day, t: text }); if (B.length > 40) B.splice(0, B.length - 40); }
+function trustAdd(who, n) { if (!SUSPECTS.includes(who) || !n) return; const T = G.quests.trust; T[who] = Math.max(-10, Math.min(10, (T[who] || 0) + n)); }
+function trustWord(n) { return n <= TRUST_SHUN ? "won't deal with you" : n < 0 ? 'cold' : n < 3 ? 'polite' : n < TRUST_CONFIDE ? 'warm' : 'trusts you'; }
+// reveal one thing about the Crane; 'any' or a kind already known falls through to the next unknown kind
+function storyClue(pref) {
+  const S = story(); if (S.unmasked || S.gone) return '';
+  const left = CLUE_KINDS.filter(k => !S.known.includes(k)); if (!left.length) return '';
+  const k = left.includes(pref) ? pref : left[0]; S.known.push(k);
+  const line = `Clue: the Crane ${S.traits[S.crane][k]}.`; storyBeat(line); return line;
+}
+function questChoose(id, i) {
+  const Q = G.quests, q = qDef(id), o = q && q.choice && q.choice.opts[i];
+  if (!o || !Q.pending.includes(id)) return false;
+  if (o.$ < 0 && G.money < -o.$) { toast(`You need $${fmt(-o.$)} for that.`, 'warn'); return false; }
+  Q.pending.splice(Q.pending.indexOf(id), 1);
+  if (o.$) { G.money += o.$; if (o.$ > 0) G.stats.earned += o.$; }
+  for (const w in o.trust || {}) trustAdd(w, o.trust[w]);
+  if (o.flag && !Q.flags.includes(o.flag)) Q.flags.push(o.flag);
+  if (o.beat) storyBeat(o.beat);
+  const clue = o.clue ? storyClue(o.clue) : '';
+  SFX.discover(); invDirty = true;
+  banner(q.title, [o.beat, clue].filter(Boolean).join(' '), 'relic');
+  return true;
+}
+function questAccuse(who) {
+  const S = story(), Q = G.quests;
+  if (S.unmasked || S.gone || !S.known.length || G.day < S.wait || S.accused.includes(who) || !SUSPECTS.includes(who)) return false;
+  if (who === S.crane) {
+    S.unmasked = true; if (!Q.keep.includes('mask')) Q.keep.push('mask');
+    G.money += 1000; G.stats.earned += 1000; G.goodwill += 8;
+    storyBeat(`You unmasked the Black Crane: ${CAST[who].name}. ${UNMASK[who]}`);
+    SFX.discover(); invDirty = true;
+    banner('The Black Crane, unmasked', `${UNMASK[who]} +$1,000 · Keepsake: ${KEEPSAKES.mask.name}`, 'relic');
+    return true;
+  }
+  S.accused.push(who); S.wait = G.day + 2; trustAdd(who, -6 - (Q.trust[who] || 0)); G.goodwill = Math.max(0, G.goodwill - 5);
+  if (S.accused.length >= 2) { S.gone = true; storyBeat(`You accused ${CAST[who].name} in front of the whole diner. Wrong again. The black cranes stopped coming. Whoever it was, they are done with you, and this town will keep its secret.`); }
+  else storyBeat(`You accused ${CAST[who].name} in front of the whole diner. Wrong. Next morning a black crane on your porch said: "Wrong bird."`);
+  SFX.ui(); banner('Wrong bird', S.gone ? 'The Crane has gone quiet in this town for good.' : `${CAST[who].name} will not forget this. One more wrong guess and the Crane disappears.`, 'warn');
+  return true;
+}
+// each morning: friends confide, and every third day the Crane leaves a note about what you have been up to
+function storyMorning() {
+  const S = story(), Q = G.quests;
+  // grudges fade: every third morning a cold shoulder warms by one, so nobody shuts you out for good
+  if (G.day % 3 === 0) for (const id of SUSPECTS) if ((Q.trust[id] || 0) < 0) Q.trust[id]++;
+  if (S.unmasked || S.gone) return;
+  for (const id of SUSPECTS) if ((Q.trust[id] || 0) >= TRUST_CONFIDE && !S.confided.includes(id) && S.known.length < CLUE_KINDS.length) {
+    S.confided.push(id); storyBeat(`${CAST[id].name} pulled you aside: "About the Crane. I never told anybody this."`);
+    const c = storyClue('any'); toast(`${CAST[id].name} told you something. ${c}`, 'relic'); break;
+  }
+  if (G.day % 3) return;
+  const N = S.noted; let note;
+  if (G.kills > N.kills) note = 'We saw what happened out there. So did the deputies. We are less forgiving than they are.';
+  else if (G.arrests > N.arrests) note = 'Arrested. How ordinary. We expected more from you.';
+  else if (S.known.length >= 2) note = 'You are close. Closer than the last one got.';
+  else if (G.crew.length >= 4) note = 'You hire many hands. Hands talk. We listen.';
+  else if (G.money >= 5000) note = 'So much money in one house. You should lock your door. It will not help.';
+  else if (G.goodwill >= 20) note = 'The town loves you. Love is a lever.';
+  else note = pickr(['Keep digging, miner. It is louder than you think.', 'You walked past us twice yesterday.', 'Nice hat.']);
+  N.kills = G.kills; N.arrests = G.arrests;
+  storyBeat(`A black paper crane on your porch: "${note}"`); toast('A black paper crane on your porch. Journal.', 'relic');
+}
+// mornings bring fresh offers; old offers walk away, and timed quests run out
+function questMorning() {
+  if (!G.quests) fixQuests();
+  const Q = G.quests;
+  // an offer you never answered goes back in the pool and may knock again; Pass is the only "never"
+  for (const o of Q.offers.slice()) if (G.day > o.until) { Q.offers.splice(Q.offers.indexOf(o), 1); toast(`${CAST[qDef(o.id).who].name} stopped waiting on you. For now.`, 'warn'); }
+  for (const a of Q.active.slice()) if (a.until && G.day > a.until) questFail(a);
+  storyMorning();
+  const rnd = mulberry32((G.seed | 0) + G.day * 7919 + Q.rolls * 104729);
+  while (Q.offers.length < Q_MAX_OFFERS) {
+    const pool = QUESTS.filter(qEligible); if (!pool.length) break;
+    const q = pool[Math.floor(rnd() * pool.length)]; Q.rolls++;
+    Q.offers.push({ id: q.id, until: G.day + Q_OFFER_DAYS - 1 });
+    toast(`${CAST[q.who].name} has a job for you. Check the Journal.`, 'relic');
+  }
+}
+function questAccept(id) {
+  const Q = G.quests, i = Q.offers.findIndex(o => o.id === id); if (i < 0) return false;
+  if (Q.active.length >= Q_MAX_ACTIVE) { toast(`You can carry ${Q_MAX_ACTIVE} jobs at once.`, 'warn'); return false; }
+  const q = qDef(id); Q.offers.splice(i, 1);
+  Q.active.push({ id, step: 0, prog: 0, until: q.days ? G.day + q.days - 1 : 0 });
+  SFX.ui(); toast(`Taken: ${q.title}.`, 'check'); return true;
+}
+function questPass(id) {
+  const Q = G.quests, i = Q.offers.findIndex(o => o.id === id); if (i < 0) return false;
+  Q.offers.splice(i, 1); Q.gone.push(id); trustAdd(qDef(id).who, -1); SFX.ui(); return true;
+}
+function questFail(a) {
+  const Q = G.quests, q = qDef(a.id);
+  Q.active.splice(Q.active.indexOf(a), 1); Q.gone.push(a.id);
+  G.goodwill = Math.max(0, G.goodwill - 3); trustAdd(q.who, -3);
+  toast(`${q.title}: out of time. ${CAST[q.who].name} will remember that.`, 'warn');
+}
+function questStepDone(a) {
+  const q = qDef(a.id); a.step++; a.prog = 0;
+  if (a.step < q.steps.length) { toast(`${q.title}: ${q.steps[a.step].text}.`, 'check'); return; }
+  const Q = G.quests, R = q.reward; Q.active.splice(Q.active.indexOf(a), 1); Q.done.push(q.id);
+  if (R.$) { G.money += R.$; G.stats.earned += R.$; }
+  if (R.goodwill) G.goodwill += R.goodwill;
+  if (R.keep && !Q.keep.includes(R.keep)) Q.keep.push(R.keep);
+  trustAdd(q.who, 2);
+  if (q.beat) storyBeat(q.beat);
+  const clue = q.clue ? storyClue(q.clue) : '';
+  if (q.choice) Q.pending.push(q.id);
+  SFX.discover(); invDirty = true;
+  banner(`${q.title}: done`, [R.$ ? `+$${fmt(R.$)}` : '', R.keep ? `Keepsake: ${KEEPSAKES[R.keep].name}. ${KEEPSAKES[R.keep].desc}` : '', R.goodwill ? 'The town warms to you.' : '', clue, q.choice ? 'Now you have a decision to make. Open the Journal.' : ''].filter(Boolean).join(' · '), 'relic');
+}
+// every hook in the game reports here: qEv('dig', 3.2), qEv('build', 1, 'lamp')...
+function qEv(ev, n, k) {
+  if (!G || !G.quests) return;
+  lifeEv(ev, n, k);
+  for (const a of G.quests.active.slice()) {
+    const st = qDef(a.id).steps[a.step];
+    if (!st || st.ev !== ev || (st.k && st.k !== k)) continue;
+    a.prog += n || 1;
+    if (a.prog >= st.n) questStepDone(a);
+  }
+}
+function questGive(id) {
+  const a = G.quests.active.find(x => x.id === id); if (!a) return false;
+  const st = qDef(id).steps[a.step]; if (!st || !st.give || have(st.give) < st.n) return false;
+  G.inv[st.give] -= st.n; invDirty = true; SFX.coin(); questStepDone(a); return true;
+}
+function questProg(a) {
+  const st = qDef(a.id).steps[a.step];
+  if (st.give) return { have: Math.min(have(st.give), st.n), n: st.n, ready: have(st.give) >= st.n };
+  return { have: Math.min(Math.floor(a.prog), st.n), n: st.n, ready: false };
+}
+function journalHtml() {
+  const Q = G.quests, who = q => { const s = `${CAST[q.who].name}, ${CAST[q.who].role}`; return s[0].toUpperCase() + s.slice(1); };
+  const daysLeft = d => { const n = d - G.day; return n <= 0 ? 'last day' : `${n + 1} days left`; };
+  let h = '<p>Folks bring jobs each morning. Take the ones you like; the valley is yours either way.</p>';
+  if (Q.pending.length) h += '<h4>Decide</h4><div class="list">' + Q.pending.map(id => {
+    const q = qDef(id);
+    return `<div class="item decide"><div class="tx"><b>${q.title}</b><span>${q.choice.ask}</span></div>${q.choice.opts.map((o, i) => `<button class="btn ${i ? 'soft' : 'gold'} sm" data-act="qPick" data-k="${id}" data-i="${i}" ${o.$ < 0 && G.money < -o.$ ? 'disabled' : ''}>${o.label}</button>`).join('')}</div>`;
+  }).join('') + '</div>';
+  h += `<h4>On your plate · ${Q.active.length} of ${Q_MAX_ACTIVE}</h4>`;
+  h += Q.active.length ? '<div class="list">' + Q.active.map(a => {
+    const q = qDef(a.id), st = q.steps[a.step], p = questProg(a);
+    const amt = st.money ? `$${fmt(p.have)} / $${fmt(p.n)}` : `${fmt(p.have)} / ${fmt(p.n)}`;
+    const btn = st.give ? `<button class="btn gold sm" data-act="qGive" data-k="${q.id}" ${p.ready ? '' : 'disabled'}>Hand over</button>` : '';
+    return `<div class="item"><div class="tx"><b>${q.title}</b><span>${st.text} · ${amt}${a.until ? ' · ' + daysLeft(a.until) : ''}${q.steps.length > 1 ? ` · step ${a.step + 1} of ${q.steps.length}` : ''}</span></div>${btn}</div>`;
+  }).join('') + '</div>' : '<p>Nothing taken yet.</p>';
+  h += '<h4>Offers</h4>';
+  h += Q.offers.length ? '<div class="list">' + Q.offers.map(o => {
+    const q = qDef(o.id), R = q.reward;
+    const pay = [R.$ ? '$' + fmt(R.$) : '', R.keep ? KEEPSAKES[R.keep].name : ''].filter(Boolean).join(' + ');
+    return `<div class="item"><div class="tx"><b>${q.title}</b><span>${who(q)}: &ldquo;${q.blurb}&rdquo;<br>Pays ${pay}${q.days ? ` · ${q.days} days to do it` : ''} · offer ends in ${o.until - G.day + 1} day${o.until - G.day ? 's' : ''}</span></div><button class="btn go sm" data-act="qTake" data-k="${q.id}" ${Q.active.length < Q_MAX_ACTIVE ? '' : 'disabled'}>Take</button><button class="btn soft sm" data-act="qPass" data-k="${q.id}">Pass</button></div>`;
+  }).join('') + '</div>' : '<p>No offers right now. Somebody always knocks in the morning.</p>';
+  h += storyHtml();
+  h += pzJournalHtml();
+  if (Q.keep.length) h += '<h4>Keepsakes</h4><div class="list">' + Q.keep.map(id => `<div class="item"><div class="tx"><b>${KEEPSAKES[id].name}</b><span>${KEEPSAKES[id].desc}</span></div></div>`).join('') + '</div>';
+  h += `<p>${Q.done.length} done${Q.gone.length ? ` · ${Q.gone.length} passed or missed` : ''}.</p>`;
+  return h;
+}
+// the Crane case file, the six regulars as you know them, and the story so far
+function storyHtml() {
+  const Q = G.quests, S = story(), cap = s => s[0].toUpperCase() + s.slice(1);
+  let h = '<h4>The Black Crane</h4>';
+  if (S.unmasked) h += `<p>Unmasked: <b>${CAST[S.crane].name}</b>. The cranes on the porches are a friendly greeting now.</p>`;
+  else if (S.gone) h += '<p>The Crane has gone quiet in this town for good. Some secrets stay buried.</p>';
+  else {
+    h += `<p>Someone in town folds black paper cranes at night. ${S.known.length ? `What you know: the Crane ${S.known.map(k => S.traits[S.crane][k]).join(', ')}.` : 'You know nothing about them yet. Jobs, choices and friends will turn up clues.'}</p>`;
+    if (S.known.length) h += `<p>${G.day < S.wait ? `The town is still talking about your last guess. You can accuse again on day ${S.wait}.` : `Think you know? ${S.accused.length ? 'One more wrong guess and the Crane disappears.' : 'Guess wrong twice and the Crane disappears.'}`}</p>`;
+  }
+  h += '<div class="list">' + SUSPECTS.map(id => {
+    const t = S.traits[id], tr = Q.trust[id] || 0, canAcc = !S.unmasked && !S.gone && S.known.length && G.day >= S.wait && !S.accused.includes(id);
+    return `<div class="item"><div class="tx"><b>${CAST[id].name}</b><span>${cap(CAST[id].role)}. ${cap(t.hand.replace(/^is /, ''))}, ${t.scent}, ${t.habit.replace(/^is /, '')}. · ${cap(trustWord(tr))}${S.accused.includes(id) ? ' · you accused them' : ''}${S.unmasked && id === S.crane ? ' · the Crane' : ''}</span></div>${canAcc ? `<button class="btn red sm" data-act="qAccuse" data-k="${id}">Accuse</button>` : ''}</div>`;
+  }).join('') + '</div>';
+  if (Q.beats.length) h += '<h4>The story so far</h4><div class="beats">' + Q.beats.slice(-8).reverse().map(b => `<p><b>Day ${b.d}.</b> ${b.t}</p>`).join('') + '</div>';
+  return h;
+}
+// the little tracker under the money: the first job on your plate, else a decision waiting on you
+function updQuestPill() {
+  const qp = $('questPill'), Q = G.quests, a = Q && Q.active[0], dec = Q && Q.pending[0];
+  $('ui').classList.toggle('questOn', !!(a || dec) && mode === 'foot');
+  if (!(a || dec) || mode !== 'foot') { qp.hidden = true; return; }
+  qp.hidden = false;
+  if (dec && !a) {
+    const nm = `Decide: ${qDef(dec).title}`; if ($('questName').textContent !== nm) $('questName').textContent = nm;
+    $('questFill').style.width = '100%'; $('questPct').textContent = 'Now'; qp.classList.add('ready'); return;
+  }
+  const q = qDef(a.id), st = q.steps[a.step], p = questProg(a);
+  const nm = st.text; if ($('questName').textContent !== nm) $('questName').textContent = nm;
+  $('questFill').style.width = Math.min(100, p.have / p.n * 100) + '%';
+  $('questPct').textContent = p.ready ? 'Give' : Math.floor(p.have / p.n * 100) + '%';
+  qp.classList.toggle('ready', p.ready);
 }
 
 // ---------- meteor ----------
@@ -3222,6 +4458,7 @@ function updMeteor(dt) {
     const d = Math.hypot(f.x - P.x, f.z - P.z);
     SFX.boom(clamp(1 - d / 300, .2, 1)); rig.shake = Math.max(rig.shake, 1.2 * clamp(1 - d / 250, .2, 1));
     flashScreen(.25);
+    lifeBoom(f.x, f.z, true);
     banner('Skyfall!', `A meteor struck ${dirName(f.x, f.z)} of town. Starmetal glows in the crater.`, 'star');
   }
 }
@@ -3247,7 +4484,7 @@ function crater(x, z) {
 const bombs = [];
 function throwDynamite(tx, tz) {
   if (G.dyn <= 0) { toast('Out of dynamite. Supply Co. sells it.', 'warn'); return; }
-  G.dyn--;
+  G.dyn--; qEv('dyn');
   const dx = tx - P.x, dz = tz - P.z, d = Math.hypot(dx, dz) || 1, k = Math.min(1, 12 / d);
   const m = new THREE.Mesh(mergeParts([[cyl(.12, .12, .55, 10), '#d0473a', TM(0, 0, 0, 0, 0, Math.PI / 2)], [cyl(.125, .125, .12, 10), '#f2d6a0', TM(0, 0, 0, 0, 0, Math.PI / 2)]]), MATS3.toy);
   scene.add(m);
@@ -3277,6 +4514,7 @@ function explode(x, z) {
   for (const n of allNpcs()) if (n.state !== 'inside' && Math.hypot(n.x - x, n.z - z) < R + 1) hurtNpc(n, 99, x, z);
   for (const b of G.buildings.slice()) { const cx = clamp(x, b.x0, b.x1), cz = clamp(z, b.z0, b.z1); if (Math.hypot(cx - x, cz - z) < R) damageBuilding(b, 70); }
   clearTrees(x, z, R, true);
+  lifeBoom(x, z, false);
   if (dd < R) { const bill = Math.min(G.money, 25 + Math.round(G.money * .08)); G.money -= bill; P.squash = 1; toast(`You caught the blast. The doc charged $${bill}.`, 'warn'); }
 }
 let pingCD = 0; const pings = [];
@@ -3284,7 +4522,7 @@ function doPing() {
   if (G.up.scan < 1) { toast("Buy Prospector's Ping at Supply Co. first.", 'warn'); return; }
   if (pingCD > 0) return;
   pingCD = 5; SFX.ping();
-  const range = 28 + 12 * (G.up.scan - 1), found = [];
+  const range = 28 + 12 * (G.up.scan - 1) + (hasK('dowsing') ? 12 : 0), found = [];
   for (let k = 0; k < 900 && found.length < 14; k++) {
     const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * range, x = P.x + Math.cos(a) * r, z = P.z + Math.sin(a) * r;
     const h = hAt(x, z); if (h < FLOOR + 1) continue;
@@ -3412,7 +4650,7 @@ function padInfo(p) {
 function padActivate(p) {
   const info = padInfo(p);
   if (p.id === 'sell') {
-    if (!info.can) { hintAt(p.x, p.y + 2.6, p.z, 'Your bag is empty'); SFX.deny(); return; }
+    if (!info.can) { hintAt(p.x, p.y + 2.6, p.z, bagCount() ? 'You are holding all of it back' : 'Your bag is empty'); SFX.deny(); return; }
     sellBag(P.x, P.y + 1.2, P.z); p.bump = 1;
     spawnDust(p.x, p.y + .4, p.z, '#ffd65a', 12, 3, 1);
     if (G.hint <= 1) G.hint = 2;
@@ -3524,11 +4762,21 @@ function genCaves(R) {
     const c = CAVES[k], a = PR() * 6.28;
     c.pet = { type: kinds[n < kinds.length ? n : Math.floor(PR() * kinds.length)], x: c.x + Math.cos(a) * 2.4, z: c.z + Math.sin(a) * 2.4, rot: PR() * 6.28 };
   });
+  // Crane locks (Claude (Command)): four caves sit behind a sealed door, and every cave keeps a strongbox.
+  // Their own number stream too, so the valley, the gems and the pets stay exactly as they were.
+  const LR = mulberry32(s ^ 0x5eed), ord = CAVES.map((c, k) => k);
+  for (let i = ord.length - 1; i > 0; i--) { const j = Math.floor(LR() * (i + 1)); [ord[i], ord[j]] = [ord[j], ord[i]]; }
+  ord.slice(0, 4).forEach((k, n) => { CAVES[k].seal = 2 + (n % 3); });
+  for (const c of CAVES) {
+    let a = LR() * 6.28;
+    if (c.pet && Math.abs(Math.atan2(Math.sin(a - Math.atan2(c.pet.z - c.z, c.pet.x - c.x)), Math.cos(a - Math.atan2(c.pet.z - c.z, c.pet.x - c.x)))) < .9) a += Math.PI;
+    c.vault = { x: c.x + Math.cos(a) * 3.3, z: c.z + Math.sin(a) * 3.3, tier: Math.min(5, 1 + Math.floor(LR() * 3) + (Math.hypot(c.x - TOWN.x, c.z - TOWN.z) > 120 ? 1 : 0) + (c.seal ? 1 : 0)) };
+  }
 }
 let caveLight = null;
 // break in: the roof falls, the floor turns to dark rock, the crystals light up
 function openCave(c) {
-  c.open = true;
+  c.open = true; qEv('cave');
   const ix0 = Math.floor((c.x - CAVE_R - 2) / CELL), ix1 = Math.ceil((c.x + CAVE_R + 2) / CELL), iz0 = Math.floor((c.z - CAVE_R - 2) / CELL), iz1 = Math.ceil((c.z + CAVE_R + 2) / CELL);
   for (let iz = iz0; iz <= iz1; iz++) for (let ix = ix0; ix <= ix1; ix++) {
     const x = ix * CELL, z = iz * CELL, d = Math.hypot(x - c.x, z - c.z), i = iz * VN + ix;
@@ -3573,6 +4821,8 @@ function buildCaveMesh(c) {
   // a sleepy animal curled up on the floor, if nobody has befriended it yet
   c.petMesh = null;
   if (c.pet && !petFound(c)) { const m = petMesh({ type: c.pet.type }); m.position.set(c.pet.x, hAt(c.pet.x, c.pet.z), c.pet.z); m.rotation.y = c.pet.rot; g.add(m); c.petMesh = m; }
+  // the strongbox, shut or cracked open
+  if (c.vault) { const m = vaultMesh(G.pz.vaults.includes(c.id)); m.position.set(c.vault.x, hAt(c.vault.x, c.vault.z), c.vault.z); m.rotation.y = Math.atan2(c.x - c.vault.x, c.z - c.vault.z); g.add(m); }
   c.mesh = g; scene.add(g);
 }
 function caveTick(dt) {
@@ -3582,9 +4832,18 @@ function caveTick(dt) {
     const d = Math.hypot(P.x - c.x, P.z - c.z);
     if (!c.open) {
       // the roof gives when the ground at the pocket has been dug below the ceiling
-      if (d < CAVE_R + 6 && hAt(c.x, c.z) <= c.ceil + .05) openCave(c);
-      else if (d < CAVE_R + 3 && P.gy <= c.ceil + .05) openCave(c);
+      const hit = (d < CAVE_R + 6 && hAt(c.x, c.z) <= c.ceil + .05) || (d < CAVE_R + 3 && P.gy <= c.ceil + .05);
+      // ...unless the Crane sealed it: then there is a door to pick first (VR has no lock screen, so it just gives)
+      if (hit && c.seal && !XR.on && !G.pz.seals.includes(c.id)) { if (c.armed !== false && !PZ && !sheet && !room && mode === 'foot') { c.armed = false; pzLock({ cave: c.id }); } }
+      else if (hit) openCave(c);
+      else if (d > CAVE_R + 10) c.armed = true;
       continue;
+    }
+    // the strongbox: walk up to it to pick the lock; walk away and back to try again
+    if (c.vault && !XR.on && !G.pz.vaults.includes(c.id)) {
+      const v = c.vault, dv = Math.hypot(P.x - v.x, P.z - v.z);
+      if (dv > 3) v.armed = true;
+      else if (dv < 1.7 && v.armed !== false && !PZ && !sheet && !room && mode === 'foot' && Math.abs(P.y - hAt(v.x, v.z)) < 2) { v.armed = false; pzLock({ vault: c.id }); }
     }
     // crystals: sparkle, and give way to the pick
     for (const gem of c.gems) {
@@ -3924,6 +5183,319 @@ function petsHtml() {
     }).join('') + '</div>';
   }
   return h;
+}
+
+// ===================== puzzle beasts and puzzle locks =====================
+// Written by Claude (Command) for the Miner project.
+// Out in the hills (never in town), odd little beasts jump you like a random battle, except the fight is
+// a puzzle. Four kinds, four mini-games. Win and it pays a bounty; lose or run and it makes off with part
+// of your ore. The same tumbler lock guards the Crane-sealed caves and the strongbox in every cave.
+const PZ_TYPES = {
+  maze: { name: 'Slick Mole', game: 'Slide maze', trophy: "the Mole's Headband",
+    hello: 'A mole in a tiny white gi pops out of the dirt, flicks a puck of ice at you and points at its burrow.',
+    rule: 'Slide the puck into the burrow. It only stops when it hits rock or the edge.',
+    win: 'The mole bows, very formally, and pays its debts in coin.',
+    lose: 'The mole rides its puck down the hill with your goods in its gi.' },
+  tiles: { name: 'Scramble Crab', game: 'Sliding tiles', trophy: 'Crab Claw Cufflinks',
+    hello: 'A crab in a sweatband snatches your lunch box and shuffles the lid tiles with terrifying speed.',
+    rule: 'Tap a tile next to the gap to slide it. Put them back in order, 1 to 8, gap last.',
+    win: 'The crab hands back your lunch box and, out of respect, its own lunch money.',
+    lose: 'The crab clicks its claws at you, sideways, all the way home with your goods.' },
+  lock: { name: 'Padlock Possum', game: 'Lock-pick', trophy: 'a Possum-Proof Padlock',
+    hello: 'A possum wearing a padlock for a hat clamps onto your bag strap and will not let go.',
+    rule: 'Set the pick, then turn. The further the lock turns, the closer you are. A miss costs a try.',
+    win: 'Click. The possum lets go, plays dead, and a purse rolls out of its padlock.',
+    lose: 'The possum chews through the strap and waddles off with a mouthful of your goods.' },
+  fold: { name: 'Origami Ninja', game: 'Paper folds', trophy: 'a Black Paper Star',
+    hello: "A ninja made of black paper unfolds from nowhere. One of the Crane's students, by the creases.",
+    rule: 'Tap a square to flip it and the squares beside it. Lay every fold flat before it folds you.',
+    win: 'The ninja folds itself into a little paper crane, bows, and leaves a tip.',
+    lose: 'The ninja folds your goods into its sleeves and is gone between one blink and the next.' },
+};
+const PZ_ORDER = ['maze', 'tiles', 'lock', 'fold'];
+const PZ_TIER = ['', 'Wild', 'Tough', 'Fearsome'];
+const LOCK_TIERS = [['Novice', 20], ['Apprentice', 15], ['Adept', 11], ['Expert', 8], ['Master', 6]];
+const PZ_TOWN_R = 45, PZ_GRACE_DUG = 150, PZ_LOSE = .35, PZ_RUN = .15, PICK_HP = 2;
+KEEPSAKES.belt = { name: "Puzzler's Black Belt", desc: 'Puzzle beasts take half as much when you lose or run.' };
+function freshPz() { return { meter: 0, need: 90, n: 0, last: '', seen: {}, beat: {}, lost: {}, ran: 0, picks: 4, pickHp: PICK_HP, seals: [], vaults: [], open: null }; }
+function fixPz() { G.pz = Object.assign(freshPz(), G.pz || {}); }
+let PZ = null; // the puzzle on screen, or null
+const pzRng = salt => mulberry32((G.seed | 0) + G.pz.n * 7717 + salt);
+const PZ_DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+// ---------- the four boards ----------
+function mazeSlide(Z, at, dir) {
+  const [dx, dy] = PZ_DIRS[dir], n = Z.n; let x = at % n, y = Math.floor(at / n);
+  while (true) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= n || ny >= n || Z.wall[ny * n + nx]) break; x = nx; y = ny; }
+  return y * n + x;
+}
+// every resting spot the puck can reach from `from`, with the shortest way there
+function mazeBfs(Z, from) {
+  const prev = { [from]: null }, dist = { [from]: 0 }, q = [from];
+  while (q.length) { const c = q.shift(); for (const d in PZ_DIRS) { const t = mazeSlide(Z, c, d); if (t in dist) continue; dist[t] = dist[c] + 1; prev[t] = [c, d]; q.push(t); } }
+  return { dist, prev };
+}
+function mazeSolve(Z) {
+  const { prev } = mazeBfs(Z, Z.at), out = []; let c = Z.goal;
+  if (!(c in prev)) return null;
+  while (prev[c]) { out.unshift(prev[c][1]); c = prev[c][0]; }
+  return out;
+}
+const tileNbrs = (i, n) => [i - n, i + n, i % n ? i - 1 : -1, i % n < n - 1 ? i + 1 : -1].filter(j => j >= 0 && j < n * n);
+const PZ_MAKE = {
+  maze(R, tier) {
+    const n = 5 + tier, want = 2 + tier;
+    for (let tries = 0; tries < 600; tries++) {
+      const Z = { n, wall: Array.from({ length: n * n }, () => R() < .2) };
+      const free = []; Z.wall.forEach((w, i) => { if (!w) free.push(i); });
+      Z.at = free[Math.floor(R() * free.length)];
+      const { dist } = mazeBfs(Z, Z.at), far = Object.keys(dist).map(Number).filter(c => dist[c] >= (tries < 400 ? want : 2));
+      if (!far.length) continue;
+      Z.goal = far[Math.floor(R() * far.length)]; Z.par = dist[Z.goal]; Z.max = Z.par + [0, 4, 3, 2][tier];
+      return Z;
+    }
+    return { n: 3, wall: [0, 0, 0, 0, 1, 0, 0, 0, 0].map(Boolean), at: 0, goal: 8, par: 2, max: 6 };
+  },
+  tiles(R, tier) {
+    const k = [0, 10, 16, 22][tier];
+    for (let tries = 0; ; tries++) {
+      const b = [1, 2, 3, 4, 5, 6, 7, 8, 0], path = []; let e = 8, prev = -1;
+      for (let s = 0; s < k; s++) { const nb = tileNbrs(e, 3).filter(j => j !== prev), t = nb[Math.floor(R() * nb.length)]; b[e] = b[t]; b[t] = 0; prev = e; path.push(e); e = t; }
+      if (b.some((v, i) => v !== (i === 8 ? 0 : i + 1)) || tries > 20) return { b, sol: path.reverse(), max: k + [0, 12, 10, 8][tier] };
+    }
+  },
+  lock(R, tier, lock) {
+    const Z = { sweet: 10 + 5 * Math.floor(R() * 33), tol: LOCK_TIERS[tier - 1][1], a: 90, turn: 0 };
+    if (!lock) Z.tries = 4;
+    return Z;
+  },
+  fold(R, tier) {
+    const n = 2 + tier, k = [0, 3, 4, 6][tier];
+    for (let tries = 0; ; tries++) {
+      const cells = []; while (cells.length < k) { const c = Math.floor(R() * n * n); if (!cells.includes(c)) cells.push(c); }
+      const b = new Array(n * n).fill(0); for (const c of cells) foldFlip(b, n, c);
+      if (b.some(v => v) || tries > 20) return { n, b, sol: cells, max: k + [0, 3, 3, 2][tier] };
+    }
+  },
+};
+function foldFlip(b, n, c) { for (const j of [c, ...tileNbrs(c, n)]) b[j] ^= 1; }
+// ---------- starting, playing and ending a fight ----------
+function pzStart(type, tier, lock) {
+  if (PZ || !PZ_MAKE[type]) return false;
+  tier = clamp(tier | 0 || 1, 1, type === 'lock' ? 5 : 3);
+  const R = pzRng(911); G.pz.n++;
+  PZ = Object.assign({ type, tier, lock: lock || null, used: 0, done: 0, msg: '', bounty: 25 + 55 * tier + Math.floor(R() * 30) }, PZ_MAKE[type](R, tier, lock));
+  if (!lock) { G.pz.open = { type, tier }; G.pz.seen[type] = (G.pz.seen[type] || 0) + 1; }
+  paused = true; input.holding = false; endJoy(); for (const k in keys) keys[k] = false;
+  if (P) { P.digAt = null; P.attack = null; P.goal = null; }
+  $('pzWrap').hidden = false; pzRender(); SFX.discover(); return true;
+}
+// what a loss (or running away) would cost: a cut of every ore in the bag, else a bite of your cash
+function pzLoss(frac) {
+  const k0 = hasK('belt') ? .5 : 1, took = {}, ores = oreKeys(); let v = 0, cash = 0;
+  for (const k of ores) { const n = Math.floor(have(k) * frac * k0); if (n > 0) took[k] = n; }
+  if (ores.length && !Object.keys(took).length) { const k = ores.reduce((a, b) => ITEMS[b].p < ITEMS[a].p ? b : a); took[k] = 1; } // a little bag: it grabs the cheapest piece
+  if (!ores.length) cash = Math.min(Math.round(G.money * frac * .3 * k0), Math.round(700 * frac * k0));
+  return { took, v: quote(took), cash };   // what that ore would fetch at the Exchange right now
+}
+function pzTake(L) {
+  for (const k in L.took) G.inv[k] = Math.max(0, have(k) - L.took[k]);
+  G.money = Math.max(0, G.money - L.cash); invDirty = true;
+  const parts = Object.keys(L.took).map(k => `${L.took[k]} ${ITEMS[k].name.toLowerCase()}`);
+  if (L.cash) parts.push('$' + fmt(L.cash));
+  return parts.length ? parts.join(', ') : 'nothing at all';
+}
+function pzWin() {
+  const Z = PZ, S = G.pz; Z.done = 1; SFX.discover(); buzz(30);
+  if (Z.lock) {
+    if (Z.lock.cave != null) {
+      const c = CAVES[Z.lock.cave]; S.seals.push(c.id); Z.res = ['The door swings in', "The tumblers fall one by one. Behind the Crane's door: a cave nobody has walked in for a hundred years."];
+      openCave(c);
+    } else {
+      const c = CAVES[Z.lock.vault], v = c.vault, cash = 80 + 70 * Z.tier, n = 2 + Z.tier, y = hAt(v.x, v.z) + .7;
+      S.vaults.push(c.id); G.money += cash; G.stats.earned += cash;
+      for (let k = 0; k < n; k++) spawnLoot(v.x + rr(-.3, .3), y, v.z + rr(-.3, .3), Z.tier >= 4 && k < 2 ? 'star' : k % 2 ? 'gem' : 'gold');
+      buildCaveMesh(c); Z.res = ['Click', `The strongbox opens: $${fmt(cash)} and a handful of crystals spill out.`];
+    }
+    qEv('lock'); invDirty = true; return;
+  }
+  const T = PZ_TYPES[Z.type], first = !S.beat[Z.type], pay = Z.bounty + (first ? 150 : 0);
+  S.beat[Z.type] = (S.beat[Z.type] || 0) + 1; S.open = null;
+  G.money += pay; G.stats.earned += pay; SFX.coin();
+  const extra = [first ? `Trophy: ${T.trophy} (+$150).` : ''];
+  if (PZ_ORDER.every(t => S.beat[t]) && !G.quests.keep.includes('belt')) { G.quests.keep.push('belt'); extra.push(`Keepsake: ${KEEPSAKES.belt.name}. ${KEEPSAKES.belt.desc}`); }
+  Z.res = [`You beat the ${T.name}`, `${T.win} +$${fmt(pay)}. ${extra.join(' ')}`.trim()];
+  qEv('puzzle', 1, Z.type);
+}
+function pzLose(ran) {
+  const Z = PZ, S = G.pz; Z.done = -1; SFX.clink(); buzz(60);
+  if (Z.lock) { Z.res = ['Snap', 'That was your last lockpick. Supply Co. sells more; the lock will wait.']; return; }
+  const T = PZ_TYPES[Z.type], lost = pzTake(pzLoss(ran ? PZ_RUN : PZ_LOSE));
+  if (ran) S.ran++; else S.lost[Z.type] = (S.lost[Z.type] || 0) + 1;
+  S.open = null; if (P) P.squash = 1;
+  Z.res = ran ? ['You ran for it', `You got away, minus ${lost}.`] : [`The ${T.name} wins`, `${T.lose} Gone: ${lost}.`];
+}
+function pzClose() {
+  if (!PZ) return;
+  const Z = PZ; PZ = null; $('pzWrap').hidden = true; if (!sheet) paused = false;
+  if (Z.lock) { const c = CAVES[Z.lock.cave != null ? Z.lock.cave : Z.lock.vault]; if (c) { if (Z.lock.cave != null) c.armed = false; else if (c.vault) c.vault.armed = false; } }
+}
+// a miss on a real lock bends the pick; the second bend snaps it
+function lockMiss(Z) {
+  if (!Z.lock) { Z.tries--; return Z.tries <= 0; }
+  const S = G.pz; S.pickHp--;
+  if (S.pickHp <= 0) { S.picks = Math.max(0, S.picks - 1); S.pickHp = PICK_HP; Z.msg += ' Snap: a pick broke.'; SFX.clink(); }
+  return S.picks <= 0;
+}
+function pzAct(a, v) {
+  const Z = PZ; if (!Z) return false;
+  if (a === 'close') { if (Z.done) pzClose(); return true; }
+  if (Z.done) return false;
+  if (a === 'run') { if (Z.lock) pzClose(); else pzLose(true); pzRender(); return true; }
+  let moved = false;
+  if (Z.type === 'maze' && a === 'move' && PZ_DIRS[v]) {
+    const t = mazeSlide(Z, Z.at, v); if (t === Z.at) { SFX.clink(); return false; }
+    Z.from = Z.at; Z.at = t; Z.used++; moved = true; SFX.dig('stone', false);
+    if (Z.at === Z.goal) pzWin(); else if (Z.used >= Z.max) pzLose();
+  } else if (Z.type === 'tiles' && a === 'tile') {
+    const i = +v, e = Z.b.indexOf(0); if (!tileNbrs(e, 3).includes(i)) return false;
+    Z.b[e] = Z.b[i]; Z.b[i] = 0; Z.used++; moved = true; SFX.place();
+    if (Z.b.every((x, k) => x === (k === 8 ? 0 : k + 1))) pzWin(); else if (Z.used >= Z.max) pzLose();
+  } else if (Z.type === 'lock' && (a === 'nudge' || a === 'set')) {
+    Z.a = clamp(a === 'set' ? Math.round(+v / 5) * 5 : Z.a + +v, 0, 180); Z.turn = 0; Z.msg = ''; SFX.ui();
+    if (a === 'set') { pzNeedle(); return true; } // the slider is mid-drag: move the pick, keep the slider alive
+    moved = true;
+  } else if (Z.type === 'lock' && a === 'turn') {
+    const d = Math.abs(Z.a - Z.sweet); Z.used++; moved = true;
+    if (d <= Z.tol) { Z.turn = 1; pzWin(); }
+    else {
+      Z.turn = clamp(1 - (d - Z.tol) / 70, .06, .9); SFX.clink();
+      Z.msg = Z.turn > .7 ? 'So close. It turned most of the way.' : Z.turn > .4 ? 'It turned about halfway.' : 'It barely moved.';
+      if (lockMiss(Z)) pzLose();
+    }
+  } else if (Z.type === 'fold' && a === 'flip') {
+    const i = +v; if (!(i >= 0 && i < Z.b.length)) return false;
+    foldFlip(Z.b, Z.n, i); Z.used++; moved = true; SFX.ui();
+    if (Z.b.every(x => !x)) pzWin(); else if (Z.used >= Z.max) pzLose();
+  }
+  if (moved) pzRender();
+  return moved;
+}
+// the shortest known way through the puzzle on screen, as pzAct calls (used by the pipeline check)
+function pzSolve() {
+  const Z = PZ; if (!Z) return [];
+  if (Z.type === 'maze') return (mazeSolve(Z) || []).map(d => ['move', d]);
+  if (Z.type === 'tiles') return Z.sol.map(i => ['tile', i]);
+  if (Z.type === 'lock') return [['set', Z.sweet], ['turn']];
+  return Z.sol.map(i => ['flip', i]);
+}
+function pzKey(code) {
+  const Z = PZ; if (!Z) return;
+  const dir = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right' }[code];
+  if (Z.done) { if (code === 'Enter' || code === 'Space' || code === 'Escape') pzAct('close'); return; }
+  if (Z.type === 'maze' && dir) pzAct('move', dir);
+  else if (Z.type === 'tiles' && dir) { const e = Z.b.indexOf(0), [dx, dy] = PZ_DIRS[dir], x = e % 3 - dx, y = Math.floor(e / 3) - dy; if (x >= 0 && y >= 0 && x < 3 && y < 3) pzAct('tile', y * 3 + x); }
+  else if (Z.type === 'lock' && (dir === 'left' || dir === 'right')) pzAct('nudge', dir === 'left' ? -5 : 5);
+  else if (Z.type === 'lock' && (code === 'Enter' || code === 'Space')) pzAct('turn');
+}
+// ---------- random encounters out in the hills ----------
+function pzTick(dt) {
+  const S = G.pz;
+  if (PZ || sheet || room || placing || mode !== 'foot' || XR.on || !P) return;
+  const far = Math.hypot(P.x - TOWN.x, P.z - TOWN.z);
+  if (far < PZ_TOWN_R) return;
+  // a fight you quit out of waits for you out past town
+  if (S.open) { if (pzStart(S.open.type, S.open.tier)) { PZ.msg = 'It followed you. They always do.'; pzRender(); } return; }
+  if (G.wanted || G.stats.dug < PZ_GRACE_DUG || !(P.moving || P.digAt)) return;
+  S.meter += dt * (nightF > .5 ? 1.4 : 1);
+  if (S.meter < S.need) return;
+  const R = pzRng(4243), pool = PZ_ORDER.filter(t => t !== S.last), type = pool[Math.floor(R() * pool.length)];
+  S.meter = 0; S.need = 70 + Math.floor(R() * 90); S.last = type;
+  flashScreen(.35); SFX.boom(.2); buzz(40);
+  pzStart(type, 1 + (far > 110 ? 1 : 0) + (G.day >= 6 || maxTier() >= 3 ? 1 : 0));
+}
+// a sealed cave roof or a strongbox you walked up to: pick it, if you have picks
+function pzLock(t) {
+  if (PZ) return false;
+  if (G.pz.picks <= 0) { toast('Locked tight, and you are out of lockpicks. Supply Co. sells them.', 'warn'); return false; }
+  const c = CAVES[t.cave != null ? t.cave : t.vault]; if (!c) return false;
+  return pzStart('lock', t.cave != null ? c.seal : c.vault.tier, t);
+}
+// ---------- drawing it ----------
+const PZ_ART = {
+  maze: '<svg viewBox="0 0 64 64"><ellipse cx="32" cy="40" rx="20" ry="17" fill="#8a5a3a"/><ellipse cx="32" cy="46" rx="12" ry="9" fill="#c99a72"/><rect x="12" y="25" width="40" height="6" rx="3" fill="#fff"/><path d="M50 28l10-5-3 9z" fill="#fff"/><circle cx="25" cy="36" r="2.6" fill="#241c22"/><circle cx="39" cy="36" r="2.6" fill="#241c22"/><ellipse cx="32" cy="42" rx="4" ry="3" fill="#ff8fb1"/><path d="M15 53l-5 5M49 53l5 5" stroke="#ff8fb1" stroke-width="4" stroke-linecap="round"/></svg>',
+  tiles: '<svg viewBox="0 0 64 64"><path d="M10 27c-6-8 2-17 9-11l-4 4 6 1c0 5-5 9-11 6z" fill="#e8574b"/><path d="M54 27c6-8-2-17-9-11l4 4-6 1c0 5 5 9 11 6z" fill="#e8574b"/><ellipse cx="32" cy="41" rx="20" ry="13" fill="#e8574b"/><rect x="13" y="32" width="38" height="5" rx="2.5" fill="#ffc93c"/><path d="M26 28v5M38 28v5" stroke="#e8574b" stroke-width="2.5"/><circle cx="26" cy="24" r="4.5" fill="#fff"/><circle cx="38" cy="24" r="4.5" fill="#fff"/><circle cx="26.8" cy="24.6" r="2" fill="#241c22"/><circle cx="38.8" cy="24.6" r="2" fill="#241c22"/><path d="M14 49l-6 6M20 52l-3 7M50 49l6 6M44 52l3 7" stroke="#c43e33" stroke-width="3" stroke-linecap="round"/><path d="M26 45q6 4 12 0" stroke="#7a1f18" stroke-width="2" fill="none" stroke-linecap="round"/></svg>',
+  lock: '<svg viewBox="0 0 64 64"><path d="M50 52c10 2 12-8 6-10" stroke="#e8c9c0" stroke-width="3.5" fill="none" stroke-linecap="round"/><ellipse cx="32" cy="45" rx="19" ry="14" fill="#a9abb8"/><ellipse cx="32" cy="38" rx="13" ry="11" fill="#eeebef"/><circle cx="20" cy="30" r="5" fill="#a9abb8"/><circle cx="44" cy="30" r="5" fill="#a9abb8"/><circle cx="27" cy="37" r="2.6" fill="#241c22"/><circle cx="37" cy="37" r="2.6" fill="#241c22"/><ellipse cx="32" cy="43" rx="3" ry="2.2" fill="#ff8fb1"/><path d="M25 17a7 7 0 0114 0v4H25z" fill="none" stroke="#8c8ea0" stroke-width="3.5"/><rect x="21" y="17" width="22" height="12" rx="3" fill="#ffc93c"/><circle cx="32" cy="22" r="2" fill="#7a5a10"/><rect x="31.2" y="22.5" width="1.6" height="4" fill="#7a5a10"/></svg>',
+  fold: '<svg viewBox="0 0 64 64"><path d="M32 6l18 22-18 30-18-30z" fill="#2b2630"/><path d="M32 6l18 22H14z" fill="#433b4c"/><path d="M14 28L3 39l15-2zM50 28l11 11-15-2z" fill="#2b2630"/><rect x="18" y="26" width="28" height="7" fill="#f2ead8"/><path d="M22 29l6 2M42 29l-6 2" stroke="#241c22" stroke-width="2.4" stroke-linecap="round"/><path d="M46 26l11-6-4 9z" fill="#e8574b"/></svg>',
+  box: '<svg viewBox="0 0 64 64"><rect x="8" y="22" width="48" height="32" rx="4" fill="#7a4e2e"/><rect x="8" y="13" width="48" height="12" rx="4" fill="#8a5a3a"/><rect x="8" y="24" width="48" height="5" fill="#d39a12"/><rect x="8" y="46" width="48" height="5" fill="#d39a12"/><rect x="27" y="26" width="10" height="13" rx="2" fill="#ffc93c"/><circle cx="32" cy="31" r="2" fill="#5a3a10"/><rect x="31.2" y="31" width="1.6" height="5" fill="#5a3a10"/></svg>',
+  door: '<svg viewBox="0 0 64 64"><path d="M12 58V26a20 20 0 0140 0v32z" fill="#3b3a44"/><path d="M18 58V27a14 14 0 0128 0v31z" fill="#24232b"/><circle cx="32" cy="39" r="7.5" fill="#2b2630" stroke="#c43e33" stroke-width="3"/><path d="M28 39l4-5 4 5-4 3z" fill="#f2ead8"/></svg>',
+};
+function pzBoardHtml(Z) {
+  if (Z.type === 'maze') {
+    const n = Z.n, cell = 100 / n, pos = i => `left:${(i % n) * cell}%;top:${Math.floor(i / n) * cell}%;width:${cell}%;height:${cell}%`;
+    let h = Z.wall.map((w, i) => w ? `<i class="rk" style="${pos(i)}"></i>` : '').join('');
+    h += `<i class="hole" style="${pos(Z.goal)}"></i><i class="puck" id="pzPuck" style="${pos(Z.from != null ? Z.from : Z.at)}"></i>`;
+    return `<div class="pzb maze" id="pzMaze">${h}</div>`;
+  }
+  if (Z.type === 'tiles') return `<div class="pzb tiles">${Z.b.map((v, i) => v ? `<button data-pz="tile" data-v="${i}" class="${v === i + 1 ? 'ok' : ''}">${v}</button>` : '<i></i>').join('')}</div>`;
+  if (Z.type === 'fold') return `<div class="pzb fold" style="grid-template-columns:repeat(${Z.n},1fr)">${Z.b.map((v, i) => `<button data-pz="flip" data-v="${i}" class="${v ? 'on' : ''}" aria-label="Fold ${i + 1}"></button>`).join('')}</div>`;
+  const r = Z.a * Math.PI / 180, px = 50 - Math.cos(r) * 44, py = 50 - Math.sin(r) * 44;
+  return `<div class="pzb lockb"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#d39a12"/><circle cx="50" cy="50" r="38" fill="#ffc93c"/><circle cx="50" cy="50" r="27" fill="#e9b52e"/>
+    <g id="pzCyl" style="transform-origin:50px 50px;transform:rotate(0deg)"><circle cx="50" cy="50" r="18" fill="#c48a10"/><circle cx="50" cy="44" r="6" fill="#3d2f29"/><path d="M46.5 46h7l2 14h-11z" fill="#3d2f29"/></g>
+    <path id="pzPick" d="M50 50L${px.toFixed(1)} ${py.toFixed(1)}" stroke="#5a6170" stroke-width="3.4" stroke-linecap="round"/><circle id="pzTip" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3" fill="#5a6170"/></svg></div>`;
+}
+function pzLeft(Z) {
+  if (Z.type === 'lock') return Z.lock ? `Lockpicks: ${G.pz.picks}${G.pz.pickHp < PICK_HP ? ' (this one is bent)' : ''}` : `Tries left: ${Z.tries}`;
+  return `${Z.type === 'fold' ? 'Taps' : 'Moves'} left: ${Math.max(0, Z.max - Z.used)}${Z.par ? ` · par ${Z.par}` : ''}`;
+}
+// move the pick in place while the slider is dragged (a full redraw would pull the slider out from under the finger)
+function pzNeedle() {
+  const Z = PZ, r = Z.a * Math.PI / 180, px = (50 - Math.cos(r) * 44).toFixed(1), py = (50 - Math.sin(r) * 44).toFixed(1);
+  const l = $('pzPick'), c = $('pzTip'), g = $('pzCyl'), st = $('pzStat');
+  if (l) l.setAttribute('d', `M50 50L${px} ${py}`); if (c) { c.setAttribute('cx', px); c.setAttribute('cy', py); }
+  if (g) g.style.transform = 'rotate(0deg)'; if (st) st.innerHTML = `<b>${pzLeft(Z)}</b>`;
+}
+function pzRender() {
+  const Z = PZ, el = $('pz'); if (!Z || !el) return;
+  const T = PZ_TYPES[Z.type], L = Z.lock, S = G.pz;
+  const title = L ? (L.cave != null ? 'A Crane-sealed door' : 'A strongbox') : T.name;
+  const sub = Z.type === 'lock' && L ? `${LOCK_TIERS[Z.tier - 1][0]} lock` : `${PZ_TIER[Z.tier]} · ${T.game}`;
+  const hello = L ? (L.cave != null ? 'Black iron under the hill, with a paper crane pressed into the wax. Whatever is behind it, the Crane wanted it kept.' : 'A banded strongbox, half buried in crystal grit. Somebody hid it down here on purpose.') : T.hello;
+  const art = PZ_ART[L ? (L.cave != null ? 'door' : 'box') : Z.type];
+  const left = pzLeft(Z);
+  let ctl = '';
+  if (!Z.done) {
+    if (Z.type === 'maze') ctl = `<div class="pzpad">${['up', 'left', 'down', 'right'].map(d => `<button class="btn soft" data-pz="move" data-v="${d}" aria-label="Slide ${d}"><svg viewBox="0 0 24 24" style="transform:rotate(${{ up: 0, right: 90, down: 180, left: 270 }[d]}deg)"><path d="M12 4l8 10h-5v6H9v-6H4z" fill="currentColor"/></svg></button>`).join('')}</div>`;
+    if (Z.type === 'lock') ctl = `<div class="pzlock"><button class="btn soft" data-pz="nudge" data-v="-5" aria-label="Pick left">&#9664;</button><input id="pzAngle" type="range" min="0" max="180" step="5" value="${Z.a}" aria-label="Pick angle"><button class="btn soft" data-pz="nudge" data-v="5" aria-label="Pick right">&#9654;</button><button class="btn gold" data-pz="turn">Turn</button></div>`;
+  }
+  let foot;
+  if (Z.done) foot = `<div class="pzres ${Z.done > 0 ? 'win' : 'lose'}"><b>${Z.res[0]}</b><span>${Z.res[1]}</span><button class="btn go" data-pz="close">Back to digging</button></div>`;
+  else if (L) foot = `<div class="pzfoot"><span>A miss bends the pick; the next miss snaps it.</span><button class="btn soft" data-pz="run">Leave it</button></div>`;
+  else {
+    const lo = pzLoss(PZ_LOSE), ru = pzLoss(PZ_RUN), say = x => x.cash ? `$${fmt(x.cash)} from your pocket` : `about $${fmt(x.v)} of ore`;
+    foot = `<div class="pzfoot"><span>Lose and it takes ${say(lo)}. Win and it pays.</span><button class="btn soft" data-pz="run">Run (drop ${say(ru)})</button></div>`;
+  }
+  el.className = 'pz-' + Z.type + (Z.done ? ' over' : '');
+  el.innerHTML = `<div class="pzhead"><div class="pzart">${art}</div><div><small>${sub}</small><h3>${title}</h3><p>${hello}</p></div></div>
+    <div class="pzmain">${pzBoardHtml(Z)}</div>
+    <div class="pzside"><p class="pzrule">${T.rule}</p><p class="pzstat" id="pzStat"><b>${left}</b>${Z.msg ? ` · ${Z.msg}` : ''}</p>${ctl}${foot}</div>`;
+  // the puck slides from where it was; the lock cylinder turns as far as it gave
+  if (Z.type === 'maze' && Z.from != null) { const at = Z.at, n = Z.n, c = 100 / n; Z.from = null; requestAnimationFrame(() => { const p = $('pzPuck'); if (p) { p.style.left = (at % n) * c + '%'; p.style.top = Math.floor(at / n) * c + '%'; } }); }
+  if (Z.type === 'lock' && Z.turn) { const t = Z.turn; requestAnimationFrame(() => { const g = $('pzCyl'); if (g) g.style.transform = `rotate(${t * 90}deg)`; }); }
+}
+function pzJournalHtml() {
+  const S = G.pz;
+  let h = '<h4>Puzzle beasts</h4><p>Odd little beasts jump folks out in the hills, never in town. Beat one and it pays up; lose or run and it takes a cut of your ore.</p><div class="list">';
+  h += PZ_ORDER.map(t => {
+    const T = PZ_TYPES[t], seen = S.seen[t] || 0, b = S.beat[t] || 0, l = S.lost[t] || 0;
+    return seen ? `<div class="item"><div class="tx"><b>${T.name}</b><span>${T.game}. Beaten ${b}, lost ${l}.${b ? ` Trophy: ${T.trophy}.` : ''}</span></div></div>` : '<div class="item dim"><div class="tx"><b>Something you have not met</b><span>Keep digging out past town.</span></div></div>';
+  }).join('') + '</div>';
+  h += `<p>Lockpicks: ${S.picks}. Crane-sealed doors opened: ${S.seals.length} of ${CAVES.filter(c => c.seal).length}. Strongboxes cracked: ${S.vaults.length}.${hasK('belt') ? '' : ' Beat all four kinds for something to hold your trousers up.'}</p>`;
+  return h;
+}
+function vaultMesh(open) {
+  const parts = [[box(.9, .46, .62), '#7a4e2e', TM(0, .23, 0)], [box(.94, .07, .66), '#d39a12', TM(0, .08, 0)], [box(.94, .07, .66), '#d39a12', TM(0, .4, 0)], [box(.16, .2, .05), '#ffc93c', TM(0, .34, .33)]];
+  parts.push(open ? [box(.9, .16, .62), '#8a5a3a', TM(0, .72, -.36, -1.25)] : [box(.92, .16, .64), '#8a5a3a', TM(0, .54, 0)]);
+  const m = new THREE.Mesh(mergeParts(parts), MATS3.toy); m.castShadow = true; return m;
 }
 
 // ===================== walk-in rooms and decorating =====================
@@ -4281,6 +5853,7 @@ function updWorldLabels(dt) {
         wl('b' + n.id, 'bubble' + (bad ? ' bad' : ''), escapeHtml(n.talk), n.x, n.y + 2.4, n.z);
       }
     }
+    if (visitor && visitor.talkT > 0 && (!over || rig.dist < 70)) wl('bV', 'bubble', escapeHtml(visitor.talk), visitor.x, visitor.y + 2.4, visitor.z);
     if (P.talkT > 0 && P.talk && !over) wl('bP', 'bubble me', escapeHtml(P.talk), P.x, P.y + 2.6, P.z);
     // machine hoppers show what they would pay right now
     for (const m of G.machines) {
@@ -4335,6 +5908,7 @@ function updHud(dt) {
     $('goalPct').textContent = ready ? 'Go!' : Math.floor(G.money / goal.price * 100) + '%';
     gp.classList.toggle('ready', ready); gp.querySelector('small').textContent = ready ? 'You can buy' : 'Saving for';
   } else gp.hidden = true;
+  updQuestPill();
   $('clock').textContent = clockText();
   $('sun').classList.toggle('moon', nightF > .5);
   const st = $('stars'); st.hidden = !G.wanted;
@@ -4549,15 +6123,17 @@ function openBuilding(b) {
   };
   (map[b.type] || (() => openSheet({ title: T.name, render: () => `<p>${T.desc || ''}</p>` })))();
 }
-function openShop() { if (bagValue() && P) sellBag(P.x, P.y + 1.2, P.z); openSheet({ title: 'Supply Co.', tabs: [['up', 'Upgrades'], ['tools', 'Tools'], ['pets', 'Pets']], tab: 'up', render: shopHtml }); }
+function openShop() { if (bagValue() && P) sellBag(P.x, P.y + 1.2, P.z); openSheet({ title: 'Supply Co.', tabs: [['up', 'Upgrades'], ['tools', 'Tools'], ['pets', 'Pets'], ['mkt', 'Exchange']], tab: 'up', render: shopHtml }); }
 function shopHtml(tab) {
   if (tab === 'pets') return petsHtml();
+  if (tab === 'mkt') return mktHtml();
   if (tab === 'sell') {
-    const ores = oreKeys(), oreV = ores.reduce((s, k) => s + have(k) * ITEMS[k].p, 0);
-    const mats = BUILD_MATS.filter(k => have(k) > 0), matV = mats.reduce((s, k) => s + have(k) * ITEMS[k].p, 0);
+    const stack = ks => Object.fromEntries(ks.map(k => [k, have(k)]));
+    const ores = oreKeys(), oreV = quote(stack(ores));
+    const mats = BUILD_MATS.filter(k => have(k) > 0), matV = quote(stack(mats));
     let h = `<div class="hero"><div><div class="v">$${fmt(oreV)}</div><div class="l">for your ore and bars</div></div><button class="btn gold" data-act="sellOres" ${oreV ? '' : 'disabled'}>Sell ore</button></div>`;
     if (!ores.length && !mats.length) return h + '<p>Nothing to sell yet. Dig into the hills and bring back what glitters.</p>';
-    h += '<div class="rows">' + ores.concat(mats).map(k => `<div class="r">${gemI(k)}<span class="n">${ITEMS[k].name}</span><span class="q">×${fmt(have(k))}</span><span class="v">$${fmt(have(k) * ITEMS[k].p)}</span></div>`).join('') + '</div>';
+    h += '<div class="rows">' + ores.concat(mats).map(k => `<div class="r">${gemI(k)}<span class="n">${ITEMS[k].name}</span><span class="q">×${fmt(have(k))}</span><span class="v">$${fmt(quote({ [k]: have(k) }))}</span></div>`).join('') + '</div>';
     if (matV) h += `<div class="btnrow"><button class="btn soft" data-act="sellMats">Also sell building stuff · $${fmt(matV)}</button></div><p>Dirt, sand, clay, wood, stone, granite and basalt are kept for building unless you sell them here.</p>`;
     return h;
   }
@@ -4576,11 +6152,12 @@ function shopHtml(tab) {
     const lv = G.up[u.id], max = lv >= u.max, c = upCost(u, lv);
     return `<div class="item"><div class="tx"><b>${u.name}${pips(lv, u.max)}</b><span>${u.desc}</span></div>${max ? '<button class="btn soft sm" disabled>Maxed</button>' : `<button class="btn go sm" data-act="buyUp" data-k="${u.id}" ${G.money >= c ? '' : 'disabled'}>$${fmt(c)}</button>`}</div>`;
   }).join('')}
-  <div class="item"><div class="tx"><b>Dynamite · ${G.dyn} left</b><span>Blows a crater. Careful around folks.</span></div><button class="btn go sm" data-act="buyDyn" data-n="1" ${G.money >= 30 ? '' : 'disabled'}>1 · $30</button><button class="btn go sm" data-act="buyDyn" data-n="5" ${G.money >= 135 ? '' : 'disabled'}>5 · $135</button></div></div>`;
+  <div class="item"><div class="tx"><b>Dynamite · ${G.dyn} left</b><span>Blows a crater. Careful around folks.</span></div><button class="btn go sm" data-act="buyDyn" data-n="1" ${G.money >= 30 ? '' : 'disabled'}>1 · $30</button><button class="btn go sm" data-act="buyDyn" data-n="5" ${G.money >= 135 ? '' : 'disabled'}>5 · $135</button></div>
+  <div class="item"><div class="tx"><b>Lockpicks · ${G.pz.picks} left</b><span>For strongboxes and Crane-sealed doors under the hills. Each one bends once before it snaps.</span></div><button class="btn go sm" data-act="buyPick" data-n="1" ${G.money >= 20 ? '' : 'disabled'}>1 · $20</button><button class="btn go sm" data-act="buyPick" data-n="5" ${G.money >= 90 ? '' : 'disabled'}>5 · $90</button></div></div>`;
 }
 function invHtml() {
   const keys = ITEM_ORDER.filter(k => have(k) > 0);
-  return `<p>Everything you and your crew dig ends up here. Builders take from it, and Supply Co. buys from it.</p>` + (keys.length ? '<div class="rows">' + keys.map(k => `<div class="r">${gemI(k)}<span class="n">${ITEMS[k].name}</span><span class="q">×${fmt(have(k))}</span><span class="v">$${fmt(have(k) * ITEMS[k].p)}</span></div>`).join('') + '</div>' : '<p>Empty for now.</p>');
+  return `<p>Everything you and your crew dig ends up here. Builders take from it, and Supply Co. buys from it.</p>` + (keys.length ? '<div class="rows">' + keys.map(k => `<div class="r">${gemI(k)}<span class="n">${ITEMS[k].name}</span><span class="q">×${fmt(have(k))}</span><span class="v">$${fmt(quote({ [k]: have(k) }))}</span></div>`).join('') + '</div>' : '<p>Empty for now.</p>');
 }
 function statsHtml() {
   const h = happiness(), next = MILESTONES[G.milestone + 1];
@@ -4597,7 +6174,7 @@ function townHtml() {
     const ok = have(r.k) >= r.qty;
     return `<div class="item">${gemI(r.k)}<div class="tx"><b>${r.qty} ${ITEMS[r.k].name.toLowerCase()} for ${escapeHtml(r.who)}</b><span>You have ${have(r.k)} · pays $${fmt(r.reward)}</span></div><button class="btn go sm" data-act="deliver" data-i="${i}" ${ok ? '' : 'disabled'}>Deliver</button></div>`;
   }).join('');
-  return `${statsHtml()}${G.requests.length ? `<h4>Requests</h4><div class="list">${reqs}</div>` : ''}<h4>Reputation</h4><p><b style="color:var(--ink)">${titleOf()}</b>${G.kills ? ` · ${G.kills} gone missing` : ''}${G.arrests ? ` · arrested ${G.arrests}×` : ''} · fossils ${G.relics.length}/12</p>`;
+  return `${statsHtml()}<h4>Reputation</h4><p><b style="color:var(--ink)">${titleOf()}</b>${G.kills ? ` · ${G.kills} gone missing` : ''}${G.arrests ? ` · arrested ${G.arrests}×` : ''} · fossils ${G.relics.length}/12</p>${lifeNewsHtml()}`;
 }
 function bunkHtml() {
   const slots = G.buildings.filter(b => b.type === 'bunk').length * 2;
@@ -4611,10 +6188,12 @@ function sheriffHtml() { const bribe = 150 * G.wanted; return G.wanted ? `<p>You
 function smelterHtml() { return `<p>Every few seconds the smelter takes 2 ore and 1 coal and makes a bar worth far more. Gold first, then silver, iron and copper.</p><div class="rows">${['coal', 'copperBar', 'ironBar', 'silverBar', 'goldBar'].map(k => `<div class="r">${gemI(k)}<span class="n">${ITEMS[k].name}</span><span class="q">×${fmt(have(k))}</span></div>`).join('')}</div>`; }
 function houseHtml(b) { const people = b.occ.map(id => G.residents.find(r => r.id === id)).filter(Boolean); return `<p>${people.length} of 3 rooms taken. Settlers pay rent each morning.</p>${people.length ? `<div class="list">${people.map(n => `<div class="item"><div class="tx"><b>${escapeHtml(n.name)}</b><span>${n.state === 'inside' ? 'At home' : 'Out and about'}</span></div></div>`).join('')}</div>` : ''}`; }
 let confirmNew = false;
-function openMenu() {
+function openMenu(tab) {
   confirmNew = false;
   openSheet({
-    title: 'Menu', tabs: [['set', 'Settings'], ['town', 'Town'], ['how', 'Tips']], tab: 'set', render: tab => {
+    title: 'Menu', tabs: [['quest', 'Journal'], ['mkt', 'Exchange'], ['set', 'Settings'], ['town', 'Town'], ['how', 'Tips']], tab: tab || 'set', render: tab => {
+      if (tab === 'quest') return journalHtml();
+      if (tab === 'mkt') return mktHtml();
       if (tab === 'town') return townHtml();
       if (tab === 'how') return howHtml();
       return `<div class="toggles">
@@ -4638,10 +6217,13 @@ const ACT = {
   tab: d => { sheet.tab = d.tab; },
   sellOres: () => { const v = sellKeys(oreKeys()); if (v) { SFX.coin(); flyCash(v); toast(`Sold for $${fmt(v)}.`, 'coin'); } },
   sellMats: () => { const v = sellKeys(BUILD_MATS); if (v) { SFX.coin(); flyCash(v); toast(`Sold for $${fmt(v)}.`, 'coin'); } },
+  mktSell: d => { if (!ITEMS[d.k]) return; const v = sellKeys([d.k]); if (v) { SFX.coin(); flyCash(v); toast(`Sold ${ITEMS[d.k].name.toLowerCase()} for $${fmt(v)}.`, 'coin'); } },
+  mktHold: d => { if (!ITEMS[d.k]) return; const H = G.mkt.hold; if (H[d.k]) delete H[d.k]; else H[d.k] = true; SFX.ui(); },
   equip: d => { G.tool = d.k; SFX.ui(); },
   buyTool: d => { const t = TOOLS.find(x => x.id === d.k); if (G.money < t.cost) return; G.money -= t.cost; G.tools.push(t.id); G.tool = t.id; SFX.coin(); toast(`${t.name} in hand.`, 'pick'); },
   buyUp: d => { const u = UPGRADES.find(x => x.id === d.k), c = upCost(u, G.up[u.id]); if (G.money < c || G.up[u.id] >= u.max) return; G.money -= c; G.up[u.id]++; SFX.coin(); },
   buyDyn: d => { const n = +d.n, c = n === 5 ? 135 : 30; if (G.money < c) return; G.money -= c; G.dyn += n; SFX.coin(); },
+  buyPick: d => { const n = +d.n, c = n === 5 ? 90 : 20; if (G.money < c) return; G.money -= c; G.pz.picks += n; SFX.coin(); },
   save: () => { if (saveGame()) toast('Saved.', 'check'); },
   hire: () => { hireCrew(); },
   deliver: d => { deliver(+d.i); },
@@ -4651,6 +6233,7 @@ const ACT = {
   newAsk: () => { confirmNew = true; }, newNo: () => { confirmNew = false; },
   newYes: () => { closeSheet(); try { localStorage.removeItem(SAVE_KEY); } catch (e) { } startNewGame(); },
   toTitle: () => { saveGame(); closeSheet(); dropRoom(); showTitle(); },
+  qTake: d => { questAccept(d.k); }, qPass: d => { questPass(d.k); }, qGive: d => { questGive(d.k); }, qPick: d => { questChoose(d.k, +d.i); }, qAccuse: d => { questAccuse(d.k); },
   person: d => { const n = G.residents.find(r => r.id === +d.id); if (n) openPerson(n); },
   job: d => { if (sheet.person) assignJob(sheet.person, d.k); },
   chat: () => { if (sheet.person) chatWith(sheet.person); },
@@ -4804,6 +6387,7 @@ function footTap(sx, sy) {
   if (d > T.reach + 2 && !above) { P.digAt = null; P.goal = { x: w.x, z: w.z, stop: .5 }; tapMarker(w); return; }
   P.digAt = { x: w.x, z: w.z, hold: false, t: 0 }; P.goal = null; tapMarker(w);
 }
+let tapMark = null;
 function tapMarker(w) { floatText(w.x, w.y + .3, w.z, '•', '#ffffff'); }
 function overTap(sx, sy) {
   const w = screenRay(sx, sy);
@@ -4856,6 +6440,7 @@ function onKey(e, down) {
   if (e.target && e.target.tagName === 'INPUT') return;
   keys[e.code] = down;
   if (!down) return;
+  if (PZ) { if (e.target && e.target.closest && e.target.closest('#pz button, #pz input')) return; if (/^(Arrow|Space)/.test(e.code)) e.preventDefault(); pzKey(e.code); return; }
   if (e.code === 'Escape') { if (sheet) closeSheet(); else if (room) exitRoom(); else if (placing) cancelPlace(); else if (selected) { selected = null; $('sel').hidden = true; } else if (mode === 'over') setMode('foot'); return; }
   if (paused) return;
   if (e.code === 'Tab' || e.code === 'KeyO') { e.preventDefault(); setMode(mode === 'foot' ? 'over' : 'foot'); }
@@ -4874,6 +6459,7 @@ function interactNearest() {
   if (best) best();
 }
 function keyMove(dt) {
+  if (XR.on) return; // the headset sticks own input while in VR, or this would zero them every frame
   let x = 0, y = 0;
   if (keys.KeyA || keys.ArrowLeft) x--; if (keys.KeyD || keys.ArrowRight) x++;
   if (keys.KeyW || keys.ArrowUp) y--; if (keys.KeyS || keys.ArrowDown) y++;
@@ -4951,7 +6537,7 @@ function guideTo(h) {
 function showTitle() {
   gameState = 'title'; $('title').hidden = false;
   rig.x = rigT.x = TOWN.x + 34; rig.z = rigT.z = TOWN.z + 8; rig.y = rigT.y = 2; rig.dist = rigT.dist = 70; rig.pitch = rigT.pitch = .72;
-  for (const id of ['hudL', 'hudC', 'hudR', 'acts', 'tray', 'placeBar', 'sel', 'joyHint', 'keyHint', 'guide', 'goalPill']) $(id).hidden = true;
+  for (const id of ['hudL', 'hudC', 'hudR', 'acts', 'tray', 'placeBar', 'sel', 'joyHint', 'keyHint', 'guide', 'goalPill', 'questPill']) $(id).hidden = true;
   const s = hasSave(); $('tPlay').textContent = s ? 'Continue' : 'Play'; $('tNew').hidden = !s; $('tNew').textContent = 'New town'; titleConfirm = false;
 }
 let titleConfirm = false;
@@ -4962,6 +6548,7 @@ function startPlay() {
   rig.x = rigT.x = P.x; rig.z = rigT.z = P.z; rigT.dist = footDist;
   hudT = 0; chipKey = ''; shownMoney = G.money;
   if (G.hint === 0 && !hintSpot) hintSpot = findHintSpot();
+  if (!G.quests.rolls) questMorning();
 }
 function bindUI() {
   const cv = $('c3');
@@ -4976,6 +6563,7 @@ function bindUI() {
   $('bView').onclick = () => { SFX.init(); setMode(mode === 'foot' ? 'over' : 'foot'); };
   $('bUse').onclick = () => { SFX.init(); useRoom(); }; $('bDecor').onclick = () => { SFX.init(); openDecor(); }; $('bLeave').onclick = () => { SFX.init(); exitRoom(); };
   $('bMenu').innerHTML = ICON.menu; $('bMenu').onclick = () => { SFX.init(); openMenu(); };
+  $('questPill').onclick = () => { SFX.init(); openMenu('quest'); };
   $('sheetClose').innerHTML = ICON.close; $('sheetClose').onclick = closeSheet;
   $('bCancel').innerHTML = ICON.x; $('bPlace').innerHTML = ICON.check;
   $('bPing').querySelector('.ic').innerHTML = ICON.ping; $('bDyn').querySelector('.ic').innerHTML = ICON.dyn;
@@ -4990,6 +6578,12 @@ function bindUI() {
     const t = e.target.closest('[data-act]'); if (!t || t.disabled) return;
     const f = ACT[t.dataset.act]; if (f) { f(t.dataset); if (sheet) renderSheet(); }
   });
+  $('pzWrap').addEventListener('click', e => { const t = e.target.closest('[data-pz]'); if (!t || t.disabled) return; SFX.init(); pzAct(t.dataset.pz, t.dataset.v); });
+  $('pzWrap').addEventListener('input', e => { if (e.target.id === 'pzAngle') pzAct('set', e.target.value); });
+  // swipe on the slide maze
+  let pzSw = null;
+  $('pzWrap').addEventListener('pointerdown', e => { pzSw = e.target.closest('#pzMaze') ? { x: e.clientX, y: e.clientY } : null; });
+  $('pzWrap').addEventListener('pointerup', e => { if (!pzSw || !PZ) return; const dx = e.clientX - pzSw.x, dy = e.clientY - pzSw.y; pzSw = null; if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return; pzAct('move', Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up')); });
   $('sheetWrap').addEventListener('input', e => { if (e.target.id === 'vol') { G.settings.vol = +e.target.value; saveSettings(); SFX.setVol(); } });
   document.querySelector('#tray .seg').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (!b) return; trayTab = b.dataset.tab; renderCards(); SFX.ui(); });
   $('cards').addEventListener('pointerdown', cardDown);
@@ -5024,6 +6618,8 @@ function clearWorldObjects() {
   for (const d of deputies) removeEntMesh(d); deputies.length = 0;
   if (P) removeEntMesh(P);
   for (const m of tombMeshes) scene.remove(m); tombMeshes.length = 0;
+  if (PZ) { PZ = null; $('pzWrap').hidden = true; if (!sheet) paused = false; }
+  if (dog) { scene.remove(dog.mesh); dog = null; } if (visitor) { removeEntMesh(visitor); visitor = null; }
   clearCaves(); if (cart) { scene.remove(cart.mesh); cart = null; } if (pet) { scene.remove(pet.mesh); pet = null; }
   for (const b of bombs) scene.remove(b.mesh); bombs.length = 0;
   loot.length = 0; debris.length = 0; dust.length = 0; floats.length = 0; pings.length = 0; fallingTrees.length = 0; shakingTrees.clear();
@@ -5033,7 +6629,6 @@ function settleTrees() { for (const t of trees) if (!t.alive) t.fall = 0; fallin
 function newWorld(seed) {
   clearWorldObjects();
   G = freshState(seed);
-  G.requests = Array.from({ length: 3 }, makeRequest);
   genWorld(seed); townBase(); initTreeGrid(); navW.fill(0);
   addBuilding('office', TOWN.x - 14, TOWN.z - 12, { instant: true });
   addBuilding('shop', TOWN.x + 13, TOWN.z - 12, { instant: true });
@@ -5063,7 +6658,7 @@ function startNewGame() { newWorld(Math.floor(Math.random() * 1e9)); startPlay()
 function loadGame(s) {
   try {
     clearWorldObjects();
-    G = Object.assign(freshState(s.seed), s);
+    G = Object.assign(freshState(s.seed), s); fixQuests(); fixPz(); fixLife(); fixMkt();
     delete G.world; G.settings = loadSettings(); G.wanted = 0;
     const B = G.buildings, MC = G.machines, RS = G.residents, CR = G.crew;
     G.buildings = []; G.machines = []; G.residents = []; G.crew = [];
@@ -5112,7 +6707,7 @@ function update(dt) {
   for (const n of G.residents.slice()) updResident(n, dt, hr);
   for (const n of G.crew.slice()) updCrew(n, dt, tNow);
   for (const d of deputies.slice()) updDeputy(d, dt);
-  updLaw(dt); updTown(dt); updFX(dt); updBombs(dt); updMeteor(dt); updPads(dt); updButterflies(dt, tNow); caveTick(dt); updCart(dt); updPet(dt);
+  updLaw(dt); updTown(dt); updFX(dt); updBombs(dt); updMeteor(dt); updPads(dt); updButterflies(dt, tNow); caveTick(dt); updCart(dt); updPet(dt); pzTick(dt); lifeUpd(dt); mktTick(dt);
   pingCD = Math.max(0, pingCD - dt);
   updProximity();
   if (mode === 'foot') { rigT.x = P.x; rigT.z = P.z; rigT.y = P.y + .8; rigT.pitch = footPitch(); }
@@ -5167,16 +6762,20 @@ function frame(now) {
   try {
     if (gameState === 'play' && G) {
       if (!paused) update(dt);
+      else if (sheet && sheet.tab === 'mkt') { mktTick(dt); mktLiveT -= dt; if (mktLiveT <= 0) { mktLiveT = 1; renderSheet(); } }   // the board keeps trading while you watch it
       applyDaylight(hourNow());
       poseAll(paused ? 0 : dt);
-      updHud(dt); updGhost(); updLights(dt);
+      updHud(dt); updGhost(); updLights(dt); updHalos(dt);
       $('joyHint').hidden = !(isTouchDev && mode === 'foot' && (G.walkHint || 0) < 40 && !paused);
       $('keyHint').hidden = !(!isTouchDev && mode === 'foot' && (G.walkHint || 0) < 40 && !paused);
     } else if (G) titleUpdate(dt);
+    if (HALO.pts && !(gameState === 'play' && G)) { HALO.pts.visible = false; HALO.t = 0; }   // no stale halos on the title screen or across a world change
     updateCamera(dt);
+    if (gameState === 'play' && G) lifeSky(dt); else if (RAIN.mesh) { RAIN.mesh.count = 0; rainSound(0); }
     if (XR.on) { XR.lod.position.y = rig.dist; xrFrame(dt); }
     flushTerrain(); updateTerrainLOD(XR.on ? XR.lod : camera, rig);
     if (!XR.on) updWorldLabels(dt);
+    SHINE_K.value = room && !XR.on ? .4 : 1;   // indoors there is less sky to catch
     if (room && !XR.on) renderer.render(roomScene, room.cam); else renderer.render(scene, camera);
     if (!XR.on) adaptRes(dt); else XR.head.copy(camera.position);
     xrButtons();
@@ -5204,7 +6803,7 @@ function adaptRes(dt) {
 // Shops, people and rooms are flat-screen sheets, so opening one ends the VR session to show it.
 let rafId = 0;
 function nextFrame() { rafId = requestAnimationFrame(frame); }
-const XR = { ok: false, on: false, tick: false, session: null, fp: true, sFp: .8, turn: 0, clickDown: false, head: new THREE.Vector3(), S: 38, dolly: null, pads: [], marker: null, after: null, snap: false, menuDown: false, lod: { position: { y: 40 } }, listening: false };
+const XR = { ok: false, on: false, tick: false, session: null, fp: true, sFp: 1, turn: 0, clickDown: false, head: new THREE.Vector3(), grips: [], handGeo: null, handLoading: false, S: 38, dolly: null, pads: [], marker: null, after: null, snap: false, menuDown: false, lod: { position: { y: 40 } }, listening: false };
 const XR_TABLE = new THREE.Vector3(0, .95, -.75), XR_UP = new THREE.Vector3(0, 1, 0);
 const _xo = new THREE.Vector3(), _xd = new THREE.Vector3();
 function xrProbe() {
@@ -5212,7 +6811,7 @@ function xrProbe() {
   navigator.xr.isSessionSupported('immersive-vr').then(ok => { XR.ok = !!ok; $('tVR').hidden = !ok; }).catch(() => { });
 }
 function xrButtons() {
-  $('bVR').hidden = !(XR.ok && !XR.on && gameState === 'play' && !sheet && !room);
+  $('bVR').hidden = !(XR.ok && !XR.on && gameState === 'play' && !sheet && !room && !PZ);
 }
 function xrInitRig() {
   if (XR.dolly) return;
@@ -5227,11 +6826,49 @@ function xrInitRig() {
     c.addEventListener('squeezestart', () => { const w = xrRay(c); if (w && gameState === 'play' && !paused) throwDynamite(w.x, w.z); });
     XR.dolly.add(c); XR.pads.push(c);
   }
+  for (let i = 0; i < 2; i++) {
+    const grip = renderer.xr.getControllerGrip(i);
+    grip.userData = { hand: null, dressed: false };
+    grip.addEventListener('connected', e => { grip.userData.hand = e.data && e.data.handedness; xrDressHand(grip); });
+    XR.dolly.add(grip); XR.grips.push(grip);
+  }
+  xrLoadHand();
   XR.marker = new THREE.Mesh(new THREE.RingGeometry(.5, .8, 24), new THREE.MeshBasicMaterial({ color: '#ffe9a8', transparent: true, opacity: .85, depthTest: false, fog: false }));
   XR.marker.rotation.x = -Math.PI / 2; XR.marker.renderOrder = 20; XR.marker.visible = false; scene.add(XR.marker);
 }
+// Hands: the owner's right-hand-faired-v2 model from the Tzar screensaver, in its loose grip and skin tone
+// (src/hand.json, baked by bake-hand.js --curl), mirrored for the left.
+// Model space: wrist at the origin, fingers +Y, thumb +X, palm +Z. Grip space: fingers -Z, thumb up, palm toward the other hand.
+function xrLoadHand() {
+  if (XR.handGeo || XR.handLoading) return; XR.handLoading = true;
+  fetch('hand.json').then(r => r.json()).then(d => {
+    const dec = (s, T) => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new T(u.buffer); };
+    const mk = o => {
+      const q = dec(o.p, Uint16Array), pos = new Float32Array(q.length);
+      for (let i = 0; i < q.length; i++) pos[i] = o.o[i % 3] + q[i] * o.s[i % 3];
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(dec(o.n, Int8Array), 3, true));
+      g.setIndex(new THREE.BufferAttribute(dec(o.i, Uint16Array), 1));
+      return g;
+    };
+    XR.handGeo = { skin: mk(d.skin), nails: mk(d.nails) };
+    for (const g of XR.grips) xrDressHand(g);
+  }).catch(err => console.warn('hand model not loaded', err));
+}
+function xrDressHand(grip) {
+  const u = grip.userData; if (!XR.handGeo || !u.hand || u.dressed) return; u.dressed = true;
+  const hand = new THREE.Group();
+  hand.add(new THREE.Mesh(XR.handGeo.skin, new THREE.MeshStandardMaterial({ color: '#9e7352', roughness: .78 })));
+  hand.add(new THREE.Mesh(XR.handGeo.nails, new THREE.MeshStandardMaterial({ color: '#b59275', roughness: .78 })));
+  const m = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, -1), new THREE.Vector3(-1, 0, 0));
+  if (u.hand === 'left') m.multiply(new THREE.Matrix4().makeScale(1, 1, -1));
+  m.setPosition(0, 0, .05);
+  hand.matrixAutoUpdate = false; hand.matrix.copy(m);
+  grip.add(hand);
+}
 async function xrEnter() {
-  if (XR.on || !XR.ok || XR.session) return;
+  if (XR.on || !XR.ok || XR.session || PZ) return; // no puzzle screen in the headset: finish the fight first
   try {
     xrInitRig();
     if (gameState === 'title') startPlay();
@@ -5256,7 +6893,7 @@ function xrEnded() {
   if (XR.dolly) XR.dolly.remove(camera);
   camera.scale.set(1, 1, 1); camera.near = .5; camera.far = 1600; camera.updateProjectionMatrix();
   if (XR.marker) XR.marker.visible = false;
-  if (P.mesh) P.mesh.visible = true;
+  xrBody(false);
   for (const c of XR.pads) { c.userData.down = c.userData.hold = false; }
   input.mx = input.my = 0; input.holding = false; P.attack = null; if (P.digAt && P.digAt.hold) P.digAt = null;
   resizeScene();
@@ -5309,6 +6946,13 @@ function xrTap(w) {
   if (d > T.reach + 2 && !above) { P.digAt = null; P.goal = { x: w.x, z: w.z, stop: .5 }; tapMarker(w); return; }
   P.digAt = { x: w.x, z: w.z, hold: false, t: 0 }; P.goal = null; tapMarker(w);
 }
+// first person wears the miner's body without the head, so looking down shows torso and legs
+function xrBody(headless) {
+  const b = P.mesh && P.mesh.userData.body; if (!b) return;
+  const want = personGeo(headless ? Object.assign({}, P.look, { noHead: true }) : P.look);
+  if (b.geometry !== want) b.geometry = want;
+  P.mesh.visible = true;
+}
 function xrFrame(dt) {
   // a flat-screen sheet or room just opened: show it on the flat screen
   if (sheet || room) { xrExit(); return; }
@@ -5321,20 +6965,23 @@ function xrFrame(dt) {
     d.position.set(P.x, P.y, P.z).sub(_xo.set(XR.head.x, 0, XR.head.z).multiplyScalar(S).applyAxisAngle(XR_UP, XR.turn));
     camera.getWorldDirection(_xd);
     if (Math.hypot(_xd.x, _xd.z) > .25) rig.yaw = Math.atan2(-_xd.x, -_xd.z);
-    if (P.mesh) P.mesh.visible = false;
+    xrBody(true); P.face = rig.yaw + Math.PI;
   } else {
     // tabletop: the town floats in front of you and follows the miner
     d.scale.setScalar(S); d.rotation.set(0, rig.yaw, 0);
     d.position.set(rig.x, rig.y, rig.z).sub(_xo.copy(XR_TABLE).multiplyScalar(S).applyAxisAngle(XR_UP, rig.yaw));
-    if (P.mesh) P.mesh.visible = true;
+    xrBody(false);
   }
+  for (const g of XR.grips) g.visible = fp;
   d.updateMatrixWorld(true);
   skyMesh.position.copy(d.position); skyMesh.position.y += 1.5 * S;
   // sticks
   let mx = 0, my = 0, menu = false;
   if (XR.session) for (const src of XR.session.inputSources) {
-    const g = src.gamepad; if (!g || g.axes.length < 4) continue;
-    const ax = g.axes[2], ay = g.axes[3];
+    const g = src.gamepad; if (!g || g.axes.length < 2) continue;
+    // WebXR gamepads can expose the thumbstick on axes 2/3 or 0/1.
+    const stick = g.axes.length >= 4 ? 2 : 0;
+    const ax = g.axes[stick] || 0, ay = g.axes[stick + 1] || 0;
     if (src.handedness === 'left') {
       if (Math.hypot(ax, ay) > .2) { mx = ax; my = ay; }
       menu = !!(g.buttons[5] && g.buttons[5].pressed);
@@ -5373,7 +7020,12 @@ function boot() {
   if (!STILL) nextFrame();
   if (/[?&]debug/.test(location.search)) window.MINER = { get G() { return G; }, get P() { return P; }, rig, rigT, camera, setMode, startPlay, startNewGame, newWorld, update, hAt, h0: h0At, matAt, digBrush, placeCheck, doPlace, harvestMachine, hireCrew, PADS, obstacleAt, treesNear, moveEnt, CAVES: () => CAVES, openCave, LIFTS, sellBag, bagCount, bagCap, padActivate, updPads, startMeteor, killNpc, screenRay, toScreen, findPath, MACHINES, get trees() { return trees; }, renderer, scene, get mode() { return mode; }, get placing() { return placing; }, startPlacing, confirmPlace, openShop, closeSheet, saveGame, readSave, loadGame, applyDaylight, flushTerrain, newDay, input, keys, footTap, nearestV, H: () => H, fossils: () => fossils, get pet() { return pet; }, adoptPet, rebuildPet, petsHtml, get room() { return room; }, get roomScene() { return roomScene; }, openPerson, openBuilding, assignJob, townDay, plantField, harvestField, addBuilding, workSpot, fillBrush, XR, xrInitRig, xrFrame, xrTap, xrRay, updateCamera, camera_: () => camera,
     step(n, dt) { let t0 = performance.now(); for (let k = 0; k < (n || 1); k++) { lastT = performance.now() - (dt || 16); frame(performance.now()); } return performance.now() - t0; },
-    sim(n, dt) { for (let k = 0; k < n; k++) update(dt || .05); }, };
+    sim(n, dt) { for (let k = 0; k < n; k++) update(dt || .05); },
+    QUESTS, KEEPSAKES, qEv, digAt, TOOLS, questMorning, questAccept, questPass, questGive, journalHtml, openMenu, deliver, chatWith, giftTo, foundRelic, throwDynamite, doPing, appeal, bagValue, get sheet() { return sheet; }, renderSheet, hasK,
+    makeStory, story, storyMorning, questChoose, questAccuse, qEligible, sellKeys, SUSPECTS, CAST, arrest, startNewGame_: startNewGame,
+    get PZ() { return PZ; }, PZ_TYPES, PZ_ORDER, pzStart, pzAct, pzSolve, pzTick, pzLock, pzLoss, pzClose, pzJournalHtml, get paused() { return paused; }, caveTick, oreKeys, addInv,
+    get L() { return life(); }, WX, wxNow, wxOf, lifeSetWeather, lifeUpd, lifeSky, lifeBoom, lifeAdmire, lifeIsBday, lifeNewsHtml, lifeMorning, lifeSpotFor, lifeConverse, deed, lifeEv, get dog() { return dog; }, get visitor() { return visitor; }, startVisitor, visitorArrived, lifePersonHtml, spawnResident, RAIN, LK, greetLine, residentLine, hourNow,
+    MKT, priceOf, quote, mktTick, mktHtml, mktChange, bagCounts, machineValue, fixMkt, updCrew };
 }
 boot();
 
