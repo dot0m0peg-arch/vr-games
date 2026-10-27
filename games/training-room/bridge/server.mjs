@@ -65,6 +65,8 @@ import { ensureCert, lanIPs } from "./cert.mjs";
 import { createStatic, REPO_ROOT } from "./static.mjs";
 import { RoomStore, BridgeError } from "./store.mjs";
 import { PartsBin } from "./parts-bin.mjs";
+import { CharacterLibrary } from "./character-library.mjs";
+import { KidLibrary } from "./kid-library.mjs";
 import { LocalModel, catalogText, createMatcher } from "./llm.mjs";
 import { SpeechToText, isWav } from "./stt.mjs";
 import { TextToSpeech, cleanSpeech } from "./tts.mjs";
@@ -253,6 +255,8 @@ export async function createBridge(options = {}) {
   const store = new RoomStore({ dataDir, log, ...(options.store || {}) });
   const loaded = store.load();
   const bin = new PartsBin({ dirs: [partsPrimary, ...extraDirs], roomKey: config.roomKey, log, scanMs: options.scanMs || 10000 });
+  const characters = new CharacterLibrary(partsPrimary);
+  const kidLibrary = new KidLibrary(partsPrimary);
   bin.ensurePrimary();
   const model = new LocalModel(config, { log, fetchImpl: options.fetchImpl, timeoutMs: options.modelTimeoutMs || config.modelTimeoutSec * 1000, visionTimeoutMs: options.visionTimeoutMs || config.visionTimeoutSec * 1000 });
   const stt = new SpeechToText(config, { log, fetchImpl: options.fetchImpl });
@@ -437,6 +441,11 @@ export async function createBridge(options = {}) {
         return saveDeviceReport(req, res, ctx);
       case "GET parts":
         return sendJSON(res, 200, bin.manifest(apiBaseOf(req)));
+      case "GET characters/resolve": {
+        const query = (url.searchParams.get("q") || "").slice(0, 300);
+        const found = await kidLibrary.resolve(query) || await characters.resolve(query);
+        return found ? sendJSON(res, 200, found) : sendJSON(res, 404, { error: "character-not-found" });
+      }
       case "POST parts/save": {
         const body = await readJSON(req);
         const saved = await bin.save(body.blueprint ?? body);

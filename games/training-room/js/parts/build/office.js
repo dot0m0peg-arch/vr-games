@@ -32,9 +32,7 @@ function beam(a, b, [w, d], material, o = {}) {
 }
 
 // Glossy black "off" face shared by every screen.
-const SCREEN_OFF = new THREE.MeshStandardMaterial({ color: "#050706", roughness: 0.16, metalness: 0.3 });
-SCREEN_OFF.userData.shared = true;
-SCREEN_OFF.userData.kind = "plastic";
+const SCREEN_OFF = mat("#050706", "gloss");
 
 // A +Z facing display plane (standard UVs, not mirrored) with a setScreen(texture | null) hook.
 function screenFace(size, o, idle = SCREEN_OFF) {
@@ -136,7 +134,7 @@ const BOOK_COLORS = ["#a8443a", "#2f5d8a", "#d1a23a", "#3f7a4a", "#6b4b7a", "#e2
 function books(seed) {
   const out = [];
   let n = (seed >>> 0) % BOOK_COLORS.length;
-  const bookMat = () => mat(BOOK_COLORS[n++ % BOOK_COLORS.length], "matte");
+  const bookMat = () => mat(BOOK_COLORS[n++ % BOOK_COLORS.length], "paper");
   for (const row of SHELF_ROWS) {
     const total = row.books.reduce((sum, [w]) => sum + w + 0.004, 0);
     let x = row.right ? 0.395 - total : -0.395;
@@ -321,7 +319,7 @@ export const builders = {
   },
 
   "sticky note": (opts) => {
-    const paper = mat(opts.color || "#f7e463", "matte");
+    const paper = mat(opts.color || "#f7e463", "paper");
     const panel = textPanel([0.29, 0.29], {
       width: 256, height: 256, text: opts.text || "", size: 38, weight: "700", color: "#24304a", bg: null,
       padding: 18, align: "center", valign: "middle", lineHeight: 1.15, font: MARKER_FONT,
@@ -349,10 +347,10 @@ export const builders = {
       box([0.035, 1.76, 0.035], legs, { p: [-0.3, 0.88, 0], tint: true }),
       box([0.035, 1.76, 0.035], legs, { p: [0.3, 0.88, 0], tint: true }),
       box([0.7, 0.96, 0.02], charcoal(), { p: [0, 1.27, 0.02] }),
-      box([0.67, 0.9, 0.012], mat("#f4f2ea", "matte"), { p: [0, 1.28, 0.034] }),
+      box([0.67, 0.9, 0.012], mat("#f4f2ea", "paper"), { p: [0, 1.28, 0.034] }),
       panel,
       box([0.74, 0.05, 0.05], charcoal(), { p: [0, 1.745, 0.03] }),
-      cyl([0.022, 0.022, 0.66], mat("#f4f2ea", "matte"), { p: [0, 1.75, -0.02], r: [0, 0, 90], seg: 10 }),
+      cyl([0.022, 0.022, 0.66], mat("#f4f2ea", "paper"), { p: [0, 1.75, -0.02], r: [0, 0, 90], seg: 10 }),
       box([0.72, 0.03, 0.08], legs, { p: [0, 0.78, 0.06], tint: true }),
       cyl([0.008, 0.008, 0.11], mat("#1f3a7a", "plastic"), { p: [-0.12, 0.8, 0.06], r: [0, 0, 90], seg: 8 }),
       cyl([0.008, 0.008, 0.11], mat("#b8322b", "plastic"), { p: [0.05, 0.8, 0.06], r: [0, 0, 90], seg: 8 }),
@@ -409,7 +407,7 @@ export const builders = {
   },
 
   "armchair": (opts) => {
-    const leather = mat(opts.color || "#7a4b32", "plastic");
+    const leather = mat(opts.color || "#7a4b32", "leather");
     return finish(sofa(0.95, 1, leather), "armchair");
   },
 
@@ -427,7 +425,7 @@ export const builders = {
   },
 
   "potted plant": (opts) => {
-    const pot = mat(opts.color || "#d9d4c7", "plastic");
+    const pot = mat(opts.color || "#d9d4c7", "ceramic");
     const leafA = mat("#3f8a3a", "leaf");
     const leafB = mat("#2f6f33", "leaf");
     const parts = [
@@ -518,8 +516,8 @@ export const builders = {
     const parts = [
       box([1.1, 0.04, 0.6], wood, { p: [0, 0.4, 0], tint: true }),
       box([0.98, 0.02, 0.5], wood, { p: [0, 0.12, 0], tint: true }),
-      box([0.22, 0.012, 0.28], mat("#e2ddd0", "matte"), { p: [-0.24, 0.136, 0], r: [0, 12, 0] }),
-      box([0.2, 0.012, 0.27], mat("#c8643c", "matte"), { p: [-0.2, 0.148, 0.02], r: [0, -8, 0] }),
+      box([0.22, 0.012, 0.28], mat("#e2ddd0", "paper"), { p: [-0.24, 0.136, 0], r: [0, 12, 0] }),
+      box([0.2, 0.012, 0.27], mat("#c8643c", "paper"), { p: [-0.2, 0.148, 0.02], r: [0, -8, 0] }),
     ];
     for (const x of [-0.5, 0.5]) {
       for (const z of [-0.24, 0.24]) parts.push(cyl([0.024, 0.014, 0.38], legs, { p: [x, 0.19, z], seg: 10 }));
@@ -528,7 +526,7 @@ export const builders = {
   },
 
   "coffee mug": (opts) => {
-    const glaze = mat(opts.color || "#eeebe3", "plastic");
+    const glaze = mat(opts.color || "#eeebe3", "ceramic");
     return finish(group([
       lathe([[0, 0], [0.038, 0], [0.041, 0.004], [0.042, 0.095], [0.037, 0.095], [0.036, 0.012], [0, 0.012]],
         glaze, { p: [-0.022, 0, 0], seg: 18, tint: true }),
@@ -551,7 +549,7 @@ export const builders = {
       box([0.44, 0.55, 0.006], dark, { p: [0, 0.5, 0.203] }),
       box([0.5, 0.02, 0.006], lime(), { p: [0, 0.86, 0.203] }),
       torus([0.06, 0.007], lime(), { p: [0, 0.68, 0.21], seg: 20 }),
-      box([0.21, 0.004, 0.28], mat("#f4f6f1", "matte"), { p: [-0.06, 1.0905, -0.01], r: [-tilt, 0, 0] }),
+      box([0.21, 0.004, 0.28], mat("#f4f6f1", "paper"), { p: [-0.06, 1.0905, -0.01], r: [-tilt, 0, 0] }),
       rod([0.22, 1.06, -0.13], [0.2, 1.24, -0.22], 0.006, charcoal()),
     ];
     const mic = span([0.2, 1.24, -0.22], [0.19, 1.27, -0.27]);

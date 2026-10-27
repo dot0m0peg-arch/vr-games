@@ -1,0 +1,876 @@
+{
+  "version": 1,
+  "note": "Real models for catalog parts (LOOK-BIBLE.md section 5). Checked by tools/manifest-check.mjs; loaded by js/parts/build/models.js. awaiting-owner = a slot for the owner's Meshy export (section 12); rejected = the named free stand-in was measured and does not meet the fit or cap rule, the sculpt stays. Step 8 (Oct 26 2026): priority 1-10 filled from the Meshy community free catalog (owner 11:56 AM: the catalog is the licence, no per-model check) plus the Poly Haven hatchet; tolerance/fitNote widen the 15% rule for one entry with the reason written down; rig.split says where a rigged part's model is cut for its swing group. Claude (Command). Step 9 (Oct 27 2026): priority 11-20: six Meshy community pulls and two Poly Haven models; bench and campfire measured and rejected (the sculpts stay).",
+  "models": [
+    {
+      "part": "axe",
+      "file": "axe.glb",
+      "status": "active",
+      "source": "https://polyhaven.com/a/hatchet",
+      "license": "CC0",
+      "author": "Poly Haven",
+      "rotate": [
+        0,
+        90,
+        0
+      ],
+      "handle": [
+        -0.074,
+        0.18,
+        0
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "sha256": "991fb2c5f7e7b9329341a11e92109a491df87de7f73bc0c3e63a704e4f4f957b",
+      "triangles": 5250,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        0.269,
+        0.745,
+        0.0671
+      ],
+      "cap": 6000,
+      "note": "Step 8: the Meshy community axe (meshy-ready/axe.glb) measured 0.38 m across the head against the 0.25 m catalog slot and 0.10 m deep against 0.052 m; the Poly Haven hatchet stays."
+    },
+    {
+      "part": "sword",
+      "file": "sword.glb",
+      "status": "active",
+      "source": "https://www.meshy.ai/posts/0199472b-7428-7439-9b07-ecd56f0301d3",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 26 2026) from TrainingRoom-FreeModels\\meshy-ready (Claude Duet's Quest-ready copy of \\meshy, 1024 px textures): node transforms baked, upright by principal axes where needed, grounded and centred, welded, simplified with meshoptimizer to the slot's cap",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "tolerance": [
+        0,
+        0,
+        0.05
+      ],
+      "fitNote": "the Meshy longsword's crossguard and pommel are 86 mm deep against the sculpt's 40 mm blade slab; the blade itself is thinner than the sculpt collider. File stood pommel-up; flipped in prep so the blade points +Y.",
+      "sha256": "e002ad56ce4547451f1bea81468fc83d9d29aea90ea70ca89fa6dbfdc489730e",
+      "triangles": 5580,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        0.2606,
+        1.05,
+        0.086
+      ],
+      "cap": 6000
+    },
+    {
+      "part": "shield",
+      "file": "shield.glb",
+      "status": "active",
+      "source": "https://www.meshy.ai/posts/0199b5dc-bdad-7311-b7c6-89404b32ae78",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 26 2026) from TrainingRoom-FreeModels\\meshy-ready (Claude Duet's Quest-ready copy of \\meshy, 1024 px textures): node transforms baked, upright by principal axes where needed, grounded and centred, welded, simplified with meshoptimizer to the slot's cap",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "tolerance": [
+        0,
+        0,
+        0.035
+      ],
+      "fitNote": "a flatter round shield: 113 mm deep (boss included) against the sculpt's 144 mm; face toward +Z like the sculpt.",
+      "sha256": "29e920cfb7dadebbe43edd541a99a76d2ed6674b34442fbde953bd5b289021dc",
+      "triangles": 5651,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        0.626,
+        0.626,
+        0.1127
+      ],
+      "cap": 6000
+    },
+    {
+      "part": "training dummy",
+      "file": null,
+      "status": "rejected",
+      "candidate": "Meshy community scarecrow dummy (post https://www.meshy.ai/posts/01981755-e89b-77c7-a159-b5a4851b5d90; prepared copy in PIPELINE scratch vr-physics-build-20261025/look8-prep/training-dummy.glb, 11,985 triangles)",
+      "rejected": "axis x fits to 1.568 m, catalog 0.7 m (tolerance 0.105); axis z fits to 0.861 m, catalog 0.5 m (tolerance 0.075): a scarecrow with 1.57 m crossbar arms on a 0.86 m tripod, its body from 0.58 m up, against the sculpt's 0.7 m dummy on a pedestal with its body from 0.94 m up. The colliders stay the sculpt's, so a swing at the outer arms or the belly would pass through the visible model; the sculpt stays (step-reviewer, Oct 26).",
+      "note": "highest priority; rigged part (post fixed, body swings). The loader cuts a model at manifest rig.split for the swing group (tested); it needs a dummy shaped like the sculpt (0.7 m crossbar at 1.3 m, body 0.94-1.475 m on a post) or sculpt-shaped colliders built for the model."
+    },
+    {
+      "part": "wooden sword",
+      "file": "wooden-sword.glb",
+      "status": "active",
+      "source": "https://www.meshy.ai/posts/019b43a8-b104-708d-a5c1-50dbee3c3d3f",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 26 2026) from TrainingRoom-FreeModels\\meshy-ready (Claude Duet's Quest-ready copy of \\meshy, 1024 px textures): node transforms baked, upright by principal axes where needed, grounded and centred, welded, simplified with meshoptimizer to the slot's cap",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "tolerance": [
+        0.12,
+        0,
+        0.07
+      ],
+      "fitNote": "rope-bound crossguard 280 mm across and 106 mm deep; the sculpt is a plain 160 x 44 mm board. Blade and grip sit in the sculpt collider.",
+      "sha256": "19c00161d89059a9bfa3fb7b5de66244f46b8ff2d8f48ebc301cb164aab4f6f7",
+      "triangles": 5580,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        0.2789,
+        0.95,
+        0.1058
+      ],
+      "cap": 6000
+    },
+    {
+      "part": "katana",
+      "file": "katana.glb",
+      "status": "active",
+      "source": "https://www.meshy.ai/posts/01972498-66ce-7bc1-ac92-d84d6be076b6",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 26 2026) from TrainingRoom-FreeModels\\meshy-ready (Claude Duet's Quest-ready copy of \\meshy, 1024 px textures): node transforms baked, upright by principal axes where needed, grounded and centred, welded, simplified with meshoptimizer to the slot's cap",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "sha256": "3e0e1920e099f5fc365f59b3d8707d52059c9f5b8cf00fc59fdb43fd29016305",
+      "triangles": 5580,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        0.0919,
+        1.02,
+        0.0911
+      ],
+      "cap": 6000
+    },
+    {
+      "part": "dagger",
+      "file": "dagger.glb",
+      "status": "active",
+      "source": "https://www.meshy.ai/posts/019e55d0-7824-7cce-8fe4-81f08092727d",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 26 2026) from TrainingRoom-FreeModels\\meshy-ready (Claude Duet's Quest-ready copy of \\meshy, 1024 px textures): node transforms baked, upright by principal axes where needed, grounded and centred, welded, simplified with meshoptimizer to the slot's cap",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "note": "file drawn diagonally and pommel-up; upright by principal axes and flipped in prep.",
+      "sha256": "a4fecd983cbeec34502cec8847f9d28f4e5a94789f4a2c79efbf24b3d9322490",
+      "triangles": 5580,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        0.0787,
+        0.35,
+        0.0214
+      ],
+      "cap": 6000
+    },
+    {
+      "part": "spear",
+      "file": "spear.glb",
+      "status": "active",
+      "source": "https://www.meshy.ai/posts/019f90c7-9cd1-7263-b67f-8a780e6f0487",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 26 2026) from TrainingRoom-FreeModels\\meshy-ready (Claude Duet's Quest-ready copy of \\meshy, 1024 px textures): node transforms baked, upright by principal axes where needed, grounded and centred, welded, simplified with meshoptimizer to the slot's cap",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "tolerance": [
+        0.08,
+        0,
+        0
+      ],
+      "fitNote": "leaf-shaped head 140 mm across on the catalog's 65 mm shaft slot; the shaft matches.",
+      "sha256": "cd9e8131196dec964b942bbe61c6afe92d142c26d0bdb4aa50be673eeccf3898",
+      "triangles": 5580,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        0.14,
+        2,
+        0.0675
+      ],
+      "cap": 6000
+    },
+    {
+      "part": "crate",
+      "file": "crate.glb",
+      "status": "active",
+      "source": "https://www.meshy.ai/posts/01984fea-dc63-708a-b76c-745e3ecf7f1b",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 26 2026) from TrainingRoom-FreeModels\\meshy-ready (Claude Duet's Quest-ready copy of \\meshy, 1024 px textures): node transforms baked, upright by principal axes where needed, grounded and centred, welded, simplified with meshoptimizer to the slot's cap",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "sha256": "7d716a91c7fc2f9ea227ae6247b322161d5820ff2b2e67db784999ad5d7a7b03",
+      "triangles": 11159,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        0.9,
+        0.8899,
+        0.8998
+      ],
+      "cap": 12000
+    },
+    {
+      "part": "barrel",
+      "file": "barrel.glb",
+      "status": "active",
+      "source": "https://www.meshy.ai/posts/019db066-23f1-7b7b-9e8f-8655742f9756",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 26 2026) from TrainingRoom-FreeModels\\meshy-ready (Claude Duet's Quest-ready copy of \\meshy, 1024 px textures): node transforms baked, upright by principal axes where needed, grounded and centred, welded, simplified with meshoptimizer to the slot's cap",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "sha256": "294fcc16c9ca1c91b13188d83b48ab41458bdb8495e2ec26d3f4c2ab1c78756b",
+      "triangles": 5922,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        0.6561,
+        0.9,
+        0.6542
+      ],
+      "cap": 12000
+    },
+    {
+      "part": "hay bale",
+      "file": "hay-bale.glb",
+      "status": "active",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 27 2026, plan look9-plan.json) from TrainingRoom-FreeModels: node transforms baked, grounded and centred, welded, simplified with meshoptimizer to the slot's cap, textures downsized to 1024 px with sharp",
+      "source": "https://www.meshy.ai/posts/019c0afd-47f1-70c5-826c-a9bcd3931773",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "note": "a long small-square bale (1.86 x 0.82 x 1.11 m at slot height) stretched in prep by [0.645, 1, 0.730] to the catalog's squarer 1.2 x 0.82 x 0.81 bale so it fills the sculpt colliders; the straw texture is shortened by the same amount.",
+      "sha256": "427f1193014554b10a78747821ce5e27b83efc49a9dfa1d7028ec84d9b306684",
+      "triangles": 7979,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        1.2,
+        0.8201,
+        0.8102
+      ],
+      "cap": 12000
+    },
+    {
+      "part": "weapon rack",
+      "file": "weapon-rack.glb",
+      "status": "active",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 27 2026, plan look9-plan.json) from TrainingRoom-FreeModels: node transforms baked, grounded and centred, welded, simplified with meshoptimizer to the slot's cap, textures downsized to 1024 px with sharp",
+      "source": "https://www.meshy.ai/posts/019a6157-b75c-7eb1-9ff5-3fe1b143715b",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "cap": 15000,
+      "capNote": "the one prop over the 12,000 yard-prop cap: a wooden rack with eleven weapons hanging on it as one model (1.08M triangles in the file). meshoptimizer stops at 14.7k on the texture seams of all those small blades; its sloppy mode reached 11.1k but smeared the texture across the seams (Oct 27 dry run), so the clean 14.7k version ships under a 15,000 cap for this entry. Command's call, not an owner order; the tier pass (step 13) can cut it.",
+      "sha256": "2527d2df92468c867a6358d598e35ac4706f17b7962bc2c03ecb7b386d93b6cd",
+      "triangles": 14854,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        1.2724,
+        1.375,
+        0.4748
+      ]
+    },
+    {
+      "part": "archery target",
+      "file": "archery-target.glb",
+      "status": "active",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 27 2026, plan look9-plan.json) from TrainingRoom-FreeModels: node transforms baked, grounded and centred, welded, simplified with meshoptimizer to the slot's cap, textures downsized to 1024 px with sharp",
+      "source": "https://www.meshy.ai/posts/01a05d34-8785-74e2-8410-6cf76573feb2",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "note": "woven target on a wooden stand; the ribbons hanging off the rim (1.66 m across) were cropped in prep at |x| 0.66 m so the face and stand fill the 1.2 m slot.",
+      "sha256": "231c0d4539118e1789bade00ed111bb268ed5c5ba431f5d858b327138fccbb26",
+      "triangles": 11153,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        1.3225,
+        1.61,
+        0.6935
+      ],
+      "cap": 12000
+    },
+    {
+      "part": "bench",
+      "file": null,
+      "status": "rejected",
+      "candidate": "Objaverse park bench (objaverse/park-bench.glb, CC BY 4.0); Poly Haven sofa measured as the next nearest shape",
+      "rejected": "the park bench is a long backless bench: scaled to the catalog's 1.6 m it is 0.47 m tall and 0.37 m deep against 0.88 x 0.67 m (axis y off by 0.41 m); the garden bench file is a 72-triangle placeholder; the sofa fits the box but is a sofa. The sculpt stays.",
+      "note": "a Meshy free-catalog park bench with a backrest is the next pull (step 10's pull session)."
+    },
+    {
+      "part": "lamp post",
+      "file": "lamp-post.glb",
+      "status": "active",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 27 2026, plan look9-plan.json) from TrainingRoom-FreeModels: node transforms baked, grounded and centred, welded, simplified with meshoptimizer to the slot's cap, textures downsized to 1024 px with sharp",
+      "source": "https://www.meshy.ai/posts/019f9cf7-99c5-763f-840d-e7f86378aec4",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "tolerance": [
+        0.09,
+        0,
+        0
+      ],
+      "fitNote": "a slimmer iron street lamp: 0.42 m across the lantern arms against the sculpt's 0.5 m; the post and lantern sit inside the sculpt colliders.",
+      "sha256": "cc7e7dba93183d641e68fb04de59b9d09495afe05882448d323936e961d0ad79",
+      "triangles": 10118,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        0.4168,
+        3.79,
+        0.4284
+      ],
+      "cap": 12000
+    },
+    {
+      "part": "campfire",
+      "file": null,
+      "status": "rejected",
+      "candidate": "polyhaven/fire-pit.glb (https://polyhaven.com/a/stone_fire_pit, CC0)",
+      "rejected": "measured with its nodes flattened (Oct 27): a low stone ring 1.45 x 0.39 x 1.43 m; at the catalog's 1.22 m it is 0.33 m tall against the sculpt's 0.79 m log stack, so the sculpt's colliders and its fire emitter would stand above it. The sculpt stays.",
+      "note": "needs a campfire with stacked logs (Meshy free catalog, step 10's pull session)."
+    },
+    {
+      "part": "card table",
+      "file": "card-table.glb",
+      "status": "active",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 27 2026, plan look9-plan.json) from TrainingRoom-FreeModels: node transforms baked, grounded and centred, welded, simplified with meshoptimizer to the slot's cap, textures downsized to 1024 px with sharp",
+      "source": "https://www.meshy.ai/posts/01a040c2-8d33-7109-b32d-b12be741ae06",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "note": "round green-felt pedestal table; legs lengthened in prep (y x 1.126) so its padded rim reaches the sculpt's 0.78 m top and its felt sits at the sculpt's 0.76 m surface where the deck, mug and chess board rest (unstretched, the rim stood at 0.69 m and the felt below the things on it).",
+      "sha256": "8097c15d66c2f0124c5b06835f4d2bb143d01e39106f15084c917156da5f66ee",
+      "triangles": 11160,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        1,
+        0.7799,
+        0.9999
+      ],
+      "cap": 12000
+    },
+    {
+      "part": "chair",
+      "file": "chair.glb",
+      "status": "active",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 27 2026, plan look9-plan.json) from TrainingRoom-FreeModels: node transforms baked, grounded and centred, welded, simplified with meshoptimizer to the slot's cap, textures downsized to 1024 px with sharp",
+      "source": "https://polyhaven.com/a/dining_chair_02",
+      "license": "CC0",
+      "author": "Poly Haven",
+      "tolerance": [
+        0,
+        0,
+        0.09
+      ],
+      "fitNote": "Poly Haven Dining Chair 02: seat and splayed back legs 0.53 m deep against the sculpt's 0.45 m cube; the seat and back sit inside the sculpt colliders.",
+      "sha256": "f1fbad4e25baf6e085f5de05f0098d5ecb501027248125aae0f4587b9144a53b",
+      "triangles": 11160,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        0.4009,
+        0.9,
+        0.533
+      ],
+      "cap": 12000
+    },
+    {
+      "part": "coffee mug",
+      "file": "coffee-mug.glb",
+      "status": "active",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 27 2026, plan look9-plan.json) from TrainingRoom-FreeModels: node transforms baked, grounded and centred, welded, simplified with meshoptimizer to the slot's cap, textures downsized to 1024 px with sharp",
+      "source": "https://www.meshy.ai/posts/01987a5f-f632-79da-b8e5-1b0722ff929a",
+      "license": "meshy-community",
+      "author": "Meshy community (free catalog)",
+      "note": "turned half a turn in prep: the file has the handle on -X, the catalog grip is on +X.",
+      "sha256": "c8115c27ea48feb1e286a70b772720dc55113a4003fd34d6a2932dd543dc8c3d",
+      "triangles": 5580,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        0.127,
+        0.101,
+        0.0888
+      ],
+      "cap": 6000
+    },
+    {
+      "part": "chess board",
+      "file": "chess-board.glb",
+      "status": "active",
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "handle": null,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "material": null,
+      "prepared": "tools/touchup/catalog_prep.mjs (Claude Command, Oct 27 2026, plan look9-plan.json) from TrainingRoom-FreeModels: node transforms baked, grounded and centred, welded, simplified with meshoptimizer to the slot's cap, textures downsized to 1024 px with sharp",
+      "source": "https://polyhaven.com/a/chess_set",
+      "license": "CC0",
+      "author": "Poly Haven",
+      "note": "board with its pieces as one model (76,920 triangles in the file, simplified to the 6,000 held cap); the pieces are part of the board, not separate objects.",
+      "sha256": "4c24b162c4b22112c9195f8f930d58cb7b10399dff840a65cb5a6b4443f79b15",
+      "triangles": 5604,
+      "textures": [
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        },
+        {
+          "w": 1024,
+          "h": 1024
+        }
+      ],
+      "size": [
+        0.45,
+        0.0896,
+        0.45
+      ],
+      "cap": 6000
+    },
+    {
+      "part": "deck of cards",
+      "file": null,
+      "status": "awaiting-owner"
+    },
+    {
+      "part": "whiteboard",
+      "file": null,
+      "status": "awaiting-owner",
+      "note": "keeps a text panel (setText); a model needs the panel kept"
+    },
+    {
+      "part": "market stall",
+      "file": null,
+      "status": "awaiting-owner"
+    },
+    {
+      "part": "peasant",
+      "file": null,
+      "status": "awaiting-owner",
+      "note": "villager body, rigged idle and walk; or the improved sculpt of section 11"
+    },
+    {
+      "part": "castle",
+      "file": null,
+      "status": "awaiting-owner"
+    },
+    {
+      "part": "house",
+      "file": null,
+      "status": "awaiting-owner"
+    },
+    {
+      "part": "villa",
+      "file": null,
+      "status": "awaiting-owner"
+    },
+    {
+      "part": "tree",
+      "file": null,
+      "status": "awaiting-owner"
+    },
+    {
+      "part": "pine tree",
+      "file": null,
+      "status": "awaiting-owner"
+    },
+    {
+      "part": "farm field",
+      "file": null,
+      "status": "awaiting-owner"
+    }
+  ]
+}

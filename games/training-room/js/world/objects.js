@@ -11,6 +11,7 @@ const DEG = Math.PI / 180;
 const TWEEN = 0.25;
 const CLEAR_OUT = 0.4;
 const GRAVITY = 9.81;
+const FLY_FRESH = 5000; // ms: an added record carrying data.fly starts flying only if this new
 const UP = new THREE.Vector3(0, 1, 0);
 const ACCENT = new THREE.Color("#d5fb6a");
 const BEHAVIORS = new Set(["swim", "fly", "walk", "hop", "roll", "spin", "float", "bounce", "sway"]);
@@ -262,11 +263,19 @@ export class SceneObjects extends Emitter {
     }
     const entry = this._create(record);
     if (!entry) return;
+    // Pieces spilled from a container or taken out by hand appear at once, some already flying
+    // (data.fly is ignored once stale so a reloaded room does not throw them again).
+    const data = record.data || {};
+    if (data.spawn === "instant") phase = false;
+    if (data.fly?.vel && !record.attach && Math.abs(Date.now() - (Number(record.t) || 0)) < FLY_FRESH) {
+      phase = false;
+      this._startFlight(entry, data.fly);
+    }
     // Marker drawings appear stroke by stroke as they are drawn; no summoning effect.
     if (phase && this.phaser?.phaseIn && record.part !== "drawing") {
       entry.phasing = true;
       entry.appear = 0;
-      this.phaser.phaseIn(entry.wrapper).then(() => this._afterPhase(entry));
+      this.phaser.phaseIn(entry.wrapper, { inHand: !!record.attach }).then(() => this._afterPhase(entry));
     } else {
       entry.appear = 1;
     }
@@ -323,6 +332,7 @@ export class SceneObjects extends Emitter {
           this._measure(entry);
         });
       }
+      if (entry.hooks.setFill) this._withMaterials(entry, () => entry.hooks.setFill(data.fill));
       if (entry.meta.screen) {
         entry.screenStream = data.stream || null;
         entry.screenTexture = undefined;
@@ -396,7 +406,22 @@ export class SceneObjects extends Emitter {
     this._setBehavior(entry, record.data?.behavior);
     if (meta.hittable) this._updateLabel(entry);
     this.entries.set(record.id, entry);
+    // A real model (js/parts/build/models.js) may replace the sculpt a moment later: re-measure, re-tint, re-highlight
+    // and keep the materialize band where it is (Phaser.rebind). The sculpt's colliders are untouched.
+    wrapper.userData.modelPending?.then((result) => { if (result?.swapped) this._onModelSwapped(entry); }, () => {});
     return entry;
+  }
+
+  _onModelSwapped(entry) {
+    if (entry.destroyed || entry.removing) return;
+    entry.tints.clear();
+    entry.wrapper.traverse((child) => {
+      if (child.isMesh && child.userData.tint) entry.tints.set(child, child.material);
+    });
+    this._measure(entry);
+    if (entry.record.color) this._applyColor(entry);
+    if (entry.hl) { this._unhighlight(entry); this._highlight(entry); }
+    this.phaser?.rebind?.(entry.wrapper);
   }
 
   // Bounds of the inner object in its own (rest) frame.
@@ -455,13 +480,16 @@ export class SceneObjects extends Emitter {
     this.phaser?.cancel?.(entry.wrapper);
     this._unclear(entry);
     entry.hooks.setScreen?.(null);
+    entry.wrapper.userData.destroyed = true;   // a model still loading for this part is dropped (models.js)
     entry.wrapper.removeFromParent();
     // Recolored meshes no longer reference their built material: dispose it with the rest.
     for (const [mesh, original] of entry.tints) {
       if (mesh.material === original) continue;
+      if (mesh.material?.userData?.modelTint) mesh.material.dispose();   // the per-object clone; its maps are the shared model's
       for (const m of Array.isArray(original) ? original : [original]) if (!m.userData?.shared) m.dispose();
     }
     kit.disposeObject(entry.wrapper);
+    if (entry.wrapper.userData.sculpt) kit.disposeObject(entry.wrapper.userData.sculpt);   // the proxy a model replaced
     for (const material of entry.hlCache.values()) material.dispose();
     entry.hlCache.clear();
     if (entry.label) {
@@ -699,12 +727,13 @@ export class SceneObjects extends Emitter {
   _updateEntry(entry, dt, t, now) {
     // Finished phases are noticed here too, so a frame never waits for the promise microtask.
     if (entry.phasing && this.phaser?.isPhasing && !this.phaser.isPhasing(entry.wrapper)) this._afterPhase(entry);
-    if (entry.attach) this._applyAttach(entry);
+    if (entry.physics) { /* pose belongs to Rapier, including while held */ }
+    else if (entry.attach) this._applyAttach(entry);
     else if (entry.fly) this._stepFlight(entry, dt);
     else if (entry.tween) this._stepTween(entry, dt);
     if (entry.removing) entry.fade = Math.max(0, entry.fade - dt * entry.fadeSpeed);
     else if (entry.appear < 1) entry.appear = Math.min(1, entry.appear + dt / 1.2);
-    this._stepInner(entry, dt, now);
+    if (!entry.physics) this._stepInner(entry, dt, now);
     if (entry.hooks.update) {
       try {
         entry.hooks.update(dt, t);
@@ -852,9 +881,16 @@ export class SceneObjects extends Emitter {
   _applyColor(entry) {
     const color = entry.record.color;
     for (const [mesh, original] of entry.tints) {
+      if (mesh.material !== original && mesh.material?.userData?.modelTint) mesh.material.dispose();   // the previous clone
       if (!color) mesh.material = original;
-      else if (Array.isArray(original)) mesh.material = original.map((m) => kit.mat(color, m.userData?.kind || "matte"));
-      else mesh.material = kit.mat(color, original.userData?.kind || "matte");
+      else if (Array.isArray(original)) mesh.material = original.map((m) => kit.mat(color, m.userData?.kind || "matte", m.userData?.phys));
+      else if (original.userData?.model) {
+        // A loaded model keeps its own textures; the color multiplies them (a per-object clone, disposed with the entry).
+        const tinted = original.clone();
+        tinted.color.set(color);
+        tinted.userData = { ...original.userData, shared: true, modelTint: true };   // shared: disposeObject must not drop its maps
+        mesh.material = tinted;
+      } else mesh.material = kit.mat(color, original.userData?.kind || "matte", original.userData?.phys);
     }
   }
 
@@ -954,7 +990,7 @@ export class SceneObjects extends Emitter {
     this.scene.add(mesh);
   }
 
-  _updateShadows() {
+  _updateShadows(dt = 0) {
     this._ensureShadows(this.entries.size + this.dying.size);
     const mesh = this.shadows;
     const t = this._t;
@@ -980,9 +1016,15 @@ export class SceneObjects extends Emitter {
       const s = entry.wrapper.scale.x || 1;
       const w0 = (entry.restBox.max.x - entry.restBox.min.x) * s;
       const d0 = (entry.restBox.max.z - entry.restBox.min.z) * s;
-      // Grass parts under things standing on the ground (it grows back when they leave).
+      // Grass parts under things standing on the ground (it grows back when they leave). A landing pulses the clearing
+      // 0.2 m wider for 0.4 s (entry.clearPulse, set by the game on a grass contact; LOOK-BIBLE.md section 7).
       if (support === 0 && lift < 0.3) {
-        setClearing(this.scene, entry.id, x, z, Math.max(0.15, Math.hypot(w0, d0) * 0.42), entry.appear * entry.fade * (1 - lift / 0.3));
+        let pulse = 0;
+        if (entry.clearPulse > 0) {
+          pulse = 0.2 * Math.sin(Math.PI * (1 - entry.clearPulse / (entry.clearPulseLen || 0.4)));
+          entry.clearPulse -= dt;
+        }
+        setClearing(this.scene, entry.id, x, z, Math.max(0.15, Math.hypot(w0, d0) * 0.42) + pulse, entry.appear * entry.fade * (1 - lift / 0.3));
         entry.cleared = true;
       } else if (entry.cleared) {
         this._unclear(entry);

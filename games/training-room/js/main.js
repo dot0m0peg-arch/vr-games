@@ -12,6 +12,7 @@ import { allMeta, registerMeta } from "./parts/meta/index.js";
 import { loadRemoteParts } from "./parts/remote.js";
 import { XR } from "./xr/xr.js";
 import { Interact } from "./play/interact.js";
+import { Behaviors } from "./play/behaviors.js";
 import { DesktopControls, TouchControls } from "./play/desktop.js";
 import { Draw } from "./play/draw.js";
 import { inkMaterial, haloMaterial } from "./parts/build/sketch.js";
@@ -26,8 +27,17 @@ import { makeId } from "./util/ids.js";
 import { runSelfTest, summarize } from "./selftest.js";
 import { KingdomScene } from "./world/kingdom.js";
 import { ADVISOR_WORDS } from "./core/kingdom.js";
+import { applyLook } from "./dot3d/look.js";
+import { detectTier, tierBudget } from "./dot3d/tiers.js";
+import { warmMaterials, lookInfo } from "./parts/build/kit.js";
 
-const STATE_KEY = "training-room:standalone-state";
+const PHYSICS_MODE = PARAMS.get("mode") === "physics";
+const STATE_KEY = PHYSICS_MODE ? "training-room:physics-candidate-state" : "training-room:standalone-state";
+let physics = null, physicsEffects = null;
+build.setPhysicsColliders(PHYSICS_MODE);
+// ?capture=1: the fixed scene and six camera spots of js/capture.js for the remaster before/after sheet (no bridge, no saved room).
+const CAPTURE_MODE = PARAMS.get("capture") === "1";
+let captureRig = null;
 const KEY_KEY = "training-room:room-key";
 const NAME_KEY = "training-room:name";
 
@@ -35,22 +45,24 @@ const device = detectDevice();
 const ui = new UI({ device });
 // ?mode=kingdom opens Kingdom mode (and remembers it); ?mode=training turns it off.
 if (PARAMS.get("mode") === "kingdom") ui.setSettings({ kingdom: true });
-else if (PARAMS.get("mode") === "training") ui.setSettings({ kingdom: false });
+else if (PHYSICS_MODE || PARAMS.get("mode") === "training") ui.setSettings({ kingdom: false });
 const settings = () => ({ hand: "right", quality: device === "desktop" ? "high" : "low", speak: true, wake: false, fast: false, ...ui.settings });
 
 // ---------- renderer, scene, player rig ----------
 const stage = document.getElementById("tr-stage") || document.body;
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, device === "phone" ? 1.5 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1;
 renderer.xr.enabled = true;
 renderer.domElement.id = "tr-canvas";
 stage.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
+// dot3d look (LOOK-BIBLE.md section 6): sRGB output, AgX tone mapping and the tier's pixel-ratio cap (quest 1, tablet 1.5,
+// laptop 2; ?tier= overrides). The field owns the shadowed sun, the sky fill, the fog and the four environment maps, so
+// applyLook adds no light, fog or environment here (its zero fill is dropped).
+const tier = detectTier({ override: device === "phone" ? "tablet" : undefined });
+const look = applyLook(THREE, renderer, scene, { tier, toneMapping: "agx", exposure: 1, keyLight: false, environment: false, fillIntensity: 0 });
+scene.remove(look.fill);
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 4000);
 const rig = new THREE.Group();
 rig.name = "player-rig";
@@ -58,8 +70,9 @@ camera.position.set(0, 1.6, 0);
 rig.add(camera);
 scene.add(rig);
 
-const field = new Field({ scene, renderer, quality: settings().quality });
-const phaser = new Phaser({ scene });
+const field = new Field({ scene, renderer, quality: settings().quality, tier });
+// prepare: the field's dawn-mist shader patch, so a reveal's clones compile to the programs precompile() warmed.
+const phaser = new Phaser({ scene, prepare: (root) => field.mist.update(root) });
 const room = new Room();
 const avatars = new Avatars({ scene, localUser: () => me.id });
 let net = null;
@@ -86,14 +99,43 @@ function headPose() {
   return { p: tmpPos.toArray(), q: tmpQuat.toArray(), yaw: Math.atan2(-tmpDir.x, -tmpDir.z), pitch: Math.asin(Math.max(-1, Math.min(1, tmpDir.y))) };
 }
 
+// scriptedHands: {left?: {p, q}, right?: {p, q}} set by the local acceptance probe (window.trainingPhysics().scriptHands) so a
+// headless check can swing a sword; null means the real controllers. A scripted hand missing from the set is a hand that is not
+// tracked, as with a controller put down.
+let scriptedHands = null;
 function localHand(hand) {
   const out = handCache[hand];
+  if (scriptedHands) {
+    const s = scriptedHands[hand];
+    if (!s) return null;
+    out.p.set(+s.p.x || 0, +s.p.y || 0, +s.p.z || 0);
+    out.q.set(+s.q.x || 0, +s.q.y || 0, +s.q.z || 0, s.q.w === undefined ? 1 : +s.q.w).normalize();
+    return out;
+  }
   if (xr.presenting) return xr.handPose(hand, out);
   return desktop.handPose(hand, out);
 }
 
+// Finger input for the physics hands: trigger and squeeze values and whether the thumb rests on the stick or face
+// buttons (xr-standard gamepad). Tracked hands and the desktop fall back to the button edges and the hold state.
+function fingerInput(hand) {
+  const src = xr.presenting ? xr.hands[hand] : null;
+  const gp = src?.inputSource?.gamepad;
+  if (gp?.buttons?.length) {
+    const val = (i) => { const b = gp.buttons[i]; return b ? (b.value > 0 ? b.value : b.pressed ? 1 : 0) : 0; };
+    return { trigger: val(0), squeeze: val(1), thumb: [3, 4, 5].some((i) => gp.buttons[i]?.touched || gp.buttons[i]?.pressed) };
+  }
+  const held = !!interact.held(hand);
+  return { trigger: src?.buttons.trigger || held ? 1 : 0, squeeze: src?.buttons.squeeze || held ? 1 : 0, thumb: held };
+}
+
+let behaviors = null; // set up once interact exists (below)
+
 function getHand(user, hand) {
-  if (user === me.id) return interact.applySwing(hand, localHand(hand));
+  if (user === me.id) {
+    const pose = interact.applySwing(hand, localHand(hand));
+    return behaviors ? behaviors.applyRecoil(hand, pose) : pose;
+  }
   return avatars.handPose(user, hand);
 }
 
@@ -172,8 +214,24 @@ function send(op) {
 }
 
 // Ops are idempotent (same id and uid), so a timed-out send is retried once before warning.
+// A change to something just added waits for its add to reach the laptop (requests can overtake
+// each other, and a piece taken out of a box is added and grabbed in the same moment).
+const addsInFlight = new Map();
 function sendToBridge(op, retries) {
-  net.sendOp(op).catch((err) => {
+  const ids = op.t === "set" ? [op.id] : op.t === "del" ? op.ids || [] : [];
+  const before = ids.map((id) => addsInFlight.get(id)).filter(Boolean);
+  if (before.length) {
+    Promise.all(before).then(() => sendToBridge(op, retries));
+    return;
+  }
+  const sent = net.sendOp(op);
+  if (op.t === "add" && op.obj?.id) {
+    const id = op.obj.id;
+    const done = sent.then(() => {}, () => {});
+    addsInFlight.set(id, done);
+    done.then(() => addsInFlight.get(id) === done && addsInFlight.delete(id));
+  }
+  sent.catch((err) => {
     if (err.code === "timeout" && retries > 0) return sendToBridge(op, retries - 1);
     console.warn("[net] op failed", err);
     ui.toast(err.code === "timeout" ? "The laptop is slow to answer; that change may not have reached it." : "The laptop did not accept that change.", "warn");
@@ -200,7 +258,9 @@ room.on("env", (time) => {
   hud.setTime?.(time || "day");
 });
 
+const interactHooks = {};
 const interact = new Interact({
+  hooks: interactHooks,
   objects,
   room,
   getUser: () => me.id,
@@ -209,6 +269,44 @@ const interact = new Interact({
   fx: (fx) => net?.connected && net.sendFx(fx),
 });
 interact.on("haptic", ({ hand, intensity }) => xr.haptic(hand, intensity, 50));
+
+// Item behaviors: containers of pieces, floppy toys, guns that fire.
+behaviors = new Behaviors({
+  scene,
+  room,
+  objects,
+  interact,
+  send,
+  fx: (fx) => net?.connected && net.sendFx(fx),
+  getUser: () => me.id,
+  metaOf: (record) => build.metaOfRecord(record),
+  getHand,
+  phaser,
+  isThrownByMe: (id) => thrownByMe.has(id),
+  head: () => camera.getWorldPosition(new THREE.Vector3()),
+});
+Object.assign(interactHooks, behaviors.interactHooks());
+behaviors.on("haptic", ({ hand, intensity, ms }) => xr.haptic(hand, intensity, ms || 50));
+
+// Where a gun in this hand points: the controller's laser, else straight out of the fist (the same
+// direction a pistol grip puts the barrel), else the middle of the desktop screen.
+const FIST_FORWARD = new THREE.Vector3(0, -0.819, -0.574);
+function aimFrom(hand) {
+  return () => {
+    if (xr.presenting) {
+      if (xr.rayFrom(hand, raycaster)) return raycaster.ray.clone();
+      const pose = xr.handPose(hand);
+      return pose ? new THREE.Ray(pose.p.clone(), FIST_FORWARD.clone().applyQuaternion(pose.q).normalize()) : null;
+    }
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+    return raycaster.ray.clone();
+  };
+}
+
+// Commands go through the behaviors first ("a bag of marbles" → a snack bag filled with marbles).
+function runCommand(text, opts) {
+  return runner.run(behaviors.prepareCommand(text), opts);
+}
 
 // ---------- magic marker ----------
 // Strokes go through the runner's history so "undo" takes back the last stroke.
@@ -309,7 +407,7 @@ voice.on("final", ({ text, rest, wakeMatched }) => {
   ui.setHeard(text);
   hud.setHeard(text);
   // Kingdom mode keeps the advisor's title ("Builder, …") so the runner knows who was addressed.
-  runner.run(voice.mode === "wake" && wakeMatched && !settings().kingdom ? rest : text, { source: "voice" });
+  runCommand(voice.mode === "wake" && wakeMatched && !settings().kingdom ? rest : text, { source: "voice" });
 });
 voice.on("error", (message) => {
   ui.toast(message, "warn");
@@ -381,6 +479,8 @@ xr.on("button", ({ hand, name, pressed }) => {
     return;
   }
   if (name === "trigger") {
+    // A gun in the hand fires (and a squeaky toy squeaks) before the trigger points at the menu.
+    if (behaviors.trigger(hand, pressed, aimFrom(hand))) return;
     if (pressed && xr.rayFrom(hand, raycaster) && hud.click(raycaster)) return;
     if (markerHeld(hand)) {
       if (pressed) {
@@ -431,7 +531,9 @@ desktop.on("key", ({ key, down, repeat }) => {
   else if (key === "e") desktopGrab();
   else if (key === "q") desktopThrow();
 });
-desktop.on("swing", () => interact.swing("right"));
+desktop.on("swing", () => {
+  if (!behaviors.click("right", aimFrom("right"))) interact.swing("right");
+});
 
 function desktopGrab() {
   if (interact.held("right")) {
@@ -471,7 +573,7 @@ ui.on("play-flat", async () => {
   if (device === "phone") touch.enable();
   else desktop.enable();
 });
-ui.on("command", (text) => runner.run(text, { source: "typed" }));
+ui.on("command", (text) => runCommand(text, { source: "typed" }));
 ui.on("talk-down", talkDown);
 ui.on("talk-up", talkUp);
 ui.on("mic-mode", setMicMode);
@@ -684,6 +786,7 @@ function wireNet(client) {
   client.on("poses", (poses) => avatars.setPoses(poses));
   client.on("fx", ({ user, fx }) => {
     if (user !== me.id && fx?.kind === "hit" && objects.get(fx.id)) objects.hit(fx.id, fx.power || 0.5);
+    if (user !== me.id) behaviors.onFx(fx);
   });
   client.on("share", (event) => share?.handle(event));
   client.on("say", ({ user, text }) => {
@@ -717,6 +820,7 @@ let audioUnlocked = false;
 async function unlockAudio() {
   if (audioUnlocked) return;
   audioUnlocked = true;
+  behaviors?.unlockAudio(); // gunshots and squeaks, started inside this click
   try {
     if (canSpeak()) window.speechSynthesis.getVoices();
   } catch {
@@ -730,6 +834,15 @@ function defaultName() {
 
 function seedWelcome() {
   if (room.records().length) return;
+  if (PHYSICS_MODE) {
+    // Actual room records, built and interacted with by the normal game's controls.
+    for (let i=0;i<4;i++) send({t:"add",obj:{id:`physics-crate-${i}`,part:"crate",label:"crate",p:[-.8,.9+i*.85,-3],ry:0,s:1}});
+    send({t:"add",obj:{id:"physics-ball",part:"ball",label:"ball",p:[.7,1.4,-2.5],ry:0,s:1}});
+    send({t:"add",obj:{id:"physics-wall",part:"physics wall",label:"physics wall",p:[0,0,-5],ry:0,s:1,data:{blueprint:{name:"physics wall",size:[5,3,.1],parts:[{shape:"box",p:[0,1.5,0],s:[5,3,.1],mat:"stone",color:"#818b91"}]}}}});
+    send({t:"add",obj:{id:"physics-dummy",part:"training dummy",label:"training dummy",p:[1.6,0,-4.2],ry:0,s:1}});
+    runner.history.length=0;
+    return;
+  }
   if (settings().kingdom) {
     runner.exec([
       { do: "spawn", what: { part: "whiteboard" }, place: { rel: "at", p: [0, 0, -5] }, text: "Your Kingdom\n\nPoint at the ground and say:\n\"Builder, build a castle here\"\n\"Builder, build a house right here\"\n\"Steward, how is the kingdom?\"\n\"Marshal, how are our defenses?\"\n\nHold A/X (VR) or V (desktop) to talk." },
@@ -744,6 +857,31 @@ function seedWelcome() {
 }
 
 async function start() {
+  // Bake the family textures behind the loading screen, so the first spawn in VR does not hitch.
+  ui.setLoading("Preparing materials…");
+  warmMaterials();
+  if (PHYSICS_MODE) {
+    ui.setLoading("Preparing physics…");
+    const {PhysicsRoom, initPhysics} = await import("./physics/sync.js");
+    const {createParticles} = await import("./dot3d/particles.js");
+    const {createDecals} = await import("./dot3d/decals.js");
+    const {createHitEffects} = await import("./physics/hits.js");
+    await initPhysics();
+    // The frame loop is already running: publish physics only once its effects exist too.
+    // In a shared room every body has one simulating device (js/physics/ownership.js): ours and the users list, read live.
+    const room3d = new PhysicsRoom({objects,room,send,scene,getUser:()=>me.id,getUsers:()=>lastUsers});
+    // Pools by tier (LOOK-BIBLE.md section 7): 600/48 Quest, 900/64 tablet, 2500/128 laptop, instead of 256/64 everywhere.
+    const budget = tierBudget(tier);
+    physicsEffects = {particles:createParticles(THREE,{scene,bus:room3d.bus,maxParticles:budget.maxParticles}),
+      decals:createDecals(THREE,{scene,bus:room3d.bus,maxDecals:budget.maxDecals}),
+      // What the player feels and hears: the controller on the striker pulses, the existing Sfx plays the material's hit.
+      hits:createHitEffects({bus:room3d.bus,core:room3d.core,sfx:behaviors.sfx,haptic:(hand,intensity,ms)=>xr.haptic(hand,intensity,ms)})};
+    physics = room3d;
+    wireContactEffects(room3d.bus);
+    // Materialize motes and dust come from the same particle system; the seam light respects the tier's point-light cap.
+    phaser.attach({ particles: physicsEffects.particles, tier, lightCap: budget.pointLights,
+      activeLights: () => { let n = 0; for (const light of field.localLights?.entries?.keys() ?? []) if (light.visible) n++; return n; } });
+  }
   ui.setLoading("Growing the grass…");
   applyKingdom(!!settings().kingdom);
   ui.setParts(allMeta());
@@ -752,18 +890,101 @@ async function start() {
   // Compile first-use shaders now (HUD, controllers, teleport arc, marker ink, stars) to avoid hitches in VR.
   warmUp(renderer, scene, camera, [inkMaterial(), haloMaterial()]);
   xrSupported = await xr.isSupported().catch(() => false);
-  const online = await connectBridge().catch((err) => {
+  const online = CAPTURE_MODE ? false : await connectBridge().catch((err) => {
     console.warn("[net] bridge connection failed", err);
     ui.setConnection({ state: "standalone" });
     return false;
   });
-  if (!online) {
+  if (CAPTURE_MODE) {
+    const { installCapture } = await import("./capture.js");
+    captureRig = installCapture({ THREE, camera, rig, room, field, kingdom, setKingdom: applyKingdom, afterLoad: () => physics?.sync(), renderer, scene,
+      report: () => ({ physics: !!physics, quality: settings().quality, device, tier, materials: lookInfo() }) });
+  } else if (!online) {
     const saved = loadJSON(STATE_KEY, null);
     if (saved) room.load(saved);
     seedWelcome();
   }
   ui.setLoading(null);
-  ui.showLaunch(launchInfo({ state: online ? "online" : bridgeInfo ? "needs-key" : "none", info: bridgeInfo }));
+  if (CAPTURE_MODE) {
+    ui.hideLaunch();
+    captureRig.ready();
+  } else ui.showLaunch(launchInfo({ state: online ? "online" : bridgeInfo ? "needs-key" : "none", info: bridgeInfo }));
+}
+
+// ---------- effects with causes (LOOK-BIBLE.md section 7, build order step 6) ----------
+// The dot3d particles and decals answer every bus 'contact' and 'bite' on their own (js/dot3d). What needs the game's
+// knowledge is wired here: the field's wind for embers and smoke, the campfire's rate emitters (a part's
+// userData.emitters, part-local, on while the part is within range), a contact blob under a held or flying part (the
+// blob shadows in objects.js skip parts a hand holds), the grass clearing pulse under a landing, and the straw thrown by a
+// tear-off ('break' carries only the id, so the body is looked up here).
+const emitterKeys = new Map(); // entry id -> emitter keys
+const emitterTmp = new THREE.Vector3();
+const blobBox = new THREE.Box3();
+const UP_N = { x: 0, y: 1, z: 0 };
+function wireContactEffects(bus) {
+  bus.on("contact", (e) => {
+    if (!e || !(e.impulse >= 0.5) || !Array.isArray(e.surfaces) || !Array.isArray(e.ids)) return;
+    const striker = e.striker === 1 ? 1 : 0;
+    if (e.surfaces[1 - striker] !== "grass") return;
+    const entry = objects.entries.get(e.ids[striker]);
+    if (!entry || entry.clearPulse > 0) return;
+    entry.clearPulse = 0.4; entry.clearPulseLen = 0.4;   // objects.js widens the clearing 0.2 m for 0.4 s, then back
+  });
+  bus.on("break", ({ id }) => {
+    const e = physics?.entries.get(id);
+    const particles = physicsEffects?.particles;
+    if (!e || !particles) return;
+    const b = e.body, p = b.translation();
+    let straw = false;
+    for (let i = 0; i < b.numColliders(); i++) if (physics.core.contacts.surfaceOf(b.collider(i).handle) === "straw") straw = true;
+    if (straw) {
+      let n = 24 + Math.floor(Math.random() * 17);   // 24-40 wisps in a 0.3 m sphere
+      while (n > 0) { const c = Math.min(24, n); particles.burst("wisps", { point: p, normal: UP_N, radius: 0.3, count: c, impulse: 4 }); n -= c; }
+    }
+    particles.burst("dust", { point: p, normal: UP_N, radius: 0.3, count: 12, impulse: 2, tint: straw ? [1.35, 1.22, 0.86] : undefined });
+  });
+}
+function syncEmitters() {
+  const particles = physicsEffects?.particles;
+  if (!particles) return;
+  const seen = new Set();
+  for (const [id, entry] of objects.entries) {
+    const list = entry.inner?.userData?.emitters;
+    if (!Array.isArray(list) || !list.length || entry.removing || entry.fade <= 0) continue;
+    seen.add(id);
+    let keys = emitterKeys.get(id);
+    if (!keys) { keys = list.map((_, i) => `${id}#${i}`); emitterKeys.set(id, keys); }
+    entry.inner.updateWorldMatrix(true, false);
+    const s = entry.wrapper.scale.x || 1;
+    for (let i = 0; i < list.length; i++) {
+      const em = list[i];
+      emitterTmp.set(em.p?.[0] || 0, em.p?.[1] || 0, em.p?.[2] || 0);
+      entry.inner.localToWorld(emitterTmp);
+      const near = headWorld.distanceTo(emitterTmp) <= (em.range ?? 30);
+      particles.emitter(keys[i], { kind: em.kind, rate: em.rate, point: { x: emitterTmp.x, y: emitterTmp.y, z: emitterTmp.z },
+        normal: em.normal ? { x: em.normal[0], y: em.normal[1], z: em.normal[2] } : UP_N, radius: (em.radius || 0) * s,
+        active: near && entry.appear >= 1 && !entry.phasing });
+    }
+  }
+  for (const [id, keys] of emitterKeys) if (!seen.has(id)) { for (const k of keys) particles.removeEmitter(k); emitterKeys.delete(id); }
+}
+function syncBlobs() {
+  const decals = physicsEffects?.decals;
+  if (!physics || !decals) return;
+  for (const [id, e] of physics.entries) {
+    const key = "blob:" + id, prop = physics.core.props.get(id);
+    if (!prop || prop.fixed || e.rig) continue;
+    const entry = e.entry;
+    const held = !!entry.attach || physics.holders(id).length > 0;
+    const box = objects.bounds(id, blobBox);
+    if (!box || box.isEmpty()) { decals.untrack(key); continue; }
+    const lift = box.min.y;
+    // Held parts always; a thrown part once it is high enough that the objects.js blob shadow has faded.
+    if (!(held || (!e.body.isSleeping() && lift > 1.0))) { decals.untrack(key); continue; }
+    const w = Math.max(0.12, (box.max.x - box.min.x) * 0.9), d = Math.max(0.12, (box.max.z - box.min.z) * 0.9);
+    decals.track(key, { kind: "blob", point: { x: (box.min.x + box.max.x) / 2, y: 0.004, z: (box.min.z + box.max.z) / 2 }, normal: UP_N,
+      sizeW: w, sizeH: d, rotation: 0, opacity: Math.max(0.35, 1 - Math.max(0, lift - 0.3) / 3) });
+  }
 }
 
 // Hover highlight: raycasting dense meshes every frame is costly on a Quest, so only re-pick when
@@ -786,6 +1007,7 @@ const headWorld = new THREE.Vector3();
 let poseTimer = 0;
 let lastFrame = performance.now();
 let t = 0;
+let warmAfterLoad = true;
 
 renderer.setAnimationLoop(() => {
   const now = performance.now();
@@ -798,6 +1020,12 @@ renderer.setAnimationLoop(() => {
 
   camera.getWorldPosition(headWorld);
   field.update(dt, t, headWorld);
+  // Lit programs depend on how many point lights are on (lamp posts, campfires arrive with the room): warm the
+  // materialize programs once more on the first frame that has parts, after the field budgeted its lights.
+  if (warmAfterLoad && room.records().length) {
+    warmAfterLoad = false;
+    phaser.precompile?.(renderer, camera);
+  }
   if (kingdom.enabled) {
     const head = headPose();
     kingdom.update(dt, t, head);
@@ -805,6 +1033,17 @@ renderer.setAnimationLoop(() => {
   }
   interact.update(dt, { left: localHand("left"), right: localHand("right") });
   objects.update(dt, t);
+  if (physics) {
+    physics.setHands({left:localHand("left"),right:localHand("right")},{left:fingerInput("left"),right:fingerInput("right")});
+    physics.update(dt);
+    // Embers and smoke lean with the field's wind (uWind is the grass shader's strength, about 0.3: a 1 m/s breeze).
+    physicsEffects.particles.setWind(field.shared.uWindDir.value, field.shared.uWind.value * 3);
+    syncEmitters();
+    syncBlobs();
+    physicsEffects.particles.update(dt,camera);
+    physicsEffects.decals.update(dt);
+  }
+  behaviors.update(dt);
   avatars.update(dt);
   phaser.update(dt);
   hud.update(dt);
@@ -833,6 +1072,7 @@ renderer.setAnimationLoop(() => {
     poseTimer = 0;
     net.sendPose({ ...playerPose(), device, talking });
   }
+  captureRig?.frame(now);
   renderer.render(scene, camera);
 });
 
@@ -846,4 +1086,11 @@ window.addEventListener("pagehide", () => net?.leave());
 start();
 
 // Debug handle for tests and the browser console.
-window.trainingRoom = { THREE, kingdom, scene, camera, rig, renderer, room, runner, objects, voice, ui, hud, xr, field, interact, draw, get net() { return net; }, get selfTestReport() { return selfTestReport; }, get me() { return me; }, playerPose };
+window.trainingRoom = { THREE, kingdom, scene, camera, rig, renderer, room, runner, objects, voice, ui, hud, xr, field, interact, behaviors, draw, get net() { return net; }, get selfTestReport() { return selfTestReport; }, get me() { return me; }, playerPose };
+
+// Read-only candidate inspection for the local acceptance runner.
+if (PHYSICS_MODE) window.trainingPhysics = () => ({physics,physicsEffects,room,objects,interact,behaviors,fingerInput,phaser,send,tier,field,
+  // The acceptance probe drives the hands itself: scriptHands({right:{p,q}}) replaces the controllers, scriptHands(null) gives them back.
+  scriptHands:(poses)=>{scriptedHands=poses&&typeof poses==="object"?poses:null;},scriptedHands:()=>scriptedHands,
+  emitters:()=>[...emitterKeys.entries()].map(([id,keys])=>({id,keys})),
+  me:()=>me,users:()=>lastUsers,netState:()=>(net?{connected:net.connected,online:net.online,user:net.user?.id??null}:{connected:false,online:false,user:null})});

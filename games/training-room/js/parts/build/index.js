@@ -1,4 +1,8 @@
 // Builds the 3D object for a room record from the parts bin (built-in, laptop, or AI blueprint).
+import { colliderShapes } from "../../physics/colliders.js";
+import { rigFor, buildRig, keepMeshes } from "../../physics/rig.js";
+let physicsColliders=false;
+export function setPhysicsColliders(enabled){physicsColliders=!!enabled;}
 import { kit, THREE } from "./kit.js";
 import { builders as structures } from "./structures.js";
 import { builders as nature } from "./nature.js";
@@ -7,11 +11,13 @@ import { builders as leisure } from "./leisure.js";
 import { builders as combat } from "./combat.js";
 import { builders as kingdom } from "./kingdom.js";
 import { builders as sketch } from "./sketch.js";
+import { builders as props } from "./props.js";
 import { buildBlueprint } from "./blueprint.js";
+import { attachModel } from "./models.js";
 import { getMeta } from "../meta/index.js";
 import { sketchBounds } from "../../core/sketch.js";
 
-const registry = new Map(Object.entries({ ...structures, ...nature, ...office, ...leisure, ...combat, ...kingdom, ...sketch }));
+const registry = new Map(Object.entries({ ...structures, ...nature, ...office, ...leisure, ...combat, ...kingdom, ...sketch, ...props }));
 
 export function registerBuilder(name, fn) {
   registry.set(String(name).toLowerCase(), fn);
@@ -37,7 +43,7 @@ export function metaOfRecord(record) {
   if (bp) {
     return {
       name: record.part, aliases: [], category: "custom", desc: bp.desc || "", size: bp.size || [1, 1, 1],
-      holdable: !!bp.holdable && Math.max(...(bp.size || [1, 1, 1])) <= 2, grip: bp.grip,
+      holdable: !!bp.holdable && Math.max(...(bp.size || [1, 1, 1])) <= 2, grip: bp.grip, rig: bp.rig, edge: bp.edge, edges: bp.edges,
     };
   }
   return { name: record.part, aliases: [], category: "custom", size: [0.8, 0.8, 0.8], placeholder: true };
@@ -63,7 +69,7 @@ function placeholder(record) {
 // { id, record, meta, inner, hooks: { update?, setText?, setDeck?, setScreen? } }
 export function buildObject(record) {
   const meta = metaOfRecord(record);
-  const opts = { color: record.color || meta.color, data: record.data || {}, text: record.text || "", seed: hashSeed(record.id) };
+  const opts = { color: record.color || meta.color, data: record.data || {}, text: record.text || "", seed: hashSeed(record.id), buildPart };
   let inner;
   try {
     const builder = registry.get(record.part);
@@ -77,15 +83,41 @@ export function buildObject(record) {
   wrapper.name = `obj:${record.id}`;
   wrapper.add(inner);
   const hooks = {};
-  for (const key of ["update", "setText", "setDeck", "setScreen"]) {
+  for (const key of ["update", "setText", "setDeck", "setScreen", "setFill"]) {
     if (typeof inner.userData[key] === "function") hooks[key] = inner.userData[key];
   }
+  const physicsShapes = physicsColliders ? colliderShapes(inner) : null;
+  // A rigged part (training dummy on its post) is split at its pivot before any merge: the swing meshes get their own group.
+  const physicsRig = physicsShapes ? buildRig(inner, physicsShapes, rigFor(record.part, meta)) : null;
   // Parts whose hooks keep references to individual meshes are left as built.
-  if (!Object.keys(hooks).length && record.part !== "drawing") kit.mergeStatic(inner);
-  wrapper.userData = { id: record.id, record, meta, inner, hooks };
+  if (!Object.keys(hooks).length && record.part !== "drawing") {
+    if (physicsRig) { kit.mergeStatic(physicsRig.swing); keepMeshes(physicsRig.swing); }
+    kit.mergeStatic(inner);
+  }
+  wrapper.userData = { id: record.id, record, meta, inner, hooks, physicsShapes, physicsRig };
   if (record.text && hooks.setText) hooks.setText(record.text);
   if (record.data && hooks.setDeck && (meta.deck || record.data.cards || record.data.card)) hooks.setDeck(record.data);
+  // Model first, sculpt fallback (LOOK-BIBLE.md step 7): the sculpt above is the collider source and the look until the
+  // part's GLB (assets/models/MANIFEST.json) arrives and fits; models.js swaps it in and js/world/objects.js re-measures.
+  // Only built-in catalog parts have models; blueprints, drawings and placeholders keep what they built.
+  if (!meta.placeholder && meta.category !== "custom" && registry.has(record.part)) {
+    wrapper.userData.modelPending = attachModel(wrapper, { meta, record, inner, hooks, rig: physicsRig ? rigFor(record.part, meta) : null });
+  }
   return wrapper;
+}
+
+// A part's mesh on its own (no wrapper), for containers drawing the pieces inside them.
+function buildPart(part, color) {
+  const name = String(part || "").toLowerCase();
+  const builder = registry.get(name);
+  let inner = null;
+  try {
+    if (builder) inner = builder({ color: color || getMeta(name)?.color, data: {}, text: "", seed: 1, buildPart });
+  } catch (err) {
+    console.error(`[parts] failed to build ${name}`, err);
+  }
+  if (inner && !Object.keys(inner.userData).some((k) => typeof inner.userData[k] === "function")) kit.mergeStatic(inner);
+  return inner;
 }
 
 function hashSeed(text = "") {

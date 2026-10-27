@@ -93,8 +93,12 @@ function swingAngle(u) {
 }
 
 export class Interact extends Emitter {
-  constructor({ objects, room, getUser, metaOf, send, fx }) {
+  // hooks.take(record, { hand, point, raycaster, distance }) → record to grab instead (a piece taken
+  // out of a container) or null; hooks.drop(record, { hand, p }) → true when a gently released object
+  // was taken care of (put back into a container).
+  constructor({ objects, room, getUser, metaOf, send, fx, hooks = {} }) {
     super();
+    this.hooks = hooks;
     this.objects = objects;
     this.room = room;
     this.getUser = getUser || (() => "local");
@@ -109,6 +113,7 @@ export class Interact extends Emitter {
     for (const hand of HANDS) {
       this._hands[hand] = {
         held: null,
+        second: null, // physics object held as the second hand (the record is attached to the other hand)
         hist: new Float64Array(HISTORY * 4), // [t, x, y, z] ring buffer
         histHead: 0,
         histCount: 0,
@@ -168,6 +173,7 @@ export class Interact extends Emitter {
   // Grabbable: holdable, or at most 3 m on every axis and not heavy. Drawings stay where drawn.
   grabbable(record) {
     if (!record || record.part === "drawing") return false;
+    if (this.objects.physics?.has(record.id)) return this.objects.physics.canGrab(record.id);
     const meta = this._meta(record);
     if (meta.holdable) return true;
     if (meta.heavy || meta.fixed) return false;
@@ -249,7 +255,14 @@ export class Interact extends Emitter {
         break;
       }
     }
-    return st.held;
+    if (st.held) {
+      if (st.second === st.held) st.second = null; // the attach was handed over to this hand
+      return st.held;
+    }
+    // Second hand on a physics object the other hand is attached to: no attach of its own, the hold joint is the hold.
+    if (st.second && objects[st.second] && this.objects.physics?.holds?.(hand, st.second)) return st.second;
+    st.second = null;
+    return null;
   }
 
   // → id | null. point/quat: world hand pose; raycaster (optional) for distance grabs.
@@ -288,8 +301,26 @@ export class Interact extends Emitter {
       distance = !!best;
     }
     if (!best) return null;
+    const taken = this.hooks.take?.(best, { hand, point: p, raycaster, distance });
+    if (taken) {
+      best = taken;
+      distance = false;
+    }
 
     const meta = this._meta(best);
+    if (this.objects.physics?.has(best.id)) {
+      if (!this.objects.physics.grab(hand, best.id, { p, q: handQ }, { distance, grip: meta.grip || null })) return null;
+      if (best.attach?.user === me && best.attach.hand !== hand) {
+        // Second hand on something the other hand holds: the record stays attached to the first hand, this hand's
+        // hold is its own physics joint where it touched (release() hands the attach over if the first hand lets go).
+        st.second = best.id;
+        st.held = null;
+        st.tipValid = false;
+        st.swing = -1;
+        this.emit("grab", { hand, id: best.id, distance: false, second: true });
+        return best.id;
+      }
+    }
     const attach = { user: me, hand, grip: meta.grip ? "snap" : "keep" };
     if (!meta.grip) attach.rel = distance ? this._palmRel(hand, best, meta, handQ) : this._keepRel(best, p, handQ);
     const patch = { attach };
@@ -368,6 +399,21 @@ export class Interact extends Emitter {
     if (!id) return null;
     const record = this.state.objects[id];
     const meta = this._meta(record);
+    if (this.objects.physics?.has(id)) {
+      const physics = this.objects.physics;
+      const second = st.second === id;
+      physics.release(hand);
+      // Two hands held it: the other hand keeps it. The attach follows the hand still holding when the attached hand lets go.
+      const rest = (physics.holders?.(id) || []).filter((other) => other !== hand);
+      if (!rest.length) physics.commitRelease(id);
+      else if (!second) physics.commitHandoff?.(id, rest[0], hand);
+      st.held = null;
+      st.second = null;
+      st.tipValid = false;
+      st.swing = -1;
+      this.emit("release", { hand, id, thrown: !rest.length, second });
+      return id;
+    }
     const vel = velocity ? setVec(this._vel, velocity) : this.handVelocity(hand, this._vel);
     if (vel.length() > THROW_MAX) vel.setLength(THROW_MAX);
     const pose = this._heldPose(record, meta, hand);
@@ -378,6 +424,10 @@ export class Interact extends Emitter {
     st.swing = -1;
 
     const speed = vel.length();
+    if (speed <= THROW_MIN && this.hooks.drop?.(record, { hand, p: pose.p })) {
+      this.emit("release", { hand, id, thrown: false });
+      return id;
+    }
     if (speed > THROW_MIN) {
       const patch = { attach: null, p, ry };
       if (record.onto) patch.onto = null;
@@ -562,6 +612,10 @@ export class Interact extends Emitter {
       this._pushHistory(st, st.pose.p);
 
       const id = this.held(hand);
+      if (id && st.second === id) {
+        st.tipValid = false; // the second hand holds the blade or the far end: the weapon tip belongs to the first hand
+        continue;
+      }
       const record = id ? this.state.objects[id] : null;
       const meta = record ? this._meta(record) : null;
       if (!meta?.tip || meta.marker) {

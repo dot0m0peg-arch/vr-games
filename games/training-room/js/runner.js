@@ -9,6 +9,7 @@ import { summarize } from "./core/room-state.js";
 import { allMeta, getMeta, registerMeta } from "./parts/meta/index.js";
 import { metaOfRecord, sizeOfRecord, registerBuilder } from "./parts/build/index.js";
 import { buildBlueprint } from "./parts/build/blueprint.js";
+import { resolveCharacter } from "./parts/character-spawn.js";
 import { matchPart, normalizeText } from "./core/lexicon.js";
 import { classifySketch, projectStrokes, sketchBounds } from "./core/sketch.js";
 import { WAKE_WORDS } from "./config.js";
@@ -102,12 +103,24 @@ export class Runner extends Emitter {
       return null;
     }
     const hand = this.settings().hand || "right";
+    const net = this.getNet();
+    const character = await resolveCharacter(net, command);
+    if (character && !getMeta(character.name)) {
+      const bp = character.blueprint;
+      registerMeta({ name: character.name, aliases: bp.aliases, desc: bp.desc, size: bp.size, category: character.group, holdable: bp.holdable, grip: bp.grip });
+      registerBuilder(character.name, (opts) => buildBlueprint(character.baseBlueprint, opts));
+      this.emit("parts-changed");
+    }
     const parsed = parseCommand(command, { metas: allMeta(), hand });
+    if (character) for (const intent of parsed.intents) {
+      if (intent.do === "spawn" && intent.what?.part === character.name) {
+        intent.what = { custom: character.blueprint, label: character.blueprint.name };
+      }
+    }
     const marker = parsed.intents.find((intent) => MARKER_INTENTS.has(intent.do));
     if (marker && parsed.confidence >= 0.8) return this.markerFlow(marker, command);
-    const net = this.getNet();
     const parserFirst = this.parserFirst || this.settings().fast;
-    const useModel = this.modelAvailable && net?.connected && !(parserFirst && parsed.confidence >= 0.8);
+    const useModel = this.modelAvailable && net?.connected && !character && !(parserFirst && parsed.confidence >= 0.8);
 
     let intents = parsed.intents;
     let say = parsed.say ? [parsed.say] : [];
@@ -146,7 +159,12 @@ export class Runner extends Emitter {
     }
     const markerIntent = intents.find((intent) => MARKER_INTENTS.has(intent.do));
     if (markerIntent) return this.markerFlow(markerIntent, command);
-    const result = this.exec(intents, { label: command, source: brain });
+    const result = this.exec(intents, { label: command, source: brain, decorate: character ? (op) => {
+      if (op.t !== "add" || !op.obj.data?.blueprint) return;
+      const kind = character.group === "air" ? "fly" : character.group === "water" ? "swim"
+        : /dragon|wyvern|phoenix|fairy|pixie|roc|sylph|pegasus/.test(character.name) ? "fly" : "walk";
+      op.obj.data.behavior = { kind, speed: 1 };
+    } : null });
     const replies = [...say, ...result.say].filter(Boolean);
     if (advisor) {
       const ack = result.ops.length ? advisorAck(advisor, this.history.length) : "";

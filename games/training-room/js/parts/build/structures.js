@@ -268,7 +268,7 @@ export const builders = {
   },
 
   tower(o) {
-    const woodM = mat(o.color || "#8a6440", "wood");
+    const woodM = mat(o.color || "#8a6440", "plank");
     const dark = mat(C.darkWood, "wood");
     const root = group();
     const add = (...list) => list.forEach((m) => root.add(m));
@@ -277,7 +277,8 @@ export const builders = {
     const H = 7;
     const legAt = (sx, sz, y) => [sx * (B + (T - B) * y / H), y, sz * (B + (T - B) * y / H)];
     const corners = [[1, 1], [1, -1], [-1, -1], [-1, 1]];
-    for (const [sx, sz] of corners) add(beam(legAt(sx, sz, 0), legAt(sx, sz, H), 0.22, 0.22, woodM, { tint: true }));
+    // The splayed legs start 15 mm up so their tilted bottom corners end on the ground, not 14 mm into it (step 11).
+    for (const [sx, sz] of corners) add(beam(legAt(sx, sz, 0.015), legAt(sx, sz, H), 0.22, 0.22, woodM, { tint: true }));
     for (let i = 0; i < 4; i++) {
       const [ax, az] = corners[i];
       const [bx, bz] = corners[(i + 1) % 4];
@@ -341,7 +342,7 @@ export const builders = {
   },
 
   stairs(o) {
-    const body = mat(o.color || "#9a7552", "wood");
+    const body = mat(o.color || "#9a7552", "plank");
     const tread = mat("#c7a27a", "wood");
     const root = group();
     const n = 10;
@@ -359,7 +360,7 @@ export const builders = {
   },
 
   ramp(o) {
-    const body = mat(o.color || "#c08f52", "wood");
+    const body = mat(o.color || "#c08f52", "plank");
     const root = group();
     const a = Math.atan2(1, 4) / DEG;
     root.add(extrude([[2, 0], [-2, 1], [-2, 0]], 2, body, { r: [0, -90, 0], tint: true }));
@@ -371,7 +372,7 @@ export const builders = {
   },
 
   pillar(o) {
-    const marble = mat(o.color || "#ece8df", "stone");
+    const marble = mat(o.color || "#ece8df", "rock");
     const root = group();
     root.add(box([0.9, 0.18, 0.9], marble, { p: [0, 0.09, 0], tint: true }));
     root.add(lathe([[0.001, 0.18], [0.38, 0.18], [0.38, 0.26], [0.32, 0.3], [0.34, 0.36], [0.3, 0.42], [0.29, 1.4],
@@ -411,7 +412,7 @@ export const builders = {
   },
 
   footbridge(o) {
-    const deck = mat(o.color || "#9b6b40", "wood");
+    const deck = mat(o.color || "#9b6b40", "plank");
     const dark = mat("#6a4527", "wood");
     const root = group();
     const L = 6;
@@ -480,14 +481,17 @@ export const builders = {
   },
 
   "lamp post"(o) {
-    const iron = mat(o.color || "#2f3b33", "plastic");
+    const iron = mat(o.color || "#2f3b33", "iron", "plastic");
     const root = group();
     root.add(lathe([[0.001, 0], [0.22, 0], [0.22, 0.08], [0.16, 0.14], [0.14, 0.4], [0.09, 0.5], [0.001, 0.5]], iron, { seg: 12, tint: true }));
     root.add(cyl([0.045, 0.06, 2.6], iron, { p: [0, 1.8, 0], seg: 10, tint: true }));
     root.add(cyl([0.08, 0.08, 0.06], iron, { p: [0, 2.4, 0], seg: 10, tint: true }));
     root.add(box([0.5, 0.04, 0.04], iron, { p: [0, 2.9, 0], tint: true }));
     root.add(cyl([0.12, 0.08, 0.06], iron, { p: [0, 3.13, 0], seg: 6, tint: true }));
-    root.add(cyl([0.16, 0.11, 0.38], mat(C.lamp, "glow"), { p: [0, 3.35, 0], seg: 6 }));
+    const lantern = mat(C.lamp, "glow").clone(); lantern.emissiveIntensity = 6;
+    const light = new THREE.PointLight("#ffcf8a", 18, 14, 2);
+    light.position.y = 3.4; light.userData.fieldLight = { intensity: 18 }; root.add(light);
+    root.add(cyl([0.16, 0.11, 0.38], lantern, { p: [0, 3.35, 0], seg: 6 }));
     root.add(cone([0.22, 0.18], iron, { p: [0, 3.63, 0], seg: 6, tint: true }));
     root.add(sphere(0.035, iron, { p: [0, 3.75, 0], seg: 8, tint: true }));
     return finish(root, "lamp post");
@@ -546,7 +550,7 @@ export const builders = {
   },
 
   shed(o) {
-    const wood = mat(o.color || "#7d5b3c", "wood");
+    const wood = mat(o.color || "#7d5b3c", "plank");
     const trim = mat("#e9e4d6", "wood");
     const root = group();
     const add = (...list) => list.forEach((m) => root.add(m));

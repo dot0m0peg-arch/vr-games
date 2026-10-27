@@ -3,6 +3,9 @@
 // Everything heavy runs on the GPU; per frame the CPU only updates a few uniforms.
 import * as THREE from "../../vendor/three.module.min.js";
 import { rng } from "../util/ids.js";
+import { makeEnvironmentScene, revisionOf } from "../dot3d/look.js";
+import { tierBudget } from "../dot3d/tiers.js";
+import { LocalLights, createDawnMist } from "./local-lights.js";
 
 const DEG = Math.PI / 180;
 const GROUND_SIZE = 4000;
@@ -17,32 +20,45 @@ const QUALITY = {
 
 // az: degrees clockwise from -Z (straight ahead at spawn), el: degrees above the horizon.
 // Horizon doubles as the fog color so the ground melts into the sky.
+// envI: the preset's environment-map strength on lit parts; exposure: the tone-mapping exposure (LOOK-BIBLE.md section 6).
+// De-cartoon grade (Oct 26, Connor's verdict, LOOK-BIBLE.md section 3a): the sky and haze lose their crayon saturation,
+// the hemisphere fill and environment light drop to about half so the sun's shadows actually read, the sun comes up a
+// little to keep the lit side where it was. Directions, fog distances and the night preset's structure are unchanged.
 const PRESETS = {
   day: {
-    zenith: "#3f86d8", horizon: "#c9e2ee", below: "#9dbb8a",
-    sun: { az: 140, el: 52 }, sunColor: "#fff2dc", sunI: 2.9, sunVis: 1, glow: 0.55,
-    hemiSky: "#cfe4ff", hemiGround: "#6f8a3c", hemiI: 1.25,
-    fogNear: 60, fogFar: 1900, stars: 0, moon: 0,
+    fogColor: "#cfd8dd", mist: 0,
+    zenith: "#4d7fb8", horizon: "#cfd8dd", below: "#6e7a50",
+    // Three-quarter front light (az 60, el 40): the old az 140 lit the yard from behind the player, so every shadow fell
+    // behind its object and the whole field read flat. Now each part has a lit side, a shaded side and a shadow you see.
+    sun: { az: 60, el: 40 }, sunColor: "#fff0d8", sunI: 3.3, sunVis: 1, glow: 0.45,
+    hemiSky: "#c4d3e2", hemiGround: "#4c5730", hemiI: 0.55,
+    fogNear: 60, fogFar: 1900, stars: 0, moon: 0, envI: 0.55, exposure: 0.95,
   },
   sunset: {
-    zenith: "#3c5d9c", horizon: "#f2b07a", below: "#8a7a55",
-    sun: { az: 28, el: 5 }, sunColor: "#ffb36b", sunI: 2.2, sunVis: 1, glow: 1.25,
-    hemiSky: "#a7b0dc", hemiGround: "#6b5a2c", hemiI: 1.1,
-    fogNear: 50, fogFar: 1700, stars: 0.05, moon: 0,
+    fogColor: "#dca27a", mist: 0,
+    zenith: "#3d5a8a", horizon: "#e6b48a", below: "#7d6f4f",
+    sun: { az: 28, el: 5 }, sunColor: "#ffb36b", sunI: 2.5, sunVis: 1, glow: 1.1,
+    hemiSky: "#9aa4c6", hemiGround: "#5a4c28", hemiI: 0.5,
+    fogNear: 50, fogFar: 1700, stars: 0.05, moon: 0, envI: 0.5, exposure: 0.9,
   },
   night: {
+    fogColor: "#1b2a4b", mist: 0,
     zenith: "#050b1e", horizon: "#1b2a4b", below: "#16223a",
-    sun: { az: -24, el: 32 }, sunColor: "#a9c1ff", sunI: 0.9, sunVis: 0, glow: 0.12,
-    hemiSky: "#4a68a8", hemiGround: "#22342b", hemiI: 1.2,
-    fogNear: 30, fogFar: 1300, stars: 1, moon: 1,
+    sun: { az: -24, el: 32 }, sunColor: "#a9c1ff", sunI: 0.5, sunVis: 0, glow: 0.12,
+    hemiSky: "#4a68a8", hemiGround: "#22342b", hemiI: 0.45,
+    fogNear: 30, fogFar: 1300, stars: 1, moon: 1, envI: 0.3, exposure: 1.15,
   },
   dawn: {
-    zenith: "#4b4f93", horizon: "#f0a6b9", below: "#7f7489",
-    sun: { az: -38, el: 7 }, sunColor: "#ffc6c0", sunI: 1.9, sunVis: 1, glow: 1,
-    hemiSky: "#b6a8e0", hemiGround: "#5d5a3a", hemiI: 1,
-    fogNear: 50, fogFar: 1700, stars: 0.12, moon: 0,
+    fogColor: "#d3aab4", mist: 0.03,
+    zenith: "#4b5189", horizon: "#e6afbc", below: "#746c7c",
+    sun: { az: -38, el: 7 }, sunColor: "#ffc6c0", sunI: 2.2, sunVis: 1, glow: 0.9,
+    hemiSky: "#aba2cf", hemiGround: "#524f33", hemiI: 0.5,
+    fogNear: 50, fogFar: 1700, stars: 0.12, moon: 0, envI: 0.45, exposure: 0.95,
   },
 };
+
+const COLOR_KEYS = ["zenith", "horizon", "below", "sunColor", "hemiSky", "hemiGround", "fogColor"];
+const SCALAR_KEYS = ["sunI", "sunVis", "glow", "hemiI", "fogNear", "fogFar", "stars", "moon", "envI", "exposure", "mist"];
 
 function sunVector(az, el, out = new THREE.Vector3()) {
   return out.set(Math.sin(az * DEG) * Math.cos(el * DEG), Math.sin(el * DEG), -Math.cos(az * DEG) * Math.cos(el * DEG)).normalize();
@@ -53,32 +69,50 @@ function makeState() {
   return {
     zenith: new THREE.Color(), horizon: new THREE.Color(), below: new THREE.Color(),
     sunDir: new THREE.Vector3(0, 1, 0), sunColor: new THREE.Color(), sunI: 1, sunVis: 1, glow: 1,
-    hemiSky: new THREE.Color(), hemiGround: new THREE.Color(), hemiI: 1,
-    fogNear: 50, fogFar: 1800, stars: 0, moon: 0,
+    hemiSky: new THREE.Color(), hemiGround: new THREE.Color(), fogColor: new THREE.Color(), mist: 0, hemiI: 1,
+    fogNear: 50, fogFar: 1800, stars: 0, moon: 0, envI: 1, exposure: 1,
   };
 }
 
 function stateFromPreset(preset, out = makeState()) {
-  for (const key of ["zenith", "horizon", "below", "sunColor", "hemiSky", "hemiGround"]) out[key].set(preset[key]);
+  for (const key of COLOR_KEYS) out[key].set(preset[key]);
   sunVector(preset.sun.az, preset.sun.el, out.sunDir);
-  for (const key of ["sunI", "sunVis", "glow", "hemiI", "fogNear", "fogFar", "stars", "moon"]) out[key] = preset[key];
+  for (const key of SCALAR_KEYS) out[key] = preset[key];
   return out;
 }
 
 function copyState(from, out) {
-  for (const key of ["zenith", "horizon", "below", "sunColor", "hemiSky", "hemiGround"]) out[key].copy(from[key]);
+  for (const key of COLOR_KEYS) out[key].copy(from[key]);
   out.sunDir.copy(from.sunDir);
-  for (const key of ["sunI", "sunVis", "glow", "hemiI", "fogNear", "fogFar", "stars", "moon"]) out[key] = from[key];
+  for (const key of SCALAR_KEYS) out[key] = from[key];
   return out;
 }
 
 function lerpState(a, b, k, out) {
-  for (const key of ["zenith", "horizon", "below", "sunColor", "hemiSky", "hemiGround"]) out[key].copy(a[key]).lerp(b[key], k);
+  for (const key of COLOR_KEYS) out[key].copy(a[key]).lerp(b[key], k);
   out.sunDir.copy(a.sunDir).lerp(b.sunDir, k);
   if (out.sunDir.lengthSq() < 1e-6) out.sunDir.copy(b.sunDir);
   out.sunDir.normalize();
-  for (const key of ["sunI", "sunVis", "glow", "hemiI", "fogNear", "fogFar", "stars", "moon"]) out[key] = a[key] + (b[key] - a[key]) * k;
+  for (const key of SCALAR_KEYS) out[key] = a[key] + (b[key] - a[key]) * k;
   return out;
+}
+
+// Shadow box per tier (LOOK-BIBLE.md section 10): map size from the tier budget, radius in metres around the player.
+const SHADOW_RADIUS = { quest: 14, tablet: 14, laptop: 22 };
+
+// Four environment maps, one per preset, baked through PMREM from the field's own sky colors (no HDR download, no hue
+// drift): dome gradient zenith/horizon/below plus the sun as a hot spot, so metals and glazes get real reflections.
+function bakeEnvironments(renderer) {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const maps = {};
+  for (const [name, p] of Object.entries(PRESETS)) {
+    const sun = new THREE.Color(p.sunColor).multiplyScalar(p.sunVis ? 1 : 0.2);
+    const envScene = makeEnvironmentScene(THREE, { sky: p.zenith, horizon: p.horizon, ground: p.below, sun, sunDir: sunVector(p.sun.az, p.sun.el).toArray(), panels: false });
+    maps[name] = pmrem.fromScene(envScene, 0.04);
+    envScene.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+  }
+  pmrem.dispose();
+  return maps;
 }
 
 const ease = (k) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
@@ -117,16 +151,46 @@ uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform vec3 uHemiSky;
 uniform vec3 uHemiGround;
-vec3 fieldLight(vec3 albedo, vec3 n, float occlusion, float translucency, vec3 viewDir) {
+// Split so the fragment can shade the sun's share by the key-light shadow map and leave the sky's share alone.
+void fieldLightSplit(vec3 albedo, vec3 n, float occlusion, float translucency, vec3 viewDir, out vec3 ambient, out vec3 direct) {
   float hemiK = n.y * 0.5 + 0.5;
-  vec3 ambient = mix(uHemiGround, uHemiSky, hemiK) * occlusion;
+  ambient = albedo * mix(uHemiGround, uHemiSky, hemiK) * occlusion * 0.3183099;
   float ndl = max(dot(n, uSunDir), 0.0);
   float back = pow(max(dot(viewDir, -uSunDir), 0.0), 4.0) * translucency;
-  vec3 direct = uSunColor * (ndl * (0.55 + 0.45 * occlusion) + back * 0.9);
-  return albedo * (ambient + direct) * 0.3183099;
+  direct = albedo * uSunColor * (ndl * (0.55 + 0.45 * occlusion) + back * 0.9) * 0.3183099;
+}
+vec3 fieldLight(vec3 albedo, vec3 n, float occlusion, float translucency, vec3 viewDir) {
+  vec3 ambient, direct;
+  fieldLightSplit(albedo, n, occlusion, translucency, viewDir, ambient, direct);
+  return ambient + direct;
 }`;
 
 const FOG_UNIFORMS = () => THREE.UniformsUtils.clone(THREE.UniformsLib.fog);
+
+// Shadow receive for the field's own shaders (grass, clumps, flowers): three's shadow-map chunks, driven by the field sun.
+// The blade geometry has no normal attribute, so the chunk's normal bias is zero; the sun's bias handles the rest.
+const SHADOW_VERTEX_PARS = /* glsl */ `
+  #ifdef FIELD_SHADOWS
+    #include <shadowmap_pars_vertex>
+  #endif`;
+const SHADOW_VERTEX = /* glsl */ `
+  #ifdef FIELD_SHADOWS
+    vec4 worldPosition = vec4(world, 1.0);
+    #include <shadowmap_vertex>
+  #endif`;
+const SHADOW_FRAGMENT_PARS = /* glsl */ `
+  #include <packing>
+  #ifdef FIELD_SHADOWS
+    uniform bool receiveShadow; // the renderer uploads it per object; built-in materials get the declaration from lights_pars_begin
+    #include <shadowmap_pars_fragment>
+    #include <shadowmask_pars_fragment>
+  #endif`;
+const SHADOW_FRAGMENT = /* glsl */ `
+  float shade = 1.0;
+  #ifdef FIELD_SHADOWS
+    shade = getShadowMask();
+  #endif`;
+const shadowUniforms = (on) => (on ? THREE.UniformsUtils.clone(THREE.UniformsLib.lights) : {});
 
 // ---------- clearings: grass and flowers flatten and lean away under objects ----------
 // Other modules register circles on scene.userData (no direct reference to the Field needed);
@@ -134,16 +198,19 @@ const FOG_UNIFORMS = () => THREE.UniformsUtils.clone(THREE.UniformsLib.fog);
 const MAX_CLEARINGS = 12;
 const CLEARINGS_KEY = "fieldClearings";
 
-export function setClearing(scene, key, x, z, radius, strength = 1) {
+// strength presses the grass flat (0..1). bare (0..1, step 12) also strips the pressed stubs away inside 0.85 of the
+// radius, fading out at the radius, so trodden dirt (the Kingdom plaza) shows the ground instead of a green stubble.
+export function setClearing(scene, key, x, z, radius, strength = 1, bare = 0) {
   if (!scene) return;
   let map = scene.userData[CLEARINGS_KEY];
   if (!map) map = scene.userData[CLEARINGS_KEY] = new Map();
   let c = map.get(key);
-  if (!c) map.set(key, (c = { x: 0, z: 0, r: 0, k: 0 }));
+  if (!c) map.set(key, (c = { x: 0, z: 0, r: 0, k: 0, b: 0 }));
   c.x = x;
   c.z = z;
   c.r = radius;
   c.k = strength;
+  c.b = bare;
 }
 
 export function removeClearing(scene, key) {
@@ -152,6 +219,18 @@ export function removeClearing(scene, key) {
 
 const CLEARING_GLSL = /* glsl */ `
 uniform vec4 uClear[${MAX_CLEARINGS}];
+uniform float uClearBare[${MAX_CLEARINGS}];
+// How bare the ground is at wp (0..1): full inside 0.85 of a bare clearing's radius, gone at the radius.
+float clearingBare(vec2 wp) {
+  float bare = 0.0;
+  for (int i = 0; i < ${MAX_CLEARINGS}; i++) {
+    vec4 c = uClear[i];
+    if (c.w <= 0.0 || uClearBare[i] <= 0.0) continue;
+    float dist = length(wp - c.xy);
+    bare = max(bare, uClearBare[i] * (1.0 - smoothstep(c.z * 0.85, c.z, dist)));
+  }
+  return bare;
+}
 // Returns press strength (0..1); writes the push-away direction.
 float clearing(vec2 wp, out vec2 away) {
   float press = 0.0;
@@ -185,11 +264,14 @@ function bladeGeometry() {
   return geometry;
 }
 
-function grassMaterial(uniforms, { clumps = false } = {}) {
+function grassMaterial(uniforms, { clumps = false, shadows = false } = {}) {
+  const defines = clumps ? { CLUMPS: 1 } : {};
+  if (shadows) defines.FIELD_SHADOWS = 1;
   return new THREE.ShaderMaterial({
     name: clumps ? "field-clumps" : "field-grass",
-    uniforms,
-    defines: clumps ? { CLUMPS: 1 } : {},
+    uniforms: { ...uniforms, ...shadowUniforms(shadows) },
+    defines,
+    lights: shadows,
     side: THREE.DoubleSide,
     fog: true,
     vertexShader: /* glsl */ `
@@ -202,12 +284,14 @@ function grassMaterial(uniforms, { clumps = false } = {}) {
       uniform vec3 uRoot;
       uniform vec3 uTip;
       uniform vec3 uDry;
-      varying vec3 vColor;
+      varying vec3 vAmbient;
+      varying vec3 vDirect;
       ${WRAP_GLSL}
       ${WIND_GLSL}
       ${LIGHT_GLSL}
       ${CLEARING_GLSL}
       #include <fog_pars_vertex>
+      ${SHADOW_VERTEX_PARS}
       void main() {
         vec2 rel = wrapAround(aBlade.xy, uPlayer.xz, uPatch);
         float d = length(rel) / (uPatch * 0.5);
@@ -219,7 +303,7 @@ function grassMaterial(uniforms, { clumps = false } = {}) {
         float h = position.y;
         vec2 away;
         float press = clearing(wp, away);
-        float len = aBlade.w * fade * (1.0 - 0.82 * press);
+        float len = aBlade.w * fade * (1.0 - 0.82 * press) * (1.0 - 0.92 * clearingBare(wp));
         float width = aShape.x * (0.35 + 0.65 * fade);
         float c = cos(aBlade.z);
         float s = sin(aBlade.z);
@@ -240,15 +324,19 @@ function grassMaterial(uniforms, { clumps = false } = {}) {
         vec3 n = normalize(mix(bladeN, vec3(0.0, 1.0, 0.0), 0.62));
         vec3 viewDir = normalize(world - cameraPosition);
         float occlusion = mix(0.32, 1.0, h);
-        vColor = fieldLight(albedo, n, occlusion, h * 0.6, viewDir);
+        fieldLightSplit(albedo, n, occlusion, h * 0.6, viewDir, vAmbient, vDirect);
         #include <fog_vertex>
+        ${SHADOW_VERTEX}
       }`,
     fragmentShader: /* glsl */ `
-      varying vec3 vColor;
+      varying vec3 vAmbient;
+      varying vec3 vDirect;
       #include <common>
       #include <fog_pars_fragment>
+      ${SHADOW_FRAGMENT_PARS}
       void main() {
-        gl_FragColor = vec4(vColor, 1.0);
+        ${SHADOW_FRAGMENT}
+        gl_FragColor = vec4(vAmbient + vDirect * shade, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
         #include <fog_fragment>
@@ -347,10 +435,12 @@ function makeFlowers(count, patch, seed) {
   return geometry;
 }
 
-function flowerMaterial(uniforms) {
+function flowerMaterial(uniforms, { shadows = false } = {}) {
   return new THREE.ShaderMaterial({
     name: "field-flowers",
-    uniforms,
+    uniforms: { ...uniforms, ...shadowUniforms(shadows) },
+    defines: shadows ? { FIELD_SHADOWS: 1 } : {},
+    lights: shadows,
     side: THREE.DoubleSide,
     fog: true,
     vertexShader: /* glsl */ `
@@ -359,12 +449,14 @@ function flowerMaterial(uniforms) {
       uniform vec3 uPlayer;
       uniform float uPatch;
       uniform float uFadeStart;
-      varying vec3 vColor;
+      varying vec3 vAmbient;
+      varying vec3 vDirect;
       ${WRAP_GLSL}
       ${WIND_GLSL}
       ${LIGHT_GLSL}
       ${CLEARING_GLSL}
       #include <fog_pars_vertex>
+      ${SHADOW_VERTEX_PARS}
       void main() {
         vec2 rel = wrapAround(aBlade.xy, uPlayer.xz, uPatch);
         float d = length(rel) / (uPatch * 0.5);
@@ -385,15 +477,21 @@ function flowerMaterial(uniforms) {
         bool center = dot(position, position) < 0.001;
         vec3 albedo = center ? vec3(0.95, 0.62, 0.08) : aTint.rgb;
         vec3 viewDir = normalize(world - cameraPosition);
-        vColor = fieldLight(albedo, vec3(0.0, 1.0, 0.0), 1.0, 0.5, viewDir) * 1.15;
+        fieldLightSplit(albedo, vec3(0.0, 1.0, 0.0), 1.0, 0.5, viewDir, vAmbient, vDirect);
+        vAmbient *= 1.15;
+        vDirect *= 1.15;
         #include <fog_vertex>
+        ${SHADOW_VERTEX}
       }`,
     fragmentShader: /* glsl */ `
-      varying vec3 vColor;
+      varying vec3 vAmbient;
+      varying vec3 vDirect;
       #include <common>
       #include <fog_pars_fragment>
+      ${SHADOW_FRAGMENT_PARS}
       void main() {
-        gl_FragColor = vec4(vColor, 1.0);
+        ${SHADOW_FRAGMENT}
+        gl_FragColor = vec4(vAmbient + vDirect * shade, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
         #include <fog_fragment>
@@ -411,7 +509,8 @@ function groundTexture(renderer) {
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   const random = rng(77);
-  ctx.fillStyle = "#4a7330";
+  // De-cartoon grade (section 3a): meadow ground in olive and straw tones, no crayon green under the blades.
+  ctx.fillStyle = "#55653a";
   ctx.fillRect(0, 0, size, size);
   // Seamless: everything near an edge is also drawn wrapped.
   const wrapped = (x, y, r, draw) => {
@@ -422,7 +521,7 @@ function groundTexture(renderer) {
       }
     }
   };
-  const blotch = ["#3f672a", "#55803a", "#4d7a2e", "#5e8a3c", "#456f2c", "#6a8d3e"];
+  const blotch = ["#4b5f31", "#5f7340", "#58703a", "#6a7c46", "#4f6633", "#75844a"];
   for (let i = 0; i < 260; i++) {
     const x = random() * size;
     const y = random() * size;
@@ -435,7 +534,7 @@ function groundTexture(renderer) {
       ctx.fill();
     });
   }
-  const strokes = ["#2f5220", "#3b6326", "#5f8f3a", "#76a446", "#8bb553", "#a3b85a", "#355b22"];
+  const strokes = ["#3a4d27", "#45592c", "#687f3f", "#7d944b", "#8fa257", "#a3a862", "#3f5a2a"];
   ctx.lineCap = "round";
   for (let i = 0; i < 9000; i++) {
     const x = random() * size;
@@ -894,14 +993,27 @@ function makeClouds(uniforms) {
 
 // ---------- Field ----------
 
+const _right = new THREE.Vector3();
+const _upL = new THREE.Vector3();
+const _center = new THREE.Vector3();
+
 export class Field {
-  constructor({ scene, renderer = null, quality = "high" } = {}) {
+  // tier: quest | tablet | laptop (js/dot3d/tiers.js) sizes the shadow map and box; grassShadows: the field's own shaders
+  // sample the shadow map too (the first cut in the bible's Quest fps pass, so it is a switch).
+  constructor({ scene, renderer = null, quality = "high", tier = "laptop", grassShadows = true } = {}) {
     this.scene = scene;
     this.renderer = renderer;
     this.quality = QUALITY[quality] ? quality : "high";
+    this.tier = tier;
+    this.budget = tierBudget(tier);
+    this.shadow = { mapSize: this.budget.shadowMapSize, radius: SHADOW_RADIUS[tier] ?? SHADOW_RADIUS.laptop };
+    this.grassShadows = !!grassShadows;
     this._time = "day";
+    this._envTime = null;
     this.group = new THREE.Group();
     this.group.name = "field";
+    this.localLights = new LocalLights(scene, this.budget.pointLights);
+    this.mist = createDawnMist(); this.group.add(this.mist.group);
     this.scenery = new THREE.Group(); // follows the player's head: sky and stars
     this.scenery.name = "field-scenery";
     this.group.add(this.scenery);
@@ -926,16 +1038,33 @@ export class Field {
       uHemiSky: { value: new THREE.Color() },
       uHemiGround: { value: new THREE.Color() },
       uClear: { value: Array.from({ length: MAX_CLEARINGS }, () => new THREE.Vector4()) },
+      uClearBare: { value: new Array(MAX_CLEARINGS).fill(0) },
     };
     this.shared = shared;
     this._near = Array.from({ length: MAX_CLEARINGS }, () => ({ c: null, d: Infinity }));
-    this.colors = { root: new THREE.Color("#1d3a10"), tip: new THREE.Color("#7fb63f"), dry: new THREE.Color("#b8bf5c") };
+    // Grass hues after the de-cartoon grade (section 3a): olive tips and straw-coloured dry blades, no crayon green.
+    this.colors = { root: new THREE.Color("#25391b"), tip: new THREE.Color("#789643"), dry: new THREE.Color("#a9a263") };
 
     this.hemi = new THREE.HemisphereLight("#cfe4ff", "#6f8a3c", 1);
     this.hemi.name = "field-hemi";
+    // The sun is the shadowed key light (LOOK-BIBLE.md section 6): an orthographic shadow box of the tier's radius that
+    // follows the player's head on the ground plane in whole shadow-texel steps, so shadow edges do not swim as he walks.
     this.sun = new THREE.DirectionalLight("#ffffff", 2);
     this.sun.name = "field-sun";
-    this.sun.castShadow = false;
+    this.sun.castShadow = true;
+    {
+      const s = this.sun.shadow, r = this.shadow.radius;
+      s.mapSize.set(this.shadow.mapSize, this.shadow.mapSize);
+      Object.assign(s.camera, { left: -r, right: r, top: r, bottom: -r, near: r * 0.5, far: r * 5 });
+      s.camera.updateProjectionMatrix();
+      s.bias = -0.0004;
+      s.normalBias = 0.02;
+      s.radius = 3;
+    }
+    if (renderer?.shadowMap) {
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = revisionOf(THREE) >= 180 ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+    }
     this.group.add(this.hemi, this.sun, this.sun.target);
 
     this.texture = groundTexture(renderer);
@@ -946,7 +1075,11 @@ export class Field {
       uGroundFar: { value: new THREE.Color("#ffffff") },
     };
     this.ground = makeGround(this.texture, this.groundUniforms);
+    this.ground.receiveShadow = true;
     this.group.add(this.ground);
+
+    // One environment map per preset; scene.environment swaps at the crossfade midpoint, its intensity follows the state.
+    this.envMaps = renderer ? bakeEnvironments(renderer) : null;
 
     this.skyUniforms = {
       uZenith: { value: this.state.zenith },
@@ -979,6 +1112,13 @@ export class Field {
     for (const object of [this.sky, this.stars, this.hills, this.clouds, ...this.trees]) object.raycast = noRaycast;
     scene.add(this.group);
     this._apply();
+  }
+
+  // How dark it is, 0..1, from the blended sun strength: day 0, sunset 0.29, dawn 0.42, night 1. Night-only local
+  // lights (the forge) follow it through the three-second crossfade (step 12).
+  night() {
+    const sunI = this.state?.sunI ?? PRESETS.day.sunI;
+    return 1 - Math.min(1, Math.max(0, (sunI - PRESETS.night.sunI) / (PRESETS.day.sunI - PRESETS.night.sunI)));
   }
 
   get time() {
@@ -1018,7 +1158,10 @@ export class Field {
       lerpState(this.from, this.to, ease(this.blend), this.state);
       this._apply();
     }
+    this._followShadow(p);
     this._updateClearings(p);
+    this.localLights.update(p, t, this.night());
+    this.mist.update(this.scene);
     // Gentle breathing of the wind strength.
     u.uWind.value = 0.3 + 0.08 * Math.sin(t * 0.21) + 0.05 * Math.sin(t * 0.53 + 1.3);
     const pixel = this.renderer?.getPixelRatio?.() || 1;
@@ -1049,14 +1192,38 @@ export class Field {
       }
     }
     const out = this.shared.uClear.value;
+    const bare = this.shared.uClearBare.value;
     for (let i = 0; i < MAX_CLEARINGS; i++) {
       const c = near[i].c;
       if (c) out[i].set(c.x, c.z, c.r, Math.min(1, c.k));
       else out[i].set(0, 0, 0, 0);
+      bare[i] = c && c.b > 0 ? Math.min(1, c.b) : 0;
     }
   }
 
-  // Pushes the interpolated time-of-day state into lights, fog and uniforms.
+  // Moves the sun's shadow box with the player: the box center is the head's ground point snapped to whole texels in the
+  // light's own axes (three's lookAt basis: z toward the sun, x = up cross z, y = z cross x), the light sits 3 radii out.
+  _followShadow(p) {
+    const dir = this.state.sunDir;
+    const lowSun = Math.max(0, 1 - Math.abs(dir.y) / .2);
+    const r = this.shadow.radius * (1 + .4 * lowSun);
+    const cam = this.sun.shadow.camera;
+    if (cam.right !== r) { Object.assign(cam, { left: -r, right: r, top: r, bottom: -r }); cam.updateProjectionMatrix(); }
+    const texel = (2 * r) / this.sun.shadow.mapSize.width;
+    _right.set(0, 1, 0).cross(dir);
+    if (_right.lengthSq() < 1e-6) _right.set(1, 0, 0);
+    _right.normalize();
+    _upL.crossVectors(dir, _right);
+    _center.set(p.x, 0, p.z);
+    const cx = Math.round(_center.dot(_right) / texel) * texel;
+    const cy = Math.round(_center.dot(_upL) / texel) * texel;
+    const cz = _center.dot(dir);
+    _center.set(0, 0, 0).addScaledVector(_right, cx).addScaledVector(_upL, cy).addScaledVector(dir, cz);
+    this.sun.target.position.copy(_center);
+    this.sun.position.copy(_center).addScaledVector(dir, r * 3);
+  }
+
+  // Pushes the interpolated time-of-day state into lights, fog, exposure, environment and uniforms.
   _apply() {
     const s = this.state;
     const u = this.shared;
@@ -1066,11 +1233,20 @@ export class Field {
     u.uHemiGround.value.copy(s.hemiGround).multiplyScalar(s.hemiI);
     this.sun.color.copy(s.sunColor);
     this.sun.intensity = s.sunI;
-    this.sun.position.copy(s.sunDir).multiplyScalar(100);
+    this._followShadow(u.uPlayer.value);
+    if (this.renderer) this.renderer.toneMappingExposure = s.exposure;
+    if (this.envMaps) {
+      if (this.blend >= 0.5 && this._envTime !== this._time) {
+        this._envTime = this._time;
+        this.scene.environment = this.envMaps[this._time].texture;
+      }
+      if ("environmentIntensity" in this.scene) this.scene.environmentIntensity = s.envI;
+    }
     this.hemi.color.copy(s.hemiSky);
     this.hemi.groundColor.copy(s.hemiGround);
     this.hemi.intensity = s.hemiI;
-    this.fog.color.copy(s.horizon);
+    this.fog.color.copy(s.fogColor);
+    this.mist.uniforms.density.value = s.mist; this.mist.group.visible = s.mist > .0001;
     this.fog.near = s.fogNear;
     this.fog.far = s.fogFar;
     this.skyUniforms.uSunVis.value = s.sunVis;
@@ -1106,23 +1282,33 @@ export class Field {
       uTip: { value: this.colors.tip },
       uDry: { value: this.colors.dry },
     };
-    this.grass = new THREE.Mesh(makeGrass(q.blades, q.patch, 11), grassMaterial(grassUniforms));
+    const shadows = this.grassShadows;
+    this.grass = new THREE.Mesh(makeGrass(q.blades, q.patch, 11), grassMaterial(grassUniforms, { shadows }));
     this.grass.name = "field-grass";
     const clumpUniforms = { ...grassUniforms, ...FOG_UNIFORMS(), uPatch: { value: q.clumpPatch }, uFadeStart: { value: 0.6 }, uInner: { value: (q.patch * 0.36) / (q.clumpPatch * 0.5) } };
-    this.clumps = new THREE.Mesh(makeGrass(q.clumps, q.clumpPatch, 13, { clumps: true }), grassMaterial(clumpUniforms, { clumps: true }));
+    this.clumps = new THREE.Mesh(makeGrass(q.clumps, q.clumpPatch, 13, { clumps: true }), grassMaterial(clumpUniforms, { clumps: true, shadows }));
     this.clumps.name = "field-clumps";
     const flowerUniforms = { ...base, ...FOG_UNIFORMS(), uPatch: { value: q.patch * 1.25 }, uFadeStart: { value: 0.7 } };
-    this.flowers = new THREE.Mesh(makeFlowers(q.flowers, q.patch * 1.25, 17), flowerMaterial(flowerUniforms));
+    this.flowers = new THREE.Mesh(makeFlowers(q.flowers, q.patch * 1.25, 17), flowerMaterial(flowerUniforms, { shadows }));
     this.flowers.name = "field-flowers";
     for (const mesh of [this.grass, this.clumps, this.flowers]) {
       mesh.frustumCulled = false; // wrapped in the vertex shader, bounds are meaningless
       mesh.raycast = noRaycast;
+      mesh.receiveShadow = shadows;
       this.group.add(mesh);
     }
     this.groundUniforms.uNearR.value = q.patch / 2;
   }
 
+  // Switches the grass shaders' shadow receive (rebuilds the grass); the ground keeps receiving either way.
+  setGrassShadows(on) {
+    if (!!on === this.grassShadows) return;
+    this.grassShadows = !!on;
+    this._buildGrass();
+  }
+
   dispose() {
+    this.localLights.dispose(); this.mist.dispose();
     this.scene.remove(this.group);
     if (this.scene.fog === this.fog) this.scene.fog = this.prevFog || null;
     this.group.traverse((object) => {
@@ -1130,6 +1316,14 @@ export class Field {
       object.material?.dispose();
     });
     this.texture?.dispose();
+    if (this.envMaps) {
+      for (const target of Object.values(this.envMaps)) {
+        if (this.scene.environment === target.texture) this.scene.environment = null;
+        target.dispose();
+      }
+      this.envMaps = null;
+    }
+    this.sun.shadow?.dispose?.();
     this.sun.dispose?.();
     this.hemi.dispose?.();
   }

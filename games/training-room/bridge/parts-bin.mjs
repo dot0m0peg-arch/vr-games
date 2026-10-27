@@ -10,6 +10,7 @@ import { safeSegments, mimeOf } from "./static.mjs";
 
 export const FILE_TYPES = new Set(["glb", "gltf", "bin", "png", "jpg", "jpeg", "webp", "ktx2", "js", "mjs", "json"]);
 const MAX_JSON = 2 * 1024 * 1024;
+const MAX_CATALOG_JSON = 32 * 1024 * 1024; // Large, checked batches rather than 5,000 filesystem files.
 
 export const PARTS_README = `Training Room laptop parts bin
 ==============================
@@ -145,7 +146,7 @@ export class PartsBin extends Emitter {
 
   async doScan() {
     const entries = [];
-    const seen = new Set();
+    const seen = new Map(); // name -> index in entries
     const live = new Set();
     for (let index = 0; index < this.dirs.length; index++) {
       const dir = this.dirs[index];
@@ -166,14 +167,22 @@ export class PartsBin extends Emitter {
           if (!["json", "glb", "gltf", "js", "mjs"].includes(ext)) continue;
           const file = path.join(folder, name);
           live.add(file);
-          const entry = await this.readEntry(file, ext, set, index, sub ? `${sub}/${name}` : name);
-          if (!entry) continue;
-          if (seen.has(entry.name)) {
-            this.warnOnce(`dup:${file}`, `[parts] ${file}: "${entry.name}" already exists in the parts bin; skipped`);
-            continue;
+          const result = await this.readEntry(file, ext, set, index, sub ? `${sub}/${name}` : name);
+          for (const entry of Array.isArray(result) ? result : result ? [result] : []) {
+            if (seen.has(entry.name)) {
+              // A real model replaces a primitive blueprint of the same name (Claude, Oct 26 2026:
+              // free CC0 models in an extra partsDirs folder upgrade the catalog items they match).
+              const at = seen.get(entry.name);
+              if (entry.kind === "gltf" && entries[at].kind === "blueprint") {
+                entries[at] = entry;
+                continue;
+              }
+              this.warnOnce(`dup:${file}:${entry.name}`, `[parts] ${file}: "${entry.name}" already exists in the parts bin; skipped`);
+              continue;
+            }
+            seen.set(entry.name, entries.length);
+            entries.push(entry);
           }
-          seen.add(entry.name);
-          entries.push(entry);
         }
       }
     }
@@ -246,14 +255,17 @@ export class PartsBin extends Emitter {
       };
       if (!result.name) result = null;
     }
-    if (result) result.stamp = stamp;
+    if (Array.isArray(result)) for (const entry of result) entry.stamp = stamp;
+    else if (result) result.stamp = stamp;
     this.cache.set(file, { stamp, result });
     return result;
   }
 
   async readBlueprint(file, stat) {
-    if (stat.size > MAX_JSON) {
-      this.warnOnce(`big:${file}:${stat.mtimeMs}`, `[parts] ${file}: larger than 2 MB; skipped`);
+    const catalog = file.toLowerCase().endsWith(".catalog.json");
+    const maxBytes = catalog ? MAX_CATALOG_JSON : MAX_JSON;
+    if (stat.size > maxBytes) {
+      this.warnOnce(`big:${file}:${stat.mtimeMs}`, `[parts] ${file}: larger than ${Math.round(maxBytes / 1048576)} MB; skipped`);
       return null;
     }
     let raw;
@@ -263,29 +275,38 @@ export class PartsBin extends Emitter {
       this.warnOnce(`json:${file}:${stat.mtimeMs}`, `[parts] ${file}: not valid JSON (${err.message}); skipped`);
       return null;
     }
-    if (!raw || typeof raw !== "object" || !Array.isArray(raw.parts)) {
-      this.warnOnce(`bp:${file}:${stat.mtimeMs}`, `[parts] ${file}: not a blueprint (needs a "parts" list); skipped`);
+    const items = catalog ? raw?.blueprints : [raw];
+    if (!Array.isArray(items) || (catalog && (items.length < 1 || items.length > 5000))) {
+      this.warnOnce(`bp:${file}:${stat.mtimeMs}`, `[parts] ${file}: invalid blueprint collection; skipped`);
       return null;
     }
-    if (!raw.name) raw.name = nameFromFile(file);
-    const normalized = normalizeBp(raw);
-    if (!normalized.ok) {
-      this.warnOnce(`bp:${file}:${stat.mtimeMs}`, `[parts] ${file}: invalid blueprint (${normalized.error}); skipped`);
-      return null;
+    const entries = [];
+    for (const [i, item] of items.entries()) {
+      if (!item || typeof item !== "object" || !Array.isArray(item.parts)) {
+        this.warnOnce(`bp:${file}:${i}`, `[parts] ${file}: item ${i} needs a parts list; skipped`);
+        continue;
+      }
+      const source = item.name ? item : { ...item, name: nameFromFile(file) };
+      const normalized = normalizeBp(source);
+      if (!normalized.ok) {
+        this.warnOnce(`bp:${file}:${i}`, `[parts] ${file}: item ${i} invalid (${normalized.error}); skipped`);
+        continue;
+      }
+      const bp = normalized.blueprint;
+      const meta = cleanMeta({ ...source, ...bp });
+      entries.push({
+        category: "custom",
+        aliases: [],
+        desc: "design from the laptop parts bin",
+        holdable: false,
+        ...meta,
+        name: meta.name || nameFromFile(file),
+        size: bp.size,
+        kind: "blueprint",
+        blueprint: bp,
+      });
     }
-    const bp = normalized.blueprint;
-    const meta = cleanMeta({ ...raw, ...bp });
-    return {
-      category: "custom",
-      aliases: [],
-      desc: "design from the laptop parts bin",
-      holdable: false,
-      ...meta,
-      name: meta.name || nameFromFile(file),
-      size: Array.isArray(bp.size) ? bp.size : meta.size,
-      kind: "blueprint",
-      blueprint: bp,
-    };
+    return catalog ? entries : entries[0] || null;
   }
 
   // Path below the API base; segments stay "/"-separated so glTF relative URIs resolve.

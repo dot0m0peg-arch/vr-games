@@ -8,27 +8,30 @@ const { THREE, box, cyl, sphere, cone, torus, capsule, lathe, extrude, group, ma
 
 const COLORS = Object.fromEntries(metas.map((m) => [m.name, m.color]));
 // Primary (tinted) material: record color, else the catalog color.
-const tint = (opts, name, kind) => mat(opts?.color || COLORS[name] || "#888888", kind);
+// Look step 3 (Oct 26): kinds are the bible's families (steel, iron, leather, straw, cloth, plank). Where a family's own
+// physics differs from what the passed physics steps measured (steel and iron were "plastic" bodies), phys keeps the old
+// physics material: the blade looks like brushed steel and still weighs and bites as before. Step 6 re-registers materials.
+const tint = (opts, name, kind, phys) => mat(opts?.color || COLORS[name] || "#888888", kind, phys);
 
 // Shared palette. The "metal" kind only shines with an environment map, so polished "plastic" in
 // light/dark grays stands in for steel and iron (reads well under plain sun + sky light).
 const WOOD = mat("#8f5f36", "wood");
 const WOOD_LIGHT = mat("#c69a62", "wood");
 const WOOD_DARK = mat("#5a3a20", "wood");
-const STEEL = mat("#c9cec8", "plastic");
-const STEEL_EDGE = mat("#f2f4ef", "plastic");
-const IRON = mat("#55595c", "plastic");
-const DARK = mat("#2a2c2e", "plastic");
-const BRASS = mat("#c9a04a", "plastic");
-const LEATHER = mat("#4a2e1c", "fabric");
+const STEEL = mat("#c9cec8", "steel", "plastic");
+const STEEL_EDGE = mat("#f2f4ef", "steel", "plastic");
+const IRON = mat("#55595c", "iron", "plastic");
+const DARK = mat("#2a2c2e", "iron", "plastic");
+const BRASS = mat("#c9a04a", "gold", "plastic");
+const LEATHER = mat("#4a2e1c", "leather");
 const ROPE = mat("#c9b081", "fabric");
-const STRAW = mat("#d9b866", "fabric");
+const STRAW = mat("#d9b866", "straw");
 const THREAD = mat("#2b241c", "fabric");
 const WHITE = mat("#f1efe8", "plastic");
 const BLACK = mat("#1d1f20", "plastic");
 const RED = mat("#c8202f", "plastic");
 const BLUE = mat("#2a64b0", "plastic");
-const GOLD = mat("#f2c230", "plastic");
+const GOLD = mat("#f2c230", "gold", "plastic");
 const LIME = mat("#d5fb6a", "plastic");
 const LIME_GLOW = mat("#d5fb6a", "glow");
 const STONE = mat("#8d918c", "stone");
@@ -178,7 +181,7 @@ const PROD = (() => {
 
 // ---------------------------------------------------------------- hand weapons
 function axe(opts) {
-  const head = tint(opts, "axe", "plastic");
+  const head = tint(opts, "axe", "iron", "plastic");
   return finish(group([
     lathe([[0, 0], [0.024, 0], [0.026, 0.016], [0.02, 0.045], [0.0172, 0.25], [0.0165, 0.5], [0.0185, 0.69], [0.016, 0.722], [0, 0.722]], WOOD, { seg: 10 }),
     cyl([0.0205, 0.0205, 0.16], LEATHER, { p: [0, 0.18, 0], seg: 10 }),
@@ -189,7 +192,7 @@ function axe(opts) {
 }
 
 function battleAxe(opts) {
-  const head = tint(opts, "battle axe", "plastic");
+  const head = tint(opts, "battle axe", "iron", "plastic");
   const parts = [
     cyl([0.016, 0.022, 0.045], IRON, { p: [0, 0.0225, 0], seg: 10 }),
     lathe([[0, 0.04], [0.019, 0.04], [0.018, 0.4], [0.0185, 0.85], [0.017, 1.0], [0, 1.0]], WOOD_DARK, { seg: 10 }),
@@ -214,7 +217,7 @@ function sword(opts) {
     sphere(0.02, BRASS, { p: [-0.12, 0.24, 0], seg: 8 }),
     sphere(0.02, BRASS, { p: [0.12, 0.24, 0], seg: 8 }),
     box([0.062, 0.026, 0.014], BRASS, { p: [0, 0.262, 0] }),
-    extrude(SWORD_BLADE, 0.007, tint(opts, "sword", "plastic"), { tint: true }),
+    extrude(SWORD_BLADE, 0.007, tint(opts, "sword", "steel", "plastic"), { tint: true }),
     box([0.009, 0.56, 0.0078], IRON, { p: [0, 0.57, 0] }),
   ]), "sword");
 }
@@ -225,7 +228,7 @@ function katana(opts) {
     cyl([0.0155, 0.017, 0.26], BLACK, { p: [0, 0.144, 0], seg: 10 }),
     cyl([0.042, 0.042, 0.008], DARK, { p: [0, 0.278, 0], seg: 12, s: [1, 1, 0.8] }),
     box([0.034, 0.024, 0.012], BRASS, { p: [0, 0.294, 0] }),
-    extrude(KATANA.blade, 0.0065, tint(opts, "katana", "plastic"), { tint: true }),
+    extrude(KATANA.blade, 0.0065, tint(opts, "katana", "steel", "plastic"), { tint: true }),
     extrude(KATANA.temper, 0.0069, STEEL_EDGE),
   ];
   // Rayskin diamonds showing through the black wrap, front and back.
@@ -240,7 +243,7 @@ function dagger(opts) {
     sphere(0.016, BRASS, { p: [0, 0.016, 0], seg: 10 }),
     cyl([0.012, 0.013, 0.095], LEATHER, { p: [0, 0.078, 0], seg: 10 }),
     box([0.09, 0.016, 0.018], BRASS, { p: [0, 0.128, 0] }),
-    extrude(DAGGER_BLADE, 0.0055, tint(opts, "dagger", "plastic"), { tint: true }),
+    extrude(DAGGER_BLADE, 0.0055, tint(opts, "dagger", "steel", "plastic"), { tint: true }),
     box([0.004, 0.13, 0.0062], IRON, { p: [0, 0.205, 0] }),
   ]), "dagger");
 }
@@ -253,13 +256,13 @@ function spear(opts) {
     cyl([0.018, 0.032, 0.09], RED, { p: [0, 1.69, 0], seg: 10 }),
     cyl([0.0195, 0.0195, 0.04], ROPE, { p: [0, 1.745, 0], seg: 10 }),
     cyl([0.011, 0.018, 0.06], IRON, { p: [0, 1.79, 0], seg: 10 }),
-    extrude(SPEAR_HEAD, 0.008, tint(opts, "spear", "plastic"), { tint: true }),
+    extrude(SPEAR_HEAD, 0.008, tint(opts, "spear", "steel", "plastic"), { tint: true }),
     cyl([0.002, 0.0065, 0.17], STEEL, { p: [0, 1.895, 0], seg: 6 }),
   ]), "spear");
 }
 
 function warHammer(opts) {
-  const head = tint(opts, "war hammer", "plastic");
+  const head = tint(opts, "war hammer", "iron", "plastic");
   return finish(group([
     lathe([[0, 0], [0.022, 0], [0.024, 0.02], [0.02, 0.05], [0.018, 0.5], [0.02, 0.85], [0.021, 0.9], [0, 0.9]], WOOD_DARK, { seg: 10 }),
     cyl([0.0215, 0.0215, 0.26], LEATHER, { p: [0, 0.25, 0], seg: 10 }),
@@ -288,7 +291,7 @@ const MACE_DIRS = (() => {
 })();
 
 function mace(opts) {
-  const head = tint(opts, "mace", "plastic");
+  const head = tint(opts, "mace", "iron", "plastic");
   const c = [0, 0.585, 0];
   const parts = [
     sphere(0.022, IRON, { p: [0, 0.022, 0], seg: 10 }),
@@ -331,7 +334,7 @@ function woodenSword(opts) {
 }
 
 function halberd(opts) {
-  const steel = tint(opts, "halberd", "plastic");
+  const steel = tint(opts, "halberd", "steel", "plastic");
   return finish(group([
     cyl([0.016, 0.02, 0.04], IRON, { p: [0, 0.02, 0], seg: 10 }),
     cyl([0.016, 0.0175, 1.68], WOOD_DARK, { p: [0, 0.88, 0], seg: 10 }),
@@ -385,7 +388,7 @@ function crossbow(opts) {
 }
 
 function shield(opts) {
-  const paint = tint(opts, "shield", "wood");
+  const paint = tint(opts, "shield", "plank");
   const cy = 0.313;
   const parts = [
     disc(0.3, 0.025, paint, { p: [0, cy, 0], seg: 28, tint: true }),
@@ -411,7 +414,7 @@ function shield(opts) {
 
 // ---------------------------------------------------------------- training gear
 function trainingDummy(opts) {
-  const straw = tint(opts, "training dummy", "fabric");
+  const straw = tint(opts, "training dummy", "straw");
   const face = 0.128;
   const parts = [
     cyl([0.24, 0.25, 0.08], WOOD_DARK, { p: [0, 0.04, 0], seg: 16 }),
@@ -467,7 +470,7 @@ function punchingBag(opts) {
     beam([0, 1.86, -0.3], [0, 2.14, -0.03], [0.05, 0.05], frame),
     rod([0, 2.13, bz], [0, 2.02, bz], 0.008, IRON),
     sphere(0.02, IRON, { p: [0, 2.0, bz], seg: 8 }),
-    lathe([[0, 0.47], [0.13, 0.474], [0.165, 0.5], [0.172, 0.55], [0.172, 1.5], [0.165, 1.55], [0.13, 1.582], [0, 1.586]], tint(opts, "punching bag", "plastic"), { p: [0, 0, bz], seg: 16, tint: true }),
+    lathe([[0, 0.47], [0.13, 0.474], [0.165, 0.5], [0.172, 0.55], [0.172, 1.5], [0.165, 1.55], [0.13, 1.582], [0, 1.586]], tint(opts, "punching bag", "leather", "plastic"), { p: [0, 0, bz], seg: 16, tint: true }),
     band(0.174, 0.6, 0.174, 0.64, BLACK, { p: [0, 0, bz] }),
     band(0.174, 1.41, 0.174, 1.45, BLACK, { p: [0, 0, bz] }),
     band(0.174, 0.99, 0.174, 1.07, LIME, { p: [0, 0, bz] }),
@@ -480,7 +483,7 @@ function punchingBag(opts) {
 }
 
 function gong(opts) {
-  const bronze = tint(opts, "gong", "plastic");
+  const bronze = tint(opts, "gong", "gold", "plastic");
   const wood = WOOD_DARK;
   return finish(group([
     rod([-0.46, 0, 0.25], [-0.43, 1.52, 0], 0.03, wood),
@@ -507,7 +510,7 @@ const KETTLEBELL = (() => {
 })();
 function kettlebell(opts) {
   return finish(group([
-    lathe(KETTLEBELL, tint(opts, "kettlebell", "plastic"), { seg: 16, tint: true }),
+    lathe(KETTLEBELL, tint(opts, "kettlebell", "iron", "plastic"), { seg: 16, tint: true }),
     torus([0.068, 0.014], IRON, { p: [0, 0.2, 0], seg: 20 }),
     disc(0.024, 0.006, LIME, { p: [0, 0.1, 0.108], seg: 14 }),
   ]), "kettlebell");
@@ -526,12 +529,12 @@ function dumbbell(opts) {
 }
 
 function cannonball(opts) {
-  return finish(group([sphere(0.08, tint(opts, "cannonball", "plastic"), { p: [0, 0.08, 0], seg: 14, tint: true })]), "cannonball");
+  return finish(group([sphere(0.08, tint(opts, "cannonball", "iron", "plastic"), { p: [0, 0.08, 0], seg: 14, tint: true })]), "cannonball");
 }
 
 // ---------------------------------------------------------------- yard props
 function crate(opts) {
-  const boards = tint(opts, "crate", "wood");
+  const boards = tint(opts, "crate", "plank");
   const frame = WOOD_DARK;
   const e = 0.415;
   const t = 0.07;
@@ -547,7 +550,7 @@ function crate(opts) {
 }
 
 function barrel(opts) {
-  const staves = tint(opts, "barrel", "wood");
+  const staves = tint(opts, "barrel", "plank");
   const hoopAt = (y0, y1, r0, r1) => band(r0 + 0.004, y0, r1 + 0.004, y1, IRON, { seg: 18 });
   return finish(group([
     lathe([[0, 0.02], [0.24, 0.02], [0.24, 0], [0.255, 0], [0.285, 0.2], [0.3, 0.45], [0.285, 0.7], [0.255, 0.9], [0.24, 0.9], [0.24, 0.88], [0, 0.88]], staves, { seg: 18, tint: true }),
@@ -677,11 +680,12 @@ function hurdle(opts) {
 function barricade(opts) {
   const stake = tint(opts, "barricade", "wood");
   const profile = [[0, -0.72], [0.026, -0.6], [0.034, -0.45], [0.034, 0.45], [0.026, 0.6], [0, 0.72]];
-  const parts = [cyl([0.075, 0.075, 1.8], WOOD_DARK, { p: [0, 0.52, 0], r: [0, 0, 90], seg: 8 })];
+  const y = 0.509; // the 45-degree stakes' lower tips (0.72 * cos 45) touch the ground (step 11: was 0.52, 11 mm afloat)
+  const parts = [cyl([0.075, 0.075, 1.8], WOOD_DARK, { p: [0, y, 0], r: [0, 0, 90], seg: 8 })];
   for (const x of [-0.72, -0.24, 0.24, 0.72]) {
-    parts.push(lathe(profile, stake, { p: [x, 0.52, 0], r: [45, 0, 0], seg: 7, tint: true }));
-    parts.push(lathe(profile, stake, { p: [x + 0.05, 0.52, 0], r: [-45, 0, 0], seg: 7, tint: true }));
-    parts.push(cyl([0.08, 0.08, 0.04], IRON, { p: [x + 0.025, 0.52, 0], r: [0, 0, 90], seg: 8 }));
+    parts.push(lathe(profile, stake, { p: [x, y, 0], r: [45, 0, 0], seg: 7, tint: true }));
+    parts.push(lathe(profile, stake, { p: [x + 0.05, y, 0], r: [-45, 0, 0], seg: 7, tint: true }));
+    parts.push(cyl([0.08, 0.08, 0.04], IRON, { p: [x + 0.025, y, 0], r: [0, 0, 90], seg: 8 }));
   }
   return finish(group(parts), "barricade");
 }

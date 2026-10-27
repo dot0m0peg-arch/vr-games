@@ -289,6 +289,12 @@ export class Net extends Emitter {
     return this._json("parts/save", { method: "POST", json: { blueprint } });
   }
 
+  // Search 80k indexed characters by spoken name without loading every blueprint into the headset.
+  async character(query) {
+    const res = await this._send(`characters/resolve?q=${encodeURIComponent(String(query).slice(0, 300))}`);
+    return res.json ? res.body : null;
+  }
+
   // ---------- shared screen / camera frames ----------
 
   async postFrame(stream, blob) {

@@ -38,7 +38,7 @@ export const builders = {
   tree(o) {
     const base = o.color || "#4f8a3a";
     const leaves = [mat(base, "leaf"), mat(shade(base, 0.82), "leaf")];
-    const bark = mat(BARK, "wood");
+    const bark = mat(BARK, "bark");
     const root = group();
     const g = group([], { r: [0, turn(o), 0] });
     g.add(lathe([[0.001, 0], [0.5, 0], [0.34, 0.2], [0.27, 0.9], [0.22, 2.9], [0.001, 2.9]], bark, { seg: 10 }));
@@ -57,7 +57,7 @@ export const builders = {
     const base = o.color || "#2f5d3a";
     const leaves = [mat(base, "leaf"), mat(shade(base, 1.18), "leaf")];
     const root = group();
-    root.add(cyl([0.12, 0.2, 1.4], mat(BARK, "wood"), { p: [0, 0.7, 0], seg: 8 }));
+    root.add(cyl([0.12, 0.2, 1.4], mat(BARK, "bark"), { p: [0, 0.7, 0], seg: 8 }));
     const tiers = [[1.4, 2.0, 1.9], [1.15, 1.9, 3.0], [0.85, 1.7, 4.1], [0.52, 1.5, 5.15]];
     tiers.forEach(([r, h, y], i) => root.add(cone([r, h], leaves[i % 2], { p: [0, y, 0], r: [0, i * 17, 0], seg: 10, tint: true })));
     return finish(root, "pine tree");
@@ -65,7 +65,7 @@ export const builders = {
 
   "palm tree"(o) {
     const frond = mat(o.color || "#5c9a3c", "leaf");
-    const trunk = [mat("#8d6e4c", "wood"), mat("#715639", "wood")];
+    const trunk = [mat("#8d6e4c", "bark"), mat("#715639", "bark")];
     const root = group();
     const pts = [[-0.48, 0.03, 0], [-0.42, 1.1, 0], [-0.31, 2.2, 0], [-0.18, 3.3, 0], [-0.09, 4.4, 0], [-0.06, 5.35, 0]];
     for (let i = 0; i < pts.length - 1; i++) {
@@ -103,7 +103,7 @@ export const builders = {
     const root = group();
     blobs(root, [
       [0, 0.3, 0, 1, 0.45, 0.31, 0.38, 20], [0.24, 0.19, 0.12, 1, 0.26, 0.19, 0.24, 60], [-0.22, 0.16, -0.1, 1, 0.24, 0.16, 0.22, 10],
-    ], [mat(base, "stone"), mat(shade(base, 0.85), "stone")], { seg: 7, tint: true });
+    ], [mat(base, "rock"), mat(shade(base, 0.85), "rock")], { seg: 7, tint: true });
     return finish(root, "rock");
   },
 
@@ -113,7 +113,7 @@ export const builders = {
     blobs(root, [
       [0, 0.85, 0, 1, 1.15, 0.86, 1.0, 15], [0.7, 0.55, 0.35, 1, 0.65, 0.55, 0.6, 50],
       [-0.75, 0.5, -0.2, 1, 0.6, 0.5, 0.62, 80], [0.2, 0.42, -0.65, 1, 0.7, 0.42, 0.45, 30],
-    ], [mat(base, "stone"), mat(shade(base, 0.86), "stone"), mat(shade(base, 1.08), "stone")], { seg: 8, tint: true });
+    ], [mat(base, "rock"), mat(shade(base, 0.86), "rock"), mat(shade(base, 1.08), "rock")], { seg: 8, tint: true });
     root.add(sphere(1, mat("#5d7d3a", "leaf"), { p: [-0.15, 1.58, 0.1], s: [0.62, 0.12, 0.5], seg: 10 }));
     root.add(sphere(1, mat("#6f8f45", "leaf"), { p: [0.55, 1.02, 0.55], s: [0.3, 0.07, 0.28], seg: 8 }));
     return finish(root, "boulder");
@@ -121,7 +121,7 @@ export const builders = {
 
   pebble(o) {
     const root = group();
-    root.add(sphere(1, mat(o.color || "#9a958b", "stone"), { p: [0, 0.035, 0], s: [0.06, 0.035, 0.05], seg: 10, tint: true }));
+    root.add(sphere(1, mat(o.color || "#9a958b", "rock"), { p: [0, 0.035, 0], s: [0.06, 0.035, 0.05], seg: 10, tint: true }));
     return finish(root, "pebble");
   },
 
@@ -142,12 +142,12 @@ export const builders = {
 
   campfire(o) {
     const root = group();
-    const stones = [mat("#7f7c76", "stone"), mat("#9a968e", "stone")];
+    const stones = [mat("#7f7c76", "rock"), mat("#9a968e", "rock")];
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
       root.add(sphere(1, stones[i % 2], { p: [Math.sin(a) * 0.48, 0.07, Math.cos(a) * 0.48], s: [0.13, 0.08, 0.11], r: [0, i * 40, 0], seg: 6 }));
     }
-    const wood = mat("#6e4a2c", "wood");
+    const wood = mat("#6e4a2c", "bark");
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * Math.PI * 2 + 0.4;
       root.add(branch([Math.sin(a) * 0.4, 0.05, Math.cos(a) * 0.4], [Math.sin(a) * 0.03, 0.34, Math.cos(a) * 0.03], 0.04, 0.055, wood));
@@ -165,6 +165,14 @@ export const builders = {
     ];
     flames.forEach((m) => root.add(m));
     const phase = ((o.seed || 0) % 100) / 10;
+    const light = new THREE.PointLight("#ff9a3c", 10, 9, 2);
+    light.position.y = .35; light.userData.fieldLight = { intensity: 10, fire: true, phase }; root.add(light);
+    // Continuous effects while in view (LOOK-BIBLE.md section 7): embers 5/s out of the flames, smoke 2/s above them. The
+    // game's frame loop feeds these to the dot3d particle emitters (js/main.js syncEmitters); p is part-local, scaled with the record.
+    root.userData.emitters = [
+      { kind: "ember", rate: 5, p: [0, 0.45, 0], radius: 0.14, normal: [0, 1, 0], range: 30 },
+      { kind: "smoke", rate: 2, p: [0, 0.75, 0], radius: 0.08, normal: [0, 1, 0], range: 30 },
+    ];
     root.userData.update = (dt, t) => {
       const u = t + phase;
       for (let i = 0; i < flames.length; i++) {
@@ -180,7 +188,7 @@ export const builders = {
     const root = group();
     root.add(cyl([1, 1, 0.03], mat("#6b5a3e", "matte"), { p: [0, 0.015, 0], s: [1.6, 1, 1.3], seg: 20 }));
     root.add(cyl([1, 1, 0.06], mat(o.color || "#3d7f99", "plastic"), { p: [0, 0.03, 0], s: [1.45, 1, 1.15], seg: 20, tint: true }));
-    const stones = [mat("#8a877f", "stone"), mat("#a29e95", "stone")];
+    const stones = [mat("#8a877f", "rock"), mat("#a29e95", "rock")];
     for (let i = 0; i < 10; i++) {
       const a = (i / 10) * Math.PI * 2 + 0.2;
       root.add(sphere(1, stones[i % 2], { p: [Math.sin(a) * 1.5, 0.05, Math.cos(a) * 1.2], s: [0.13 + (i % 3) * 0.03, 0.06, 0.1], r: [0, i * 37, 0], seg: 6 }));
@@ -198,7 +206,7 @@ export const builders = {
   },
 
   log(o) {
-    const bark = mat(o.color || "#6b4a30", "wood");
+    const bark = mat(o.color || "#6b4a30", "bark");
     const ring = mat("#c9a26b", "wood");
     const root = group();
     root.add(cyl([0.24, 0.26, 2.2], bark, { p: [0, 0.25, 0], r: [0, 0, 90], seg: 10, tint: true }));
@@ -214,7 +222,7 @@ export const builders = {
   },
 
   stump(o) {
-    const bark = mat(o.color || "#6b4a30", "wood");
+    const bark = mat(o.color || "#6b4a30", "bark");
     const root = group();
     root.add(lathe([[0.001, 0], [0.42, 0], [0.33, 0.1], [0.3, 0.3], [0.29, 0.47], [0.001, 0.47]], bark, { seg: 10, tint: true }));
     root.add(cyl([0.27, 0.27, 0.04], mat("#d1ab74", "wood"), { p: [0, 0.47, 0], seg: 12 }));
@@ -254,16 +262,16 @@ export const builders = {
   },
 
   "hay bale"(o) {
-    const hay = mat(o.color || "#d9b65a", "matte");
+    const hay = mat(o.color || "#d9b65a", "straw");
     const root = group();
     root.add(box([1.2, 0.72, 0.8], hay, { p: [0, 0.36, 0], tint: true }));
-    const flake = mat("#c29d45", "matte");
+    const flake = mat("#c29d45", "straw");
     for (const x of [-0.42, -0.14, 0.14, 0.42]) {
       root.add(box([0.02, 0.7, 0.81], flake, { p: [x, 0.36, 0] }));
     }
     const twine = mat("#7d5b2a", "fabric");
     for (const x of [-0.3, 0.3]) root.add(box([0.03, 0.735, 0.815], twine, { p: [x, 0.3675, 0] }));
-    const straw = mat("#ecd389", "matte");
+    const straw = mat("#ecd389", "straw");
     for (const [x, z, rz, rx] of [[-0.45, 0.2, 25, 0], [0.2, -0.25, -30, 10], [0.5, 0.1, 15, -20], [-0.1, 0.3, -20, 25], [0.35, -0.3, 35, 0]]) {
       root.add(box([0.015, 0.16, 0.015], straw, { p: [x, 0.74, z], r: [rx, 0, rz] }));
     }
@@ -291,7 +299,7 @@ export const builders = {
     const crystalM = mat(o.color || "#a98bff", "plastic");
     const core = mat("#7d5cff", "glow");
     const root = group();
-    root.add(sphere(1, mat("#6d6a73", "stone"), { p: [0, 0.18, 0], s: [0.55, 0.18, 0.48], seg: 8 }));
+    root.add(sphere(1, mat("#6d6a73", "rock"), { p: [0, 0.18, 0], s: [0.55, 0.18, 0.48], seg: 8 }));
     const shards = [[0, 0, 0.13, 1.1, 0, 0, true], [0.24, 0.1, 0.1, 0.7, 0, -22, false], [-0.22, 0.05, 0.1, 0.8, 12, 20, false],
       [0.05, -0.24, 0.09, 0.6, -20, 5, false], [-0.1, 0.24, 0.08, 0.5, 22, -10, false]];
     for (const [x, z, r, h, rx, rz, glow] of shards) {

@@ -37,8 +37,9 @@ function sharedTextureMaterial(canvas, fallback, extra = {}) {
 
 const HIDDEN = new THREE.MeshBasicMaterial({ visible: false });
 HIDDEN.userData.shared = true;
-// Wireframe lathe reads as a hoop net.
-const NET = new THREE.MeshStandardMaterial({ color: "#f4f4f0", wireframe: true, roughness: 0.9 });
+// Wireframe lathe reads as a hoop net (its own copy of the cloth material, so it stays textured and never casts).
+const NET = mat("#f4f4f0", "fabric").clone();
+NET.wireframe = true;
 NET.userData.shared = true;
 
 // ---------------------------------------------------------------- playing cards
@@ -384,7 +385,7 @@ const ICOSA = [[0, 1, PHI], [0, 1, -PHI], [0, -1, PHI], [0, -1, -PHI], [1, PHI, 
 
 export const builders = {
   "card table": (opts) => {
-    const felt = mat(opts.color || "#2f6b3a", "fabric");
+    const felt = mat(opts.color || "#2f6b3a", "felt");
     const wood = mat("#3a2a1d", "wood");
     const rail = mat("#151816", "plastic");
     const line = mat("#d8c27a", "matte");
@@ -409,7 +410,7 @@ export const builders = {
 
   "deck of cards": (opts) => {
     const back = backMaterial(opts.color || "#d5fb6a");
-    const stack = box([CARD_W, 0.017, CARD_D], mat("#ecebe4", "matte"), { p: [0, 0.0085, 0] });
+    const stack = box([CARD_W, 0.017, CARD_D], mat("#ecebe4", "paper"), { p: [0, 0.0085, 0] });
     const top = plane([CARD_W - 0.001, CARD_D - 0.001], back, { p: [0, 0.0173, 0], r: [-90, 0, 0] });
     const root = group([stack, top]);
     // data.cards: remaining card codes (missing = full deck). Height follows the count; empty hides the deck.
@@ -431,7 +432,7 @@ export const builders = {
     const back = backMaterial(opts.color || "#d5fb6a");
     const top = plane([CARD_W, CARD_D], back, { p: [0, 0.0017, 0], r: [-90, 0, 0] });
     const bottom = plane([CARD_W, CARD_D], back, { p: [0, 0.0003, 0], r: [90, 0, 0] });
-    const root = group([box([CARD_W, 0.001, CARD_D], mat("#f4f2ea", "matte"), { p: [0, 0.001, 0] }), top, bottom]);
+    const root = group([box([CARD_W, 0.001, CARD_D], mat("#f4f2ea", "paper"), { p: [0, 0.001, 0] }), top, bottom]);
     // data: { card: "TH", faceUp }; the hidden side always shows the other face.
     root.userData.setDeck = (data = {}) => {
       const face = faceMaterial(cardCode(data.card) || "AS");
@@ -476,8 +477,8 @@ export const builders = {
   ]), "poker chips"),
 
   "ball": (opts) => {
-    const skin = mat(opts.color || "#f2f2ee", "plastic");
-    const patch = mat("#1a1c1b", "plastic");
+    const skin = mat(opts.color || "#f2f2ee", "leather", "plastic");
+    const patch = mat("#1a1c1b", "leather", "plastic");
     const parts = [sphere(0.11, skin, { p: [0, 0.11, 0], seg: 20, tint: true })];
     for (const d of ICOSA) {
       const s = span([0, 0, 0], d);
@@ -487,8 +488,8 @@ export const builders = {
   },
 
   "basketball": (opts) => {
-    const skin = mat(opts.color || "#d4692a", "matte");
-    const seam = mat("#1a1c1b", "matte");
+    const skin = mat(opts.color || "#d4692a", "leather", "matte");
+    const seam = mat("#1a1c1b", "leather", "matte");
     return finish(group([
       sphere(0.12, skin, { p: [0, 0.12, 0], seg: 20, tint: true }),
       torus([0.1205, 0.0022], seam, { p: [0, 0.12, 0], r: [90, 0, 0], seg: 24 }),
@@ -528,7 +529,7 @@ export const builders = {
 
   "bench": (opts) => {
     const wood = mat(opts.color || "#8a5a35", "wood");
-    const iron = mat("#2a2d2b", "plastic");
+    const iron = mat("#2a2d2b", "iron", "plastic");
     // Cast iron side frame, profile in (z, y); extruded 4 cm across x.
     const side = [[0.3, 0], [0.23, 0], [0.21, 0.37], [-0.17, 0.37], [-0.22, 0], [-0.29, 0], [-0.26, 0.42], [-0.37, 0.86],
       [-0.31, 0.88], [-0.21, 0.45], [0.26, 0.42]];
@@ -659,8 +660,8 @@ export const builders = {
   },
 
   "trophy": (opts) => {
-    // Polished "plastic" reads as gold under plain lights; the metal "gold" kind needs an environment map.
-    const gold = mat(opts.color || "#d4a72c", "plastic");
+    // The field has had an environment map since the look pipeline landed, so real gold reads as gold now.
+    const gold = mat(opts.color || "#d4a72c", "gold", "plastic");
     const plinth = mat("#2a2622", "stone");
     const plaque = textPanel([0.1, 0.03], {
       width: 256, height: 77, text: opts.text || "CHAMPION", size: 28, weight: "700", color: "#2a2216", bg: "#e2c25a",

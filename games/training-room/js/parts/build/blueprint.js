@@ -19,7 +19,8 @@ const SHAPE_ALIASES = {
   capsule: "capsule", pill: "capsule",
   torus: "torus", ring: "torus", donut: "torus",
 };
-const MATS = new Set(["matte", "plastic", "wood", "stone", "fabric", "metal", "gold", "glass", "glow", "leaf"]);
+const MATS = new Set(["matte", "plastic", "wood", "stone", "fabric", "metal", "gold", "glass", "glow", "leaf",
+  "plank", "bark", "rock", "ceramic", "straw", "leather", "felt", "paper", "steel", "iron"]); // the look families of kit.js (Oct 26)
 const NAMES = THREE.Color.NAMES || {};
 const scratchColor = new THREE.Color();
 

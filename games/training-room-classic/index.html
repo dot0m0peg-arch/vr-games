@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101412">
+<title>Training Room | DOT / GAMES</title>
+<meta name="description" content="A giant grassy field where you say what you need and it phases in. Office, combat yard and think tank in WebXR, with an optional local AI on your laptop.">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/styles.css">
+<link rel="stylesheet" href="css/training-room.css">
+<script type="importmap">{"imports":{"three":"./vendor/three.module.min.js","three/addons/":"./vendor/addons/"}}</script>
+</head>
+<body class="tr tr-in-launch">
+<a class="skip" href="#main">Skip to content</a>
+<div id="tr-stage" aria-hidden="true"></div>
+<main id="main">
+  <section id="tr-launch" class="tr-launch" aria-labelledby="tr-title">
+    <div class="wrap">
+      <header class="header">
+        <a class="brand" href="../../index.html" aria-label="DOT Games home"><svg viewBox="0 0 32 36" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M16 2 29 9.5v16L16 34 3 26V10Z M3 10l13 8 13-8 M16 18v16 M10 6l13 8"/></svg><span>DOT / GAMES</span></a>
+        <nav aria-label="Main navigation"><a href="../../index.html#games">Games</a><a href="../../how-to-play.html">How to play</a><a href="https://github.com/dot0m0peg-arch/vr-games">GitHub <span aria-hidden="true">↗</span></a></nav>
+      </header>
+
+      <div class="tr-launch-grid">
+        <div class="tr-launch-copy">
+          <p class="status">EARLY ACCESS · BROWSER + VR · VOICE</p>
+          <h1 id="tr-title">Training Room</h1>
+          <p class="lead">A giant grassy field where you say what you need and it phases in. Office, combat yard, think tank.</p>
+          <ul class="tr-say" aria-label="Things to say">
+            <li>“AI, spawn a villa to my left”</li>
+            <li>“AI, spawn an axe in my hand”</li>
+            <li>“AI, spawn a deck of playing cards on a card table”</li>
+          </ul>
+          <label class="tr-check tr-launch-mode"><input type="checkbox" id="tr-kingdom"><span><strong>Kingdom mode.</strong> Three advisors walk beside you. Point and say “Builder, build a house right here”, or ask “Steward, how is the kingdom?”</span></label>
+          <p id="tr-launch-msg" class="notice tr-launch-msg" role="status" hidden></p>
+          <div class="actions tr-launch-actions">
+            <button type="button" class="button" id="tr-enter-vr" aria-describedby="tr-st-xr" disabled>Enter VR</button>
+            <button type="button" class="button" id="tr-play" disabled>Play on this screen</button>
+          </div>
+        </div>
+
+        <aside class="tr-status-card" aria-labelledby="tr-status-title">
+          <h2 id="tr-status-title" class="tr-card-title">This device</h2>
+          <p id="tr-loading" class="tr-loading" role="status">Loading the field…</p>
+          <dl class="tr-status-list">
+            <div><dt>VR</dt><dd id="tr-st-xr">Checking…</dd></div>
+            <div>
+              <dt>Laptop bridge</dt>
+              <dd id="tr-st-bridge">Checking…</dd>
+              <form id="tr-key-form" class="tr-key-form" hidden>
+                <label for="tr-key-input">Room key</label>
+                <div class="tr-key-row">
+                  <input id="tr-key-input" name="key" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Key from the laptop" required>
+                  <button type="submit" class="button">Join</button>
+                </div>
+              </form>
+            </div>
+            <div><dt>Voice</dt><dd id="tr-st-voice">Checking…</dd></div>
+          </dl>
+        </aside>
+      </div>
+
+      <div class="tr-more">
+        <details class="tr-details">
+          <summary>Controls</summary>
+          <div class="tr-controls-grid">
+            <section aria-labelledby="tr-c-vr">
+              <h3 id="tr-c-vr">VR (Quest)</h3>
+              <ul>
+                <li><kbd>A</kbd> or <kbd>X</kbd> held: talk</li>
+                <li><kbd>Y</kbd>: mic off / on</li>
+                <li><kbd>B</kbd>: menu</li>
+                <li>Left stick: move (click to sprint)</li>
+                <li>Right stick: snap turn, push forward to teleport</li>
+                <li>Squeeze: grab and hold, release to drop or throw</li>
+                <li>Trigger: point and click the menu</li>
+                <li>Marker in hand: trigger draws, then say “AI, make it real”</li>
+              </ul>
+            </section>
+            <section aria-labelledby="tr-c-desk">
+              <h3 id="tr-c-desk">Desktop</h3>
+              <ul>
+                <li>Click the field to look (<kbd>Esc</kbd> frees the mouse)</li>
+                <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows: move, <kbd>Shift</kbd>: sprint</li>
+                <li>Hold <kbd>V</kbd>: talk, <kbd>M</kbd>: mic off / on</li>
+                <li><kbd>Enter</kbd>: type a command</li>
+                <li><kbd>E</kbd>: grab / drop, left click: swing</li>
+                <li><kbd>F</kbd>: magic marker, drag to draw</li>
+                <li><kbd>Z</kbd>: undo</li>
+              </ul>
+            </section>
+            <section aria-labelledby="tr-c-phone">
+              <h3 id="tr-c-phone">Phone companion</h3>
+              <ul>
+                <li>Big button: hold to talk</li>
+                <li>Mic switch: hard mute</li>
+                <li>Command box and part chips</li>
+                <li>Drag the view to look, joystick to walk</li>
+                <li>Follow the headset player’s view</li>
+                <li>Share your camera onto a screen</li>
+                <li>Draw: sketch something and make it real</li>
+              </ul>
+            </section>
+          </div>
+        </details>
+
+        <details class="tr-details">
+          <summary>Connect your laptop and phone</summary>
+          <ol class="tr-steps">
+            <li>On the laptop, run <code>node games/training-room/bridge/server.mjs</code> from the repository folder (Windows: double-click <code>bridge/start-bridge.cmd</code>). It prints an address, a room key and a QR code.</li>
+            <li>Windows asks whether Node.js may use the network: allow Private networks, and set the laptop’s Wi-Fi network profile to Private, or the headset and phone cannot connect.</li>
+            <li>On the headset, open the printed <code>https://&lt;laptop-ip&gt;:8787/?k=KEY</code>. Accept the self-signed certificate warning; it can come back after the laptop moves to another network.</li>
+            <li>On the phone, scan the QR code in the bridge window and accept the warning too. On the laptop, open <code>http://localhost:8788/?k=KEY</code>; Menu → People shows the QR code again.</li>
+            <li>Optional local AI: install Ollama with a coding model for commands, and run a whisper.cpp server for voice. Without them the built-in parser still works.</li>
+          </ol>
+        </details>
+      </div>
+
+      <p class="tr-back"><a class="text-link" href="../../index.html#games"><span aria-hidden="true">←</span> Back to the collection</a></p>
+      <noscript><p class="notice tr-noscript">Training Room needs JavaScript and WebGL. Turn JavaScript on for this site, then reload.</p></noscript>
+    </div>
+  </section>
+
+  <section id="tr-app" class="tr-app" aria-label="Game controls" hidden></section>
+</main>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
