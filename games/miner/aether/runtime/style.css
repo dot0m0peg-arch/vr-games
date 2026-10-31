@@ -1,0 +1,97 @@
+/* Final presentation layer. Native panels retain their original actions and saves. */
+html[data-aether3d="ready"] #view,html[data-aether3d="ready"] #aetherx-layer{opacity:0;pointer-events:none}
+html[data-aether3d="ready"] #hud,html[data-aether3d="ready"] #help,html[data-aether3d="ready"] #mini,html[data-aether3d="ready"] #aetherz-hint,html[data-aether3d="ready"] #undervault-badge,html[data-aether3d="ready"] #aether-concord>.touch,html[data-aether3d="ready"] #aether-concord>.hud,html[data-aether3d="ready"] #aether-concord>.launcher,html[data-aether3d="ready"] #aether-concord>.vitals,html[data-aether3d="ready"] #aether-concord>.causal-signal{display:none!important}
+#aether-3d-view{position:fixed;inset:0;z-index:2;width:100%;height:100%;display:block;image-rendering:auto;touch-action:none;outline:none}
+#aether-3d-ui{--ink:#0d2229;--line:#c0b27b55;--gold:#ebd29b;position:fixed;inset:0;z-index:2147483620;pointer-events:none;color:#eeeede;font:13px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+#aether-3d-ui *{box-sizing:border-box}
+#aether-3d-ui button,#aether-3d-ui select{color:#e9eddf;background:#142c33f0;border:1px solid #9daf9466;border-radius:7px;padding:9px 12px;min-height:42px;font:inherit;cursor:pointer;pointer-events:auto;box-shadow:0 3px 12px #04101826;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+#aether-3d-ui button:hover{background:#304b47;border-color:#c5bf91}
+#aether-3d-ui button:focus-visible,#aether-3d-ui select:focus-visible{outline:2px solid #f5da95;outline-offset:3px}
+#aether-3d-ui button:active{background:#456455}
+#aether-3d-ui kbd{font:10px/1.2 system-ui,sans-serif;border:1px solid #a2b5a84d;padding:2px 4px;border-radius:3px;color:#b9cbbb;margin-left:8px;white-space:nowrap}
+#aether-3d-ui .brand{position:absolute;left:max(20px,env(safe-area-inset-left));top:max(18px,env(safe-area-inset-top));width:280px;padding:14px 16px;background:linear-gradient(125deg,#0b222cf0,#173332df);border:1px solid var(--line);border-radius:10px;box-shadow:0 9px 32px #0003;backdrop-filter:blur(10px)}
+#aether-3d-ui .brandline{display:flex;align-items:center;gap:12px}
+#aether-3d-ui h1{font:23px/1 Georgia,serif;letter-spacing:4px;color:var(--gold);margin:0}
+#aether-3d-ui .chapter{max-width:95px;font-size:8px;letter-spacing:1.7px;color:#a9bdaf;line-height:1.6;border-left:1px solid #afbd8d55;padding-left:12px}
+#aether-3d-ui .realm{font-size:11px;letter-spacing:.3px;color:#c3d1bd;margin-top:8px}
+#aether-3d-ui .stats{margin-top:10px;color:#d4e0cc;font-size:11px}
+#aether-3d-ui .meter{position:relative;margin:7px 0 9px;padding-bottom:8px}
+#aether-3d-ui .meter span{display:flex;justify-content:space-between;color:#c6d6c9;font-size:11px}
+#aether-3d-ui .meter b{font-weight:600;color:#f1ecd9;font-variant-numeric:tabular-nums}
+#aether-3d-ui .meter i{position:absolute;height:4px;border-radius:3px;bottom:0;left:0;right:0;background:linear-gradient(to right,#93af81 var(--fill),#38504e var(--fill))}
+#aether-3d-ui .meter.magic i{background:linear-gradient(to right,#94a7d0 var(--fill),#364351 var(--fill))}
+#aether-3d-ui .supplies{display:flex;gap:12px;justify-content:space-between;font-size:11px;color:#b2c5b6}
+#aether-3d-ui .supplies b{color:#e7dba9;font-weight:500}
+#aether-3d-ui .resources{font-size:10px;color:#acbeb2;margin-top:7px;overflow-wrap:anywhere}
+#aether-3d-ui .resources span{color:#758f80;margin:0 4px}
+#aether-3d-ui .effects{font-size:10px;color:#e3bc91;margin-top:6px}
+#aether-3d-ui .toolbar{position:absolute;top:max(18px,env(safe-area-inset-top));right:max(20px,env(safe-area-inset-right));display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:55vw;pointer-events:auto}
+#aether-3d-ui .actions{position:absolute;bottom:max(20px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);display:flex;gap:5px;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 360px);padding:7px;border-radius:10px;border:1px solid var(--line);background:#0c252ce0;backdrop-filter:blur(10px)}
+#aether-3d-ui .actions button{padding:8px 10px;white-space:nowrap}
+#aether-3d-ui .actions .equipment{width:38px;padding:8px;min-height:38px}
+#aether-3d-ui button[aria-pressed="true"]{background:#c9b372;color:#172a29;border-color:#f3d78a}
+#aether-3d-ui .target{position:absolute;left:50%;bottom:110px;transform:translateX(-50%);max-width:450px;text-align:center;color:#eee8d1;font-size:12px;text-shadow:0 1px 4px #000;padding:7px 12px;background:#0c242abb;border:1px solid #c0b27b33;border-radius:6px;backdrop-filter:blur(5px)}
+#aether-3d-ui .target:empty,#aether-3d-ui .realm-log:empty{display:none}
+#aether-3d-ui .target kbd{margin:0 8px 0 0;color:#f2daa6}
+#aether-3d-ui .target small{display:block;color:#c6d1c4;font-size:10px;margin-top:3px}
+#aether-3d-ui .touchpad{position:absolute;bottom:max(22px,env(safe-area-inset-bottom));left:max(20px,env(safe-area-inset-left));display:grid;grid-template-columns:44px 44px 44px;gap:3px}
+#aether-3d-ui .touchpad button{height:44px;padding:0;font-size:20px;touch-action:none;background:#152d34df}
+#aether-3d-ui .help{position:absolute;left:22px;bottom:134px;color:#cfdbca;font-size:10px;max-width:250px;text-shadow:0 1px 5px #000;line-height:1.8}
+#aether-3d-ui .realm-log{position:absolute;right:20px;bottom:155px;width:300px;font-size:12px;padding:10px 12px;line-height:1.6;background:#102730c9;border-left:2px solid #b3ac7a77;border-radius:5px;max-height:140px;overflow:hidden}
+#aether-3d-ui .realm-log div+div{margin-top:5px}#aether-3d-ui .realm-log div:not(:last-child){opacity:.66}
+#aether-3d-ui .drawer{position:absolute;right:20px;top:72px;width:min(390px,calc(100vw - 24px));padding:24px;border-radius:12px;background:linear-gradient(135deg,#102b32fa,#102520fa);border:1px solid #a7b28a8c;pointer-events:auto;max-height:calc(100dvh - 96px);overflow:auto;overscroll-behavior:contain;box-shadow:0 14px 60px #0009;backdrop-filter:blur(18px)}
+#aether-3d-ui .drawer h2{margin:4px 28px 12px 0;font:25px Georgia,serif;color:var(--gold)}
+#aether-3d-ui .drawer p{font-size:12px;line-height:1.7;margin:10px 0 16px;color:#bdcdbf}
+#aether-3d-ui .drawer .row{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
+#aether-3d-ui .drawer-close{position:absolute;top:12px;right:12px;min-height:32px;width:32px;padding:0;font-size:24px;background:transparent;border:0;box-shadow:none}
+#aether-3d-ui .eyebrow{font-size:9px;letter-spacing:1.9px;text-transform:uppercase;color:#a8bdac}
+#aether-3d-ui .muted{color:#afc0b2}
+#aether-3d-ui .travel-grid{display:grid;gap:7px}
+#aether-3d-ui .travel-grid button{text-align:left;padding:12px 14px}
+#aether-3d-ui .travel-grid strong{display:block;font:17px Georgia,serif;color:#e8d5a8}
+#aether-3d-ui .travel-grid small{display:block;font-size:11px;color:#b7c8bb;margin-top:4px}
+#aether-3d-ui .setting-row{display:flex;align-items:center;justify-content:space-between;font-size:13px}
+#aether-3d-ui .controls-guide{margin:18px 0;font-size:12px;line-height:1.6}
+#aether-3d-ui .controls-guide dt{color:#e2d3a7;margin-top:9px}
+#aether-3d-ui .controls-guide dd{color:#b6c7b9;margin:1px 0 0}
+#aether-3d-ui [hidden]{display:none!important}
+#aether-3d-ui .photo-note{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);background:#0d242eea;border:1px solid #a8aa8270;border-radius:8px;padding:8px 12px;pointer-events:auto;white-space:nowrap}
+html[data-aether3d="ready"] #log{z-index:2147483050;right:20px;bottom:160px;width:280px;font:12px/1.5 system-ui,sans-serif;max-height:120px;overflow:hidden;background:#102730bd;pointer-events:none;border:0;border-left:2px solid #b3ac7a77;border-radius:5px;padding:10px 12px}
+html[data-aether-realm="undervault"] #log,html[data-aether-realm="highreach"] #log{display:none}
+/* Consequence receipts are readable above play controls, never on top of them. */
+html[data-aether3d="ready"] #aether-concord>.toast{top:78px;bottom:auto;left:50%;transform:translateX(-50%);width:min(440px,calc(100vw - 40px));padding:10px 16px;font:12px/1.5 system-ui,sans-serif;background:#e6d7afee;border:1px solid #f4e4be;border-radius:8px;z-index:3}
+html[data-aether-panel="true"][data-aether3d="ready"] #aether-concord>.toast{top:auto;bottom:14px;max-width:600px}
+/* Improve original full-screen menus without moving their source event listeners. */
+html[data-aether3d="ready"] #aether-concord .dialog{background:linear-gradient(125deg,#102b30,#14291f);border-color:#a19e6c80}
+html[data-aether3d="ready"] #aether-concord header{padding:22px 28px 16px}
+html[data-aether3d="ready"] #aether-concord nav{overflow-x:auto;flex-shrink:0;scrollbar-width:thin}
+html[data-aether3d="ready"] #aether-concord nav button{white-space:nowrap}
+html[data-aether3d="ready"] #aether-concord .card{background:#20382eaa;border-color:#8c9d6955}
+html[data-aether3d="ready"] #aether-concord button{transition:background .14s,border-color .14s}
+html[data-aether3d="ready"] #aether-concord .causal-option{background:#1d3329}
+#aether-3d-ui.source-panel>.brand,#aether-3d-ui.source-panel>.toolbar,#aether-3d-ui.source-panel>.actions,#aether-3d-ui.source-panel>.touchpad,#aether-3d-ui.source-panel>.help,#aether-3d-ui.source-panel>.target,#aether-3d-ui.source-panel>.realm-log{visibility:hidden}
+html[data-aether3d-photo="true"] #aether-3d-ui> :not(.photo-note),html[data-aether3d-photo="true"] #log,html[data-aether3d-photo="true"] #aether-highreach-host,html[data-aether3d-photo="true"] #undervault-canvas,html[data-aether3d-photo="true"] #aether-concord>.toast{visibility:hidden}
+@media(max-width:1000px){#aether-3d-ui .actions{max-width:calc(100vw - 200px);left:auto;right:16px;transform:none}#aether-3d-ui .actions kbd{display:none}#aether-3d-ui .target{left:auto;right:20px;transform:none;bottom:132px;max-width:45vw}#aether-3d-ui .realm-log,html[data-aether3d="ready"] #log{bottom:205px;width:240px}}
+@media(max-width:700px){
+ #aether-3d-ui{font-size:12px}
+ #aether-3d-ui .brand{left:10px;top:max(10px,env(safe-area-inset-top));width:210px;padding:10px 12px}
+ #aether-3d-ui h1{font-size:19px;letter-spacing:3px}#aether-3d-ui .chapter{display:none}#aether-3d-ui .realm{font-size:10px;margin-top:5px}#aether-3d-ui .stats{margin-top:6px}
+ #aether-3d-ui .meter{margin:5px 0 7px}#aether-3d-ui .meter span,#aether-3d-ui .supplies{font-size:10px}#aether-3d-ui .supplies{gap:6px}#aether-3d-ui .resources{font-size:9px;margin-top:5px}
+ #aether-3d-ui .toolbar{top:max(10px,env(safe-area-inset-top));right:10px;max-width:calc(100vw - 230px);gap:5px}
+ #aether-3d-ui .toolbar button{padding:7px 8px;min-height:40px;flex:1}#aether-3d-ui .toolbar kbd{display:none}
+ #aether-3d-ui .actions{bottom:max(12px,env(safe-area-inset-bottom));left:auto;right:9px;max-width:calc(100vw - 150px);padding:5px;gap:4px}
+ #aether-3d-ui .actions button{padding:7px 9px;min-height:42px;flex:1}#aether-3d-ui .actions .equipment{min-width:32px;width:32px;min-height:32px;padding:3px;flex:0}
+ #aether-3d-ui .touchpad{left:10px;bottom:max(16px,env(safe-area-inset-bottom));grid-template-columns:40px 40px 40px;gap:3px}#aether-3d-ui .touchpad button{height:44px}
+ #aether-3d-ui .help{display:none}
+ #aether-3d-ui .target{left:10px;right:10px;bottom:205px;max-width:none;padding:7px 10px;font-size:11px}
+ #aether-3d-ui .realm-log,html[data-aether3d="ready"] #log{right:10px;bottom:252px;width:210px;max-height:90px;font-size:10px;padding:8px 10px}
+ #aether-3d-ui .drawer{top:10px;right:10px;width:calc(100vw - 20px);max-height:calc(100dvh - 20px);padding:22px;z-index:2}
+ #aether-3d-ui .photo-note{width:calc(100vw - 24px);white-space:normal;text-align:center;font-size:11px}#aether-3d-ui .photo-note button{margin:6px 0 0}
+ html[data-aether3d="ready"] #aether-concord>.toast{top:174px;width:calc(100vw - 24px);font-size:11px;padding:9px 12px}
+ html[data-aether3d="ready"] #aether-concord header{padding:16px}html[data-aether3d="ready"] #aether-concord nav{justify-content:flex-start}html[data-aether3d="ready"] #aether-concord nav button{padding:7px 10px;font-size:12px}
+}
+@media(max-width:370px){#aether-3d-ui .brand{width:190px}#aether-3d-ui .toolbar{max-width:calc(100vw - 210px)}#aether-3d-ui .toolbar button{font-size:10px;padding:7px 5px}}
+@media(max-height:560px) and (min-width:701px){#aether-3d-ui .brand{padding:9px 12px;width:245px}#aether-3d-ui .realm-log,html[data-aether3d="ready"] #log{display:none}#aether-3d-ui .help{display:none}#aether-3d-ui .target{bottom:115px}}
+@media(prefers-reduced-motion:reduce){#aether-3d-ui *,html[data-aether3d="ready"] #aether-concord *{transition:none!important;scroll-behavior:auto}}
+
+@media(min-width:701px) and (max-width:1000px){html[data-aether3d="ready"] #aether-concord>.toast{top:210px}}

@@ -1,0 +1,89 @@
+{
+ "signed": "Claude (Command)",
+ "step": "M64-one-game (M57 aether trip + M63 Concord door + M64 road curtain)",
+ "source": "C:\\Users\\dot0m\\Desktop\\AETHER",
+ "dot3d": "C:\\Users\\dot0m\\Documents\\Miner\\src\\miner.html (embedded dot3d baker)",
+ "inputs": {
+  "adapter/game-adapter.js": "17b4e06fc4f95da4b6bb45f30236465b1ba20b037376cf7fc2143f91da48a016",
+  "adapter/visual-config.js": "20097c6aadca95ffaf007e2606e8c75953ee8c47c78ac765726a30369e386362",
+  "renderer/characters/animation.js": "e925d4461948e4018e6c52a4bba6188eaddb7ed5389966c47b73af580e560366",
+  "renderer/characters/catalogue.js": "327f8cecc85efefd05845707d6c50b08f0f148a2608217fa049564e82eb1596f",
+  "renderer/characters/equipment.js": "5f3d36e446de380467ff2356d420a4430a8ad7f18616f434fc8e085c7c7b0f51",
+  "renderer/characters/index.js": "ef62ba14dfade79610b5dd7d4ef0b3591af5c34d7524595c6838701e68aa5214",
+  "renderer/characters/rig.js": "b53be6303891c64b9a2af983a81619dbaab33c5132edbbee2e6d1813ed8878d7",
+  "renderer/characters/workshop.js": "cada47a91ca083529d61e8e6db2325012da2135f8b8478458552795c039800d1",
+  "renderer/creatures/anatomy.js": "2afddf85cede162a065655bab667ae8776b29d1a42748fa920b08da9ab1e2e6b",
+  "renderer/creatures/catalogue.js": "ecc3065652d5a22afac052531c3d4600fef2ac068f5990acc26a6dc0326417f8",
+  "renderer/creatures/index.js": "9d2c5d2a56f1bcd01220aee89556a0186c484db173188fd4583d0f29f9bfb9dd",
+  "renderer/creatures/model-kit.js": "4dd657757a9ea664f6416a7d7cee128e982c839f2b21ed4c89aa0e3cf6f95b62",
+  "renderer/highreach/clouds.js": "d21afbb7f3916fe403481a126c631a40e623c35447116b2342dc387d4ced3423",
+  "renderer/highreach/config.js": "76233513b2dfb6e973cd2abf98a3288f35304ac6956611c9739802b3d005f5a1",
+  "renderer/highreach/geometry.js": "c3f912f349b34abd6ba0d361f48de95e2e6c79e4e01bb6f4cdd3037dd4c99cdd",
+  "renderer/highreach/index.js": "5557cde0184236d3826351c89dd995c28bfc63a9272ab720fe41384893b5d26b",
+  "renderer/highreach/islands.js": "6a84abd847056c33d1ae6f5f30a4dbf65b6f84d9736658afb5abcd8a2df9c008",
+  "renderer/highreach/moth.js": "793c4a1a3fd1c43f85e90c95ce373d6ee87cd4817d00fda74807454779034f82",
+  "renderer/surface/atmosphere.js": "be9ba515f628e05d835825becf7e6b918bc58669239b1f9635271afb6523b045",
+  "renderer/surface/config.js": "58346647450df5966dc079575eaf1d98c284202797a4e2debc47888ffe8c9314",
+  "renderer/surface/index.js": "86912c8a0073faa668d750bc11342dd31082f64733e9043208a3e3d206a055ad",
+  "renderer/surface/kit.js": "1c2949ad00c7fd4e581b1cdc32ee6a993a7dc934ff0bd89f11001ffbc7be8b53",
+  "renderer/surface/paths.js": "375e639a790cb430f9b8198829bb9c9d468e2ff1106f0d14a4528cdb5fdd8793",
+  "renderer/surface/terrain.js": "39f60acf2b74b84ce11169e0f4dbd573582ca79a89c53764e236ca651b15fda5",
+  "renderer/undervault/config.js": "05dd363254c4d0cfc6945517bf2affd441e37b8d52a42b60905cfe90eb6ba9e9",
+  "renderer/undervault/index.js": "f27360037b18de5b0e284c42f3b7b2abdb49c884cf134b39aab1a550aba9a3de",
+  "renderer/undervault/kit.js": "fe3db7ce7204fa5650f03590a60983ce4e8e8366900ab5c682f5fb93adbd556e",
+  "runtime/camera.js": "20761243756cf9432ed1b82765be6765541c1fe5253dc1176643ac8f33aa33de",
+  "runtime/inhabitants.js": "a23007daa62a91066bba279efe4ecc91cd58c2254ede9ab8555f21b29b4b62b8",
+  "runtime/main.js": "51ef44fce7d4831128ae0f38afc7ef010fa30096b936a72efa530941b2f37748",
+  "vendor/three/three.module.js": "c8211c69345d2e9949dc7a8ac969380497aa0600a5a8ac6a459c8cd02dd9cb8a",
+  "vendor/three/three.core.js": "eb077d2417f61d3e6d9264c317cabc4ea35769ed6b0ab533067292a550784c20",
+  "dot3d/materials.js": "236d17312dcc9297dcfda1e0a482f159a21515fa4d58e91c2c65e675143a1b7d",
+  "runtime/miner-look.js": "de5c27357482942306022de67b2d79e5f3e2a032a7de435009a5083a2d365349",
+  "runtime/miner-trip.js": "1fa55bd82f44a9ae5fc82b9fa160229b1fa70be14f1b62a63494cdb9c48e9cd3"
+ },
+ "delivery_html_sha256": "5bbaafff5b448b99507482c43f8fa21939740f41a244bb5b6902614b0bce8d82",
+ "patches": [
+  {
+   "file": "runtime/main.js",
+   "old": "import {createSurfaceInhabitants} from './inhabitants.js';",
+   "new": "import {createSurfaceInhabitants} from './inhabitants.js';\r\nimport {createMinerLook} from './miner-look.js';import {installTrip} from './miner-trip.js';   // M57 Miner's AETHER. Claude (Command)"
+  },
+  {
+   "file": "runtime/main.js",
+   "old": "  document.body.appendChild(ui);\r\n",
+   "new": "  document.body.appendChild(ui);\r\n  const minerTrip=installTrip({adapter,ui}),minerLook=createMinerLook({THREE,renderer,scene,camera,sun,sky,surface});state.miner={trip:minerTrip?.trip||null,look:minerLook.state};   // M57\r\n"
+  },
+  {
+   "file": "runtime/main.js",
+   "old": "      renderer.render(scene,camera);state.frameCount++;",
+   "new": "      minerLook.frame(frame);   // M57: Miner's sky and light on the surface\r\n      renderer.render(scene,camera);state.frameCount++;"
+  },
+  {
+   "file": "runtime/main.js",
+   "old": "let quality=saved.quality||'medium',",
+   "new": "let quality=saved.quality||(matchMedia('(pointer: coarse)').matches?'low':'medium')/* M57: touch tablets start on Light, as Miner's own tiers do */,"
+  },
+  {
+   "file": "runtime/main.js",
+   "old": "state.miner={trip:minerTrip?.trip||null,look:minerLook.state};",
+   "new": "state.miner={trip:minerTrip?.trip||null,look:minerLook.state,quality:()=>quality,setQuality:v=>setQuality(v)};"
+  },
+  {
+   "file": "renderer/characters/catalogue.js",
+   "old": "  if(!spec&&source.kind==='player'){identity='player';",
+   "new": "  // M57: on the miner's trip the player is the miner: miner kit with its lamp hat, his shirt and skin. Claude (Command)\n  const minerLook=source.kind==='player'&&globalThis.MINER_TRIP?.look;\n  if(!spec&&minerLook){identity='player';spec={height:1.8,build:1,face:'traveler',kit:'miner',cloth:minerLook.shirt||'#e0664a',skin:minerLook.skin||'#f6d0ac',tool:null};}\n  if(!spec&&source.kind==='player'){identity='player';"
+  },
+  {
+   "file": "AETHER.html",
+   "old": "</head>",
+   "new": "<style id=\"miner-road\">@font-face{font-family:MinerFredoka;src:url('../fredoka-latin.woff2') format('woff2');font-weight:300 700}\nhtml[data-miner-trip=\"out\"]::after,html[data-miner-trip=\"out\"]::before{position:fixed;left:0;right:0;z-index:2147483647;text-align:center;font-family:MinerFredoka,Fredoka,\"Arial Rounded MT Bold\",\"Segoe UI\",system-ui,sans-serif;opacity:1;transition:opacity .45s;pointer-events:none}\nhtml[data-miner-trip=\"out\"]::before{content:\"Road to AETHER\";top:calc(50% - 30px);font-size:34px;font-weight:700;color:#3d2f29;text-shadow:0 2px 0 rgba(255,255,255,.6)}\nhtml[data-miner-trip=\"out\"]::after{content:\"Your town is saved\";top:0;bottom:0;padding-top:calc(50vh + 18px);font-size:17px;font-weight:600;color:#8c7b70;background:linear-gradient(180deg,#5aaee8 0%,#a9dcf7 62%,#e9f6d8 100%);z-index:2147483646;pointer-events:auto}\nhtml[data-miner-leaving]::before{content:\"Back to the mining town\"}html[data-miner-leaving]::after{content:\"Your bag comes home with you\"}\nhtml[data-miner-arrived]:not([data-miner-leaving])::after,html[data-miner-arrived]:not([data-miner-leaving])::before{opacity:0;pointer-events:none}</style>\n<script>/* M64 one game. Claude (Command) */try{const t=JSON.parse(localStorage.getItem(\"miner3.trip\"));if(t&&t.v===1&&t.state===\"out\"){document.documentElement.dataset.minerTrip=\"out\";document.title=\"Miner\";}}catch(e){}</script>\n</head>"
+  },
+  {
+   "file": "AETHER.html",
+   "old": "construct,service,claim,validateImport,exportBackup,importBackup});",
+   "new": "construct,service,claim,validateImport,exportBackup,importBackup,\n      minerTrade:f=>transaction(()=>f({p,home:progress.home,message,journal}))/* M63 Miner's trade road. Claude (Command) */});"
+  }
+ ],
+ "modules": 35,
+ "out_html_sha256": "fab0748eb26a46a4a83eced67ca1aa8da4d86100b40dbc4d68dfb9756e6bfb1b",
+ "out_style_sha256": "d5287b7895b3889db2754fdf4b78e3d5eec55b0b6e2ffebcaf0fdcc687206e08"
+}
