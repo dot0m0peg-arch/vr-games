@@ -27,8 +27,10 @@ def check():
     for path in ROOT.rglob('*.html'):
         if any(part in {'.git','node_modules'} for part in path.relative_to(ROOT).parts): continue
         doc=Document(); doc.feed(path.read_text(encoding='utf-8')); docs[path.resolve()]=doc
-        assert doc.lang and doc.title and doc.h1==1, f'Invalid document metadata: {path}'
-        assert 'main' in doc.ids, f'Missing main target: {path}'
+        # Portal pages and each game's entry page carry the metadata; a game's inner pages are checked for links only.
+        if path.parent==ROOT or path.name=='index.html':
+            assert doc.lang and doc.title and doc.h1==1, f'Invalid document metadata: {path}'
+            assert 'main' in doc.ids, f'Missing main target: {path}'
     checked=0
     for path,doc in docs.items():
         for link in doc.links:

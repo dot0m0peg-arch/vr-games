@@ -322,7 +322,7 @@ input[type=range] { width: 160px; accent-color: var(--orange); pointer-events: a
 #nogl { position: absolute; inset: 0; display: grid; place-items: center; background: #5aaee8; pointer-events: auto; }
 @media (max-width: 600px), (max-height: 500px) { .bbar { width: 54px; } .padl b { font-size: 12px; } .padl em { font-size: 13px; } }
 @media (prefers-reduced-motion: reduce) { .bag.full, .padl.sell.can > div { animation: none !important; } }
-#nogl h1 { margin: 0; font-size: 72px; line-height: .9; color: #fff; text-shadow: 0 6px 0 var(--orange-d); }
+#nogl h2 { margin: 0; font-size: 72px; line-height: .9; color: #fff; text-shadow: 0 6px 0 var(--orange-d); }
 #nogl p { margin: 0; font-size: 18px; background: rgba(255, 250, 241, .92); border-radius: 16px; padding: 12px 16px; max-width: 34ch; }
 .padl.go > div { background: var(--orange); box-shadow: 0 4px 0 var(--orange-d), var(--shadow); animation: hop 1.1s ease-in-out infinite; }
 .padl.go b, .padl.go em { color: #fff; }
@@ -395,6 +395,7 @@ input[type=range] { width: 160px; accent-color: var(--orange); pointer-events: a
 </style>
 </head>
 <body>
+<div id="main" style="display:contents"><a href="../../index.html#games" style="position:fixed;right:12px;top:calc(env(safe-area-inset-top,0px) + 10px);z-index:7;padding:6px 12px;border-radius:999px;background:rgba(16,20,18,.72);color:#fff;font:600 13px/1 system-ui,sans-serif;text-decoration:none">&larr; All games</a>
 <canvas id="c3" aria-label="Miner game world"></canvas>
 <div id="ui">
   <div id="world"></div>
@@ -439,7 +440,7 @@ input[type=range] { width: 160px; accent-color: var(--orange); pointer-events: a
   <div id="vignette"></div>
   <div id="pzWrap" hidden><div id="pz" role="dialog" aria-modal="true" aria-label="Puzzle"></div></div>
   <div id="fade"></div>
-  <div id="nogl" hidden><div class="tbox"><h1>Miner</h1><p>This device could not start 3D graphics. Try updating your browser or Android System WebView, then open Miner again.</p></div></div>
+  <div id="nogl" hidden><div class="tbox"><h2>Miner</h2><p>This device could not start 3D graphics. Try updating your browser or Android System WebView, then open Miner again.</p></div></div>
   <div id="title">
     <div class="tbox">
       <h1>Miner</h1>
@@ -9798,5 +9799,6 @@ boot();
 })();
 </script>
 <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});</script>
+</div>
 </body>
 </html>
