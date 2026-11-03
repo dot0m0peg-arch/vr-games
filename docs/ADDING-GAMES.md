@@ -2,7 +2,7 @@
 
 ## Update an existing game
 
-Miner (`games/miner/`) and The Neighborhood (`games/neighborhood/`) are imported builds of the owner's projects. To update one, build it in its project and copy the new build over its folder here. Do not hand-edit the Neighborhood export (see its README). Preserve the owner's art and behavior. Do not replace a game with an invented one. Training Room (`games/training-room/`) is the exception: its source lives here, so edit it in place and run its tests.
+Miner (`games/miner/`), The Neighborhood (`games/neighborhood/`) and Last Car Upright (`games/last-car-upright/`) are imported builds of the owner's projects. To update one, build it in its project and copy the new build over its folder here (Last Car Upright's own `npm run build:site -- --site <this checkout>` does the copy). Do not hand-edit the Neighborhood export (see its README). Preserve the owner's art and behavior. Do not replace a game with an invented one. Training Room (`games/training-room/`) is the exception: its source lives here, so edit it in place and run its tests.
 
 After a headset pass, update the game's status line in root `index.html` to what was tested. Only claim controls, supported devices and features that were tested. Keep a route back to the collection in the game or its surrounding launch page.
 

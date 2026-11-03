@@ -3,12 +3,13 @@
 A public, independent home for browser VR games. This repository is separate from Sophia's app and has no connection to its code or deployment.
 
 - **Site:** https://dot0m0peg-arch.github.io/vr-games/
+- **Last Car Upright:** https://dot0m0peg-arch.github.io/vr-games/games/last-car-upright/
 - **Miner:** https://dot0m0peg-arch.github.io/vr-games/games/miner/
 - **The Neighborhood:** https://dot0m0peg-arch.github.io/vr-games/games/neighborhood/
 - **Training Room:** https://dot0m0peg-arch.github.io/vr-games/games/training-room/
 - **Repository:** https://github.com/dot0m0peg-arch/vr-games
 
-The shell is live with three early-access games: **Miner**, **The Neighborhood** and **Training Room**. All play in a desktop browser; VR mode is not yet verified on a headset for any of them. The geometric decorations on the portal belong to the portal, not the games. The portal has no trackers, external runtime dependencies, accounts, or backend services; Training Room's optional laptop bridge runs on the owner's own laptop (see Hosting boundary).
+The shell is live with four early-access games: **Last Car Upright**, **Miner**, **The Neighborhood** and **Training Room**. All play in a desktop browser; Last Car Upright has no VR mode, and VR mode is not yet verified on a headset for the other three. The geometric decorations on the portal belong to the portal, not the games. The portal has no trackers, external runtime dependencies, accounts, or backend services; Training Room's optional laptop bridge runs on the owner's own laptop (see Hosting boundary).
 
 ## Layout
 
@@ -17,6 +18,7 @@ index.html                 Games landing page; add new listings here
 how-to-play.html           Player instructions and VR capability check
 assets/                    Shared styles, favicon, VR check
  games/
+  last-car-upright/        Last Car Upright: Vite build of the owner's last-car-upright project (see its README.md)
   miner/                   Miner: single-file Three.js game, font, icons, manifest, service worker
   neighborhood/            The Neighborhood: built output of the owner's Neighborhood project (see its README.md)
   training-room/           Training Room: voice-summoning sandbox; optional laptop bridge in bridge/ (see its README.md)
